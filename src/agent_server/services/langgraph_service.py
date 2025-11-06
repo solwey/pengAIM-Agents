@@ -6,12 +6,19 @@ import os
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid5
+from contextlib import AsyncExitStack
 
 import structlog
 from langgraph.graph import StateGraph
 
 from ..constants import ASSISTANT_NAMESPACE_UUID
 from ..observability.base import get_tracing_callbacks, get_tracing_metadata
+
+from graphs.shared.mcp import (
+    McpConfigMixin,
+    build_mcp_client,
+    load_tools_with_sessions,
+)
 
 State = TypeVar("State")
 logger = structlog.get_logger(__name__)
@@ -139,7 +146,7 @@ class LangGraphService:
             await session.close()
 
     async def get_graph(
-        self, graph_id: str, force_reload: bool = False
+            self, graph_id: str, force_reload: bool = False
     ) -> StateGraph[Any]:
         """Get a compiled graph by ID with caching and LangGraph integration"""
         if graph_id not in self._graph_registry:
@@ -334,11 +341,11 @@ def create_thread_config(thread_id: str, user, additional_config: dict = None) -
 
 
 def create_run_config(
-    run_id: str,
-    thread_id: str,
-    user,
-    additional_config: dict = None,
-    checkpoint: dict | None = None,
+        run_id: str,
+        thread_id: str,
+        user,
+        additional_config: dict = None,
+        checkpoint: dict | None = None,
 ) -> dict:
     """Create LangGraph configuration for a specific run with full context.
 
@@ -382,3 +389,40 @@ def create_run_config(
 
     # Finally inject user context via existing helper
     return inject_user_context(user, cfg)
+
+async def inject_mcp_tools(
+        graph: Any,
+        run_config: dict[str, Any],
+        stack: "AsyncExitStack",
+) -> dict:
+    """Pre-load MCP tools with persistent sessions if the graph supports them.
+    """
+
+    config_schema = graph.config_schema()
+    configurable_fields = getattr(config_schema, "model_fields", {})
+    configurable_field = configurable_fields.get("configurable")
+    config_cls = (
+        configurable_field.annotation if configurable_field else None
+    )
+
+    if config_cls is None or not issubclass(config_cls, McpConfigMixin):
+        return run_config
+
+    graph_ctx = config_cls(**run_config.get("configurable", {}))
+    if not graph_ctx.mcp_servers:
+        return run_config
+
+    auth_user = run_config.get("configurable", {}).get(
+        "langgraph_auth_user", {}
+    )
+    permissions = auth_user.get("permissions", [])
+    authorization = (
+        permissions[0].replace("authz:", "") if permissions else None
+    )
+
+    client = build_mcp_client(graph_ctx.mcp_servers, authorization)
+    server_names = [s.name for s in graph_ctx.mcp_servers]
+    mcp_tools = await load_tools_with_sessions(client, server_names, stack)
+    run_config["configurable"]["mcp_tools"] = mcp_tools
+
+    return run_config

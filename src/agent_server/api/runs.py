@@ -32,11 +32,12 @@ from ..models.control_plane import (
     RunHistoryPage,
     RunStatusTransition,
 )
-from ..services.langgraph_service import create_run_config, get_langgraph_service
+from ..services.langgraph_service import create_run_config, get_langgraph_service, inject_mcp_tools
 from ..services.streaming_service import streaming_service
 from ..utils.assistants import resolve_assistant_id
 from ..utils.config_merge import merge_runtime_config
 from ..utils.run_utils import _should_skip_event
+
 
 router = APIRouter()
 
@@ -1047,6 +1048,13 @@ async def execute_run_async(
         )
         await session.commit()
 
+        # Pre-load MCP tools with persistent sessions for this run.
+        mcp_stack = contextlib.AsyncExitStack()
+        try:
+            run_config = await inject_mcp_tools(graph, run_config, mcp_stack)
+        except Exception as e:
+            logger.warning("Failed to pre-load MCP tools for run %s: %s", run_id, e)
+
         # Determine input for execution (either input_data or command)
         if command is not None:
             # When command is provided, it replaces input entirely (LangGraph API behavior)
@@ -1080,7 +1088,7 @@ async def execute_run_async(
 
         only_interrupt_updates = False
 
-        async with with_auth_ctx(user, []):
+        async with mcp_stack, with_auth_ctx(user, []):
             async for raw_event in graph.astream(
                 execution_input,
                 config=run_config,

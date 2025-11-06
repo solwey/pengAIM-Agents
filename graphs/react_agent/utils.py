@@ -11,7 +11,6 @@ from langchain_core.tools import BaseTool, StructuredTool, tool
 from tavily import AsyncTavilyClient
 
 from graphs.react_agent.context import AgentMode, Context, SearchAPI
-from graphs.react_agent.mcp_tools import load_mcp_tools
 from graphs.react_agent.tools import create_rag_tool
 
 logger = logging.getLogger(__name__)
@@ -280,10 +279,7 @@ async def _build_tools(
         elif cfg.search_api == SearchAPI.FIRECRAWL:
             tools.append(_create_firecrawl_search_tool())
 
-    # Load MCP tools if configured
-    if cfg.mcp_servers:
-        authorization = _extract_authorization(config)
-        mcp_tools = await load_mcp_tools(cfg.mcp_servers, authorization)
-        tools.extend(mcp_tools)
+    if cfg.mcp_tools is not None:
+        tools.extend(cfg.mcp_tools)
 
     return {t.name: t for t in tools}
