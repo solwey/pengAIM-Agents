@@ -270,7 +270,8 @@ def inject_user_context(user, base_config: dict = None) -> dict:
             except Exception:
                 # Fallback: minimal dict if to_dict unavailable
                 config["configurable"]["langgraph_auth_user"] = {
-                    "identity": user.identity
+                    "identity": user.identity,
+                    "permissions": user.permissions,
                 }
 
     return config

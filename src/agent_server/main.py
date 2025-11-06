@@ -89,11 +89,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(StructLogMiddleware)
-app.add_middleware(CorrelationIdMiddleware)
+health_app = FastAPI()
+main_app = FastAPI()
+
+
+app.mount("/health", health_app)
+app.mount("/", main_app)
+
+
+health_app.include_router(health_router, prefix="", tags=["Health"])
+
+main_app.add_middleware(StructLogMiddleware)
+main_app.add_middleware(CorrelationIdMiddleware)
 
 # Add CORS middleware
-app.add_middleware(
+main_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure appropriately for production
     allow_credentials=True,
@@ -102,23 +112,23 @@ app.add_middleware(
 )
 
 # Add middleware to handle double-encoded JSON from frontend
-app.add_middleware(DoubleEncodedJSONMiddleware)
+main_app.add_middleware(DoubleEncodedJSONMiddleware)
 
 # Add authentication middleware (must be added after CORS)
-app.add_middleware(
+main_app.add_middleware(
     AuthenticationMiddleware, backend=get_auth_backend(), on_error=on_auth_error
 )
 
 # Include routers
-app.include_router(health_router, prefix="", tags=["Health"])
-app.include_router(assistants_router, prefix="", tags=["Assistants"])
-app.include_router(threads_router, prefix="", tags=["Threads"])
-app.include_router(runs_router, prefix="", tags=["Runs"])
-app.include_router(store_router, prefix="", tags=["Store"])
+# main_app.include_router(health_router, prefix="", tags=["Health"])
+main_app.include_router(assistants_router, prefix="", tags=["Assistants"])
+main_app.include_router(threads_router, prefix="", tags=["Threads"])
+main_app.include_router(runs_router, prefix="", tags=["Runs"])
+main_app.include_router(store_router, prefix="", tags=["Store"])
 
 
 # Error handling
-@app.exception_handler(HTTPException)
+@main_app.exception_handler(HTTPException)
 async def agent_protocol_exception_handler(
     _request: Request, exc: HTTPException
 ) -> JSONResponse:
@@ -133,7 +143,7 @@ async def agent_protocol_exception_handler(
     )
 
 
-@app.exception_handler(Exception)
+@main_app.exception_handler(Exception)
 async def general_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     """Handle unexpected exceptions"""
     return JSONResponse(
@@ -146,7 +156,7 @@ async def general_exception_handler(_request: Request, exc: Exception) -> JSONRe
     )
 
 
-@app.get("/")
+@main_app.get("/")
 async def root() -> dict[str, str]:
     """Root endpoint"""
     return {"message": "Aegra", "version": "0.1.0", "status": "running"}
