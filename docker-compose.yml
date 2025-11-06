@@ -21,6 +21,8 @@ services:
     build:
       context: .
       dockerfile: deployments/docker/Dockerfile
+      platforms:
+        - linux/amd64
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
     environment:

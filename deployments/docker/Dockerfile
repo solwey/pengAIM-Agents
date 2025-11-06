@@ -18,6 +18,7 @@ FROM base AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project metadata and source
@@ -36,7 +37,7 @@ FROM base AS final
 
 # Install only minimal runtime libs (psycopg[binary] used, so libpq not required at runtime)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
+    ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages and console scripts from builder
