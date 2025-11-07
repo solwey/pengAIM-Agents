@@ -1,6 +1,6 @@
 """System prompts and prompt templates for the Deep Research agent."""
 
-clarify_with_user_instructions="""
+clarify_with_user_instructions = """
 These are the messages that have been exchanged so far from the user asking for the report:
 <Messages>
 {messages}
@@ -40,8 +40,7 @@ For the verification message when no clarification is needed:
 - Keep the message concise and professional
 """
 
-
-transform_messages_into_research_topic_prompt = """You will be given a set of messages that have been exchanged so far between yourself and the user. 
+transform_messages_into_research_topic_prompt = """You will be given a set of messages that have been exchanged so far between yourself and the user.
 Your job is to translate these messages into a more detailed and concrete research question that will be used to guide the research.
 
 The messages that have been exchanged so far between yourself and the user are:
@@ -126,7 +125,7 @@ You have access to the following tools:
 lead_researcher_prompt_online = """You are a research supervisor. Your job is to conduct research by calling the "ConductResearch" tool. For context, today's date is {date}.
 
 <Task>
-Your focus is to call the "ConductResearch" tool to conduct research against the overall research question passed in by the user. 
+Your focus is to call the "ConductResearch" tool to conduct research against the overall research question passed in by the user.
 When you are completely satisfied with the research findings returned from the tool calls, then you should call the "ResearchComplete" tool to indicate that you are done with your research.
 </Task>
 
@@ -284,7 +283,6 @@ Assistant (plan): Internal action only → call object_put_text(bucket="{{YOUR_B
 </Few-Shot Examples>
 """
 
-
 compress_research_system_prompt_online = """You are a research assistant that has conducted research on a topic by calling several tools and web searches. Your job is now to clean up the findings, but preserve all of the relevant statements and information that the researcher has gathered. For context, today's date is {date}.
 
 <Task>
@@ -386,7 +384,7 @@ Make sure that your sections are cohesive, and make sense for the reader.
 For each section of the report, do the following:
 - Use simple, clear language
 - Use ## for section title (Markdown format) for each section of the report
-- Do NOT ever refer to yourself as the writer of the report. This should be a professional report without any self-referential language. 
+- Do NOT ever refer to yourself as the writer of the report. This should be a professional report without any self-referential language.
 - Do not say what you are doing in the report. Just write the report without any commentary from yourself.
 - Each section should be as long as necessary to deeply answer the question with the information you have gathered. It is expected that sections will be fairly long and verbose. You are writing a deep research report, and users will expect a thorough answer.
 - Use bullet points to list out information when appropriate, but by default, write in paragraph form.
@@ -468,7 +466,7 @@ Make sure that your sections are cohesive, and make sense for the reader.
 For each section of the report, do the following:
 - Use simple, clear language
 - Use ## for section title (Markdown format) for each section of the report
-- Do NOT ever refer to yourself as the writer of the report. This should be a professional report without any self-referential language. 
+- Do NOT ever refer to yourself as the writer of the report. This should be a professional report without any self-referential language.
 - Do not say what you are doing in the report. Just write the report without any commentary from yourself.
 - Each section should be as long as necessary to deeply answer the question with the information you have gathered. It is expected that sections will be fairly long and verbose. You are writing a deep research report, and users will expect a thorough answer.
 - Use bullet points to list out information when appropriate, but by default, write in paragraph form.
@@ -490,7 +488,6 @@ Format the report in clear markdown with proper structure and include source ref
 - Do NOT include URLs
 </Citation Rules>
 """
-
 
 summarize_webpage_prompt = """You are tasked with summarizing the raw content of a webpage retrieved from a web search. Your goal is to create a summary that preserves the most important information from the original web page. This summary will be used by a downstream research agent, so it's crucial to maintain the key details without losing essential information.
 
@@ -542,7 +539,7 @@ Example 2 (for a scientific article):
 ```json
 {{
    "summary": "A new study published in Nature Climate Change reveals that global sea levels are rising faster than previously thought. Researchers analyzed satellite data from 1993 to 2022 and found that the rate of sea-level rise has accelerated by 0.08 mm/year² over the past three decades. This acceleration is primarily attributed to melting ice sheets in Greenland and Antarctica. The study projects that if current trends continue, global sea levels could rise by up to 2 meters by 2100, posing significant risks to coastal communities worldwide.",
-   "key_excerpts": "Our findings indicate a clear acceleration in sea-level rise, which has significant implications for coastal planning and adaptation strategies, lead author Dr. Emily Brown stated. The rate of ice sheet melt in Greenland and Antarctica has tripled since the 1990s, the study reports. Without immediate and substantial reductions in greenhouse gas emissions, we are looking at potentially catastrophic sea-level rise by the end of this century, warned co-author Professor Michael Green."  
+   "key_excerpts": "Our findings indicate a clear acceleration in sea-level rise, which has significant implications for coastal planning and adaptation strategies, lead author Dr. Emily Brown stated. The rate of ice sheet melt in Greenland and Antarctica has tripled since the 1990s, the study reports. Without immediate and substantial reductions in greenhouse gas emissions, we are looking at potentially catastrophic sea-level rise by the end of this century, warned co-author Professor Michael Green."
 }}
 ```
 

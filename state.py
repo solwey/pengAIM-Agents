@@ -1,7 +1,7 @@
 """Graph state definitions and data structures for the Deep Research agent."""
 
 import operator
-from typing import Annotated, Optional
+from typing import Annotated
 
 from langchain_core.messages import MessageLikeRepresentation
 from langgraph.graph import MessagesState
@@ -15,6 +15,7 @@ from typing_extensions import TypedDict
 ###################
 class ConductResearch(BaseModel):
     """Call this tool to conduct research on a specific topic."""
+
     research_topic: str = Field(
         description="The topic to research. Should be a single topic, and should be described in high detail (at least a paragraph).",
     )
@@ -62,6 +63,7 @@ class ResearchQuestion(BaseModel):
 # State Definitions
 ###################
 
+
 def override_reducer(current_value, new_value):
     """Reducer function that allows overriding values in state."""
     if isinstance(new_value, dict) and new_value.get("type") == "override":
@@ -83,7 +85,7 @@ class AgentState(MessagesState):
     """Main agent state containing messages and research data."""
 
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
-    research_brief: Annotated[Optional[str], override_reducer]
+    research_brief: Annotated[str | None, override_reducer]
     raw_notes: Annotated[list[str], override_reducer] = []
     notes: Annotated[list[str], override_reducer] = []
     final_report: str
