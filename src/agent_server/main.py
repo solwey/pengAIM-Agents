@@ -26,6 +26,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.authentication import AuthenticationMiddleware
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
+
 
 from .api.assistants import router as assistants_router
 from .api.runs import router as runs_router
@@ -48,6 +52,12 @@ active_runs: dict[str, asyncio.Task] = {}
 setup_logging()
 logger = structlog.getLogger(__name__)
 
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN"),
+    environment=os.getenv("SENTRY_ENVIRONMENT"),
+    send_default_pii=True,
+    disabled_integrations=[FastApiIntegration()]
+)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -161,6 +171,7 @@ async def root() -> dict[str, str]:
     """Root endpoint"""
     return {"message": "Aegra", "version": "0.1.0", "status": "running"}
 
+app = SentryAsgiMiddleware(app)
 
 if __name__ == "__main__":
     import os
