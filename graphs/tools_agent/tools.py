@@ -1,15 +1,15 @@
 import json
 from typing import Annotated
 
+import aiohttp
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool, ToolException, tool
-import aiohttp
+from mcp import ClientSession, McpError, Tool
 from mcp.client.streamable_http import streamablehttp_client
-from mcp import ClientSession, Tool, McpError
 
 
 def create_langchain_mcp_tool(
-        mcp_tool: Tool, mcp_server_url: str = "", headers: dict[str, str] | None = None
+    mcp_tool: Tool, mcp_server_url: str = "", headers: dict[str, str] | None = None
 ) -> StructuredTool:
     """Create a LangChain tool from an MCP tool."""
 
@@ -63,7 +63,7 @@ def wrap_mcp_authenticate_tool(tool: StructuredTool) -> StructuredTool:
                 error_message_text = "Required interaction"
                 if isinstance(message_payload, dict):
                     error_message_text = (
-                            message_payload.get("text") or error_message_text
+                        message_payload.get("text") or error_message_text
                     )
 
                 if url := error_data.get("url"):
@@ -95,15 +95,24 @@ async def create_rag_tool(rag_url: str):
 
         @tool(name_or_callable=collection_name, description=collection_description)
         async def get_documents(
-                query: Annotated[str, "The search query to find relevant documents"],
-                config: RunnableConfig = None
+            query: Annotated[str, "The search query to find relevant documents"],
+            config: RunnableConfig = None,
         ) -> str:
             """Search for documents in the collection based on the query"""
 
-            authorization = config.get("configurable", {}).get("langgraph_auth_user", {}).get("permissions")[0].replace("authz:", "")
+            authorization = (
+                config.get("configurable", {})
+                .get("langgraph_auth_user", {})
+                .get("permissions")[0]
+                .replace("authz:", "")
+            )
 
-            system_prompt = config.get("configurable", {}).get("rag_system_prompt") or None
-            retrieval_mode = config.get("configurable", {}).get("rag_retrieval_mode") or None
+            system_prompt = (
+                config.get("configurable", {}).get("rag_system_prompt") or None
+            )
+            retrieval_mode = (
+                config.get("configurable", {}).get("rag_retrieval_mode") or None
+            )
             key_data = config.get("configurable", {}).get("rag_openai_api_key", {})
 
             search_endpoint = f"{rag_url}/query"
@@ -111,16 +120,14 @@ async def create_rag_tool(rag_url: str):
                 "question": query,
                 "system_prompt": system_prompt,
                 "retrieval_mode": retrieval_mode,
-                "api_key_id": key_data.get("keyId")
+                "api_key_id": key_data.get("keyId"),
             }
             headers = {"authorization": authorization}
 
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
-                            search_endpoint,
-                            json=body,
-                            headers=headers
+                        search_endpoint, json=body, headers=headers
                     ) as search_response:
                         search_response.raise_for_status()
                         data = await search_response.json()
@@ -133,7 +140,9 @@ async def create_rag_tool(rag_url: str):
 
                 return json.dumps(out, ensure_ascii=False)
             except Exception as e:
-                return json.dumps({"error": f"RAG tool call failed: {str(e)}"}, ensure_ascii=False)
+                return json.dumps(
+                    {"error": f"RAG tool call failed: {str(e)}"}, ensure_ascii=False
+                )
 
         return get_documents
 

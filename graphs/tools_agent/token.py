@@ -1,6 +1,8 @@
 import logging
+from datetime import UTC
+from typing import Any
+
 import aiohttp
-from typing import Dict, Optional, Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_store
 
@@ -8,7 +10,7 @@ from langgraph.config import get_store
 async def get_mcp_access_token(
     access_token: str,
     base_mcp_url: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Exchange a JWT token for an MCP access token.
 
@@ -29,18 +31,20 @@ async def get_mcp_access_token(
             "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
                 base_mcp_url.rstrip("/") + "/oauth/token",
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 data=form_data,
-            ) as token_response:
-                if token_response.status == 200:
-                    token_data = await token_response.json()
-                    return token_data
-                else:
-                    response_text = await token_response.text()
-                    logging.error(f"Token exchange failed: {response_text}")
+            ) as token_response,
+        ):
+            if token_response.status == 200:
+                token_data = await token_response.json()
+                return token_data
+            else:
+                response_text = await token_response.text()
+                logging.error(f"Token exchange failed: {response_text}")
     except Exception as e:
         logging.error(f"Error during token exchange: {e}")
 
@@ -64,9 +68,9 @@ async def get_tokens(config: RunnableConfig):
     expires_in = tokens.value.get("expires_in")  # seconds until expiration
     created_at = tokens.created_at  # datetime of token creation
 
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    current_time = datetime.now(timezone.utc)
+    current_time = datetime.now(UTC)
     expiration_time = created_at + timedelta(seconds=expires_in)
 
     if current_time > expiration_time:
@@ -91,7 +95,7 @@ async def set_tokens(config: RunnableConfig, tokens: dict[str, Any]):
     return
 
 
-async def fetch_tokens(config: RunnableConfig) -> Optional[dict[str, Any]]:
+async def fetch_tokens(config: RunnableConfig) -> dict[str, Any] | None:
     """
     Fetch an MCP access token if it doesn't already exist in the store.
 

@@ -1,9 +1,8 @@
 import os
 from typing import Any
 
-from langgraph_sdk import Auth
-from langgraph_sdk.auth.types import StudioUser
 import httpx
+from langgraph_sdk import Auth
 
 # The "Auth" object is a container that LangGraph will use to mark our authentication function
 auth = Auth()
@@ -18,7 +17,7 @@ async def verify_token_status(token: str) -> str:
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             f"{AUTH_VERIFICATION_URL}/auth/verify",
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
 
     if resp.status_code != 200:
@@ -34,21 +33,23 @@ def extract_authz(ctx: Auth.types.AuthContext) -> str | None:
     perms = getattr(ctx.user, "permissions", None) or []
     for p in perms:
         if isinstance(p, str) and p.startswith("authz:"):
-            return p[len("authz:"):]
+            return p[len("authz:") :]
     return None
 
 
 # The `authenticate` decorator tells LangGraph to call this function as middleware
 # for every request. This will determine whether the request is allowed or not
 @auth.authenticate
-async def get_current_user(headers: dict[str, str] | None) -> Auth.types.MinimalUserDict:
+async def get_current_user(
+    headers: dict[str, str] | None,
+) -> Auth.types.MinimalUserDict:
     """Check if the user's JWT token is valid using custom logic"""
     # Extract authorization header
     authorization = (
-            headers.get("authorization")
-            or headers.get("Authorization")
-            or headers.get(b"authorization")
-            or headers.get(b"Authorization")
+        headers.get("authorization")
+        or headers.get("Authorization")
+        or headers.get(b"authorization")
+        or headers.get(b"Authorization")
     )
 
     # Handle bytes headers
@@ -58,30 +59,44 @@ async def get_current_user(headers: dict[str, str] | None) -> Auth.types.Minimal
     # Ensure we have the authorization header
     if not authorization:
         if headers.get("x-auth-scheme") == "langsmith":
-            return {"identity": "system", "is_authenticated": True, "permissions": [f"authz:langsmith"]}
+            return {
+                "identity": "system",
+                "is_authenticated": True,
+                "permissions": ["authz:langsmith"],
+            }
 
-        raise Auth.exceptions.HTTPException(status_code=401, detail="Authorization header missing")
+        raise Auth.exceptions.HTTPException(
+            status_code=401, detail="Authorization header missing"
+        )
 
     # Parse the authorization header
     try:
         scheme, token = authorization.split()
         assert scheme.lower() == "bearer" and token
     except (ValueError, AssertionError):
-        raise Auth.exceptions.HTTPException(status_code=401, detail="Invalid authorization header format")
+        raise Auth.exceptions.HTTPException(
+            status_code=401, detail="Invalid authorization header format"
+        )
 
     try:
         team_id = await verify_token_status(token)
         if not team_id:
             raise ValueError("Team id not found in verification response")
 
-        return {"identity": team_id, "is_authenticated": True, "permissions": [f"authz:{authorization}"]}
+        return {
+            "identity": team_id,
+            "is_authenticated": True,
+            "permissions": [f"authz:{authorization}"],
+        }
     except Exception as e:
-        raise Auth.exceptions.HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
+        raise Auth.exceptions.HTTPException(
+            status_code=401, detail=f"Authentication error: {str(e)}"
+        )
 
 
 @auth.on
 async def authorize(
-        ctx: Auth.types.AuthContext, value: dict[str, Any]
+    ctx: Auth.types.AuthContext, value: dict[str, Any]
 ) -> dict[str, Any]:
     try:
         # Get user identity from authentication context
@@ -109,6 +124,7 @@ async def authorize(
         raise Auth.exceptions.HTTPException(
             status_code=500, detail="Authorization system error"
         ) from e
+
 
 #
 # @auth.on.threads.create

@@ -1,6 +1,6 @@
 {
   "graphs": {
     "Deep Researcher": "./graphs/open_deep_research/deep_researcher.py:deep_researcher",
-    "Tools Agent": "./graphs/tools_agent/agent.py:graph"
+    "Tools Agent": "./graphs/tools_agent/graph.py:graph"
   }
 }
