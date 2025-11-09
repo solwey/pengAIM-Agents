@@ -61,13 +61,6 @@ class Assistant(Base):
     __table_args__ = (
         Index("idx_assistant_user", "user_id"),
         Index("idx_assistant_user_assistant", "user_id", "assistant_id", unique=True),
-        Index(
-            "idx_assistant_user_graph_config",
-            "user_id",
-            "graph_id",
-            "config",
-            unique=True,
-        ),
     )
 
 
