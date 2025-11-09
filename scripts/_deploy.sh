@@ -6,7 +6,7 @@ aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_
 
 # Login into ECR and build the docker image
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
-docker buildx build --platform=linux/amd64 --load --tag "$IMG_TAG" --build-arg API_BUILD_ENVIRONMENT="$API_BUILD_ENVIRONMENT" --build-arg ENV_FILE=$DOTENV_FNAME --file ./Dockerfile .
+docker buildx build --platform=linux/amd64 --load --tag "$IMG_TAG" --build-arg ENV_FILE=$DOTENV_FNAME --file ./Dockerfile .
 docker push $IMG_TAG
 
 # Run migrations

@@ -46,7 +46,7 @@ COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Copy runtime assets required by the app and alembic
 COPY alembic.ini ./alembic.ini
-COPY alembic/ ./alembic/
+COPY migrations/ ./migrations/
 COPY aegra.json ./aegra.json
 COPY auth.py ./auth.py
 COPY graphs/ ./graphs/
@@ -54,6 +54,11 @@ COPY graphs/ ./graphs/
 # Copy src to keep compatibility with current compose command using 'src.agent_server.main:app'
 # (We can switch compose to 'agent_server.main:app' later and drop this for a smaller image.)
 COPY src/ ./src/
+
+ARG ENV_FILE
+COPY ${ENV_FILE} ./.env
+
+RUN rm -f scripts/.env*
 
 EXPOSE 8000
 
