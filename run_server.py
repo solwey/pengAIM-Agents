@@ -31,15 +31,6 @@ logger = structlog.get_logger()
 
 def setup_environment():
     """Set up environment variables for testing"""
-    # Set database URL for development
-    if not os.getenv("DATABASE_URL"):
-        os.environ["DATABASE_URL"] = (
-            "postgresql+asyncpg://user:password@localhost:5432/aegra"
-        )
-
-    # Set auth type (can be overridden)
-    if not os.getenv("AUTH_TYPE"):
-        os.environ["AUTH_TYPE"] = "noop"
 
     logger.info(f"🔐 Auth Type: {os.getenv('AUTH_TYPE')}")
     logger.info(f"🗄️  Database: {os.getenv('DATABASE_URL')}")

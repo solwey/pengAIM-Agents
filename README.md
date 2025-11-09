@@ -218,7 +218,6 @@ aegra/
 │   ├── services/       # Business logic
 │   └── utils/          # Helper functions
 ├── tests/              # Test suite
-└── deployments/        # Docker & K8s configs
 ```
 
 ## ⚙️ Configuration
