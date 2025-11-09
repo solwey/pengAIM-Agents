@@ -20,7 +20,7 @@ services:
   aegra:
     build:
       context: .
-      dockerfile: deployments/docker/Dockerfile
+      dockerfile: Dockerfile
       platforms:
         - linux/amd64
     ports:

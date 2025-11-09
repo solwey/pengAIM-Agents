@@ -1,0 +1,10 @@
+{
+  "containerOverrides": [{
+    "name": "main",
+    "command": [
+      "alembic",
+      "upgrade",
+      "head"
+    ]
+  }]
+}

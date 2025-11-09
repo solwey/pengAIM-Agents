@@ -1,0 +1,61 @@
+name: Deploy Staging App
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy:
+    name: Deploy Staging App
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-2
+      SECRET_NAME_ENV: qa-peng-aim-agents
+      SECRET_NAME_CI: qa-peng-aim-agents-ci
+
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.IAMROLE_GITHUB }}
+          role-session-name: GitHubActionsSession
+
+      - name: Build, tag, and push image to Amazon ECR
+        run: |
+          # Fetch AWS secret values
+          export $(aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_CI --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\"\(.[$k])\""' | xargs)
+          aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_ENV --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\"\(.[$k])\""' > $DOTENV_FNAME
+          # Build docker image and push to ECR
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+          docker buildx build --platform=linux/amd64 --tag $IMG_TAG --build-arg ENV_FILE=$DOTENV_FNAME --file ./Dockerfile .
+          docker push $IMG_TAG
+
+      - name: Run migrations
+        run: |
+          # Fetch AWS secret values
+          export $(aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_CI --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\"\(.[$k])\""' | xargs)
+          # Run migrations
+          ./scripts/_run-migrations.sh
+
+      - name: Force new deployment of the ECS service
+        run: |
+          # Fetch AWS secret values
+          export $(aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_CI --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\"\(.[$k])\""' | xargs)
+          # Restart ECS
+          aws ecs update-service --region $AWS_REGION --cluster $CLUSTER_NAME --service $SERVICE_NAME --no-cli-pager --force-new-deployment
+
+      - name: Notify in Slack
+        run: |
+          # Fetch AWS secret values
+          export $(aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_CI --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\"\(.[$k])\""' | xargs)
+          export SLACK_TITLE="STAGING AGENTS"
+          export SLACK_MSG="New version is live."
+          ./scripts/_send-slack-msg.sh
