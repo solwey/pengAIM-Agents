@@ -14,4 +14,3 @@ docker push $IMG_TAG
 
 # Restart ECS services
 aws ecs update-service --region "$AWS_REGION" --cluster "$CLUSTER_NAME" --service "$SERVICE_NAME" --no-cli-pager --force-new-deployment
-aws ecs update-service --region "$AWS_REGION" --cluster "$CLUSTER_NAME" --service "$WORKER_NAME" --no-cli-pager --force-new-deployment
