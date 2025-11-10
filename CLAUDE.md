@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Project: Aegra — Open Source LangGraph Backend (Agent Protocol Server)
 
+See @README.md for project overview and @package.json for available npm commands for this project.
+
 ## Development Commands
 
 ### Environment Setup
@@ -243,3 +245,6 @@ python3 scripts/migrate.py reset
 - Always activate virtual environment before running migrations
 - Docker automatically runs migrations on startup
 - Migration files are version-controlled and should be committed with code changes
+
+# LangGraph Development Principles
+See @CLAUDE_DEV_PRINCIPLES.md for development principles
