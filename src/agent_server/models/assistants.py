@@ -42,6 +42,10 @@ class Assistant(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, alias="metadata_dict")
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = Field(
+        default=None,
+        description="Soft-delete timestamp; when set, the assistant is considered deleted",
+    )
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -81,6 +85,10 @@ class AssistantSearchRequest(BaseModel):
     name: str | None = Field(None, description="Filter by assistant name")
     description: str | None = Field(None, description="Filter by assistant description")
     graph_id: str | None = Field(None, description="Filter by graph ID")
+    include_deleted: bool | None = Field(
+        False,
+        description="If true, include soft-deleted assistants in results.",
+    )
     limit: int | None = Field(20, le=100, ge=1, description="Maximum results")
     offset: int | None = Field(0, ge=0, description="Results offset")
     metadata: dict[str, Any] | None = Field(
