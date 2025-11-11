@@ -56,11 +56,15 @@ class Assistant(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     # Indexes for performance
     __table_args__ = (
         Index("idx_assistant_user", "user_id"),
         Index("idx_assistant_user_assistant", "user_id", "assistant_id", unique=True),
+        Index("idx_assistant_deleted_at", "deleted_at"),
     )
 
 

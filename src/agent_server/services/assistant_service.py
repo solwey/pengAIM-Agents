@@ -180,13 +180,14 @@ class AssistantService:
         # Generate name if not provided
         name = request.name or f"Assistant for {graph_id}"
 
-        # Check if an assistant already exists for this user, graph and config pair
+        # Check if an assistant already exists for this user, graph and config pair (ignore soft-deleted)
         existing_stmt = select(AssistantORM).where(
             AssistantORM.user_id == user_identity,
             or_(
                 (AssistantORM.graph_id == graph_id) & (AssistantORM.config == config),
                 AssistantORM.assistant_id == assistant_id,
             ),
+            AssistantORM.deleted_at.is_(None),
         )
         existing = await self.session.scalar(existing_stmt)
 
@@ -232,8 +233,10 @@ class AssistantService:
 
     async def list_assistants(self, user_identity: str) -> list[Assistant]:
         """List user's assistants"""
-        # Filter assistants by user
-        stmt = select(AssistantORM).where(AssistantORM.user_id == user_identity)
+        stmt = select(AssistantORM).where(
+            AssistantORM.user_id == user_identity,
+            AssistantORM.deleted_at.is_(None),
+        )
         result = await self.session.scalars(stmt)
         user_assistants = [to_pydantic(a) for a in result.all()]
         return user_assistants
@@ -244,10 +247,14 @@ class AssistantService:
         user_identity: str,
     ) -> list[Assistant]:
         """Search assistants with filters"""
+        metadata = request.metadata or {}
+        include_deleted = metadata.pop("include_deleted", "false") == "true"
         # Start with user's assistants
         stmt = select(AssistantORM).where(
             or_(AssistantORM.user_id == user_identity, AssistantORM.user_id == "system")
         )
+        if not include_deleted:
+            stmt = stmt.where(AssistantORM.deleted_at.is_(None))
 
         # Apply filters
         if request.name:
@@ -261,8 +268,8 @@ class AssistantService:
         if request.graph_id:
             stmt = stmt.where(AssistantORM.graph_id == request.graph_id)
 
-        if request.metadata:
-            stmt = stmt.where(AssistantORM.metadata_dict.op("@>")(request.metadata))
+        if metadata:
+            stmt = stmt.where(AssistantORM.metadata_dict.op("@>")(metadata))
 
         # Apply pagination
         offset = request.offset or 0
@@ -280,7 +287,12 @@ class AssistantService:
         user_identity: str,
     ) -> int:
         """Count assistants with filters"""
+        metadata = request.metadata or {}
+        include_deleted = metadata.pop("include_deleted", "false") == "true"
+
         stmt = select(func.count()).where(AssistantORM.user_id == user_identity)
+        if not include_deleted:
+            stmt = stmt.where(AssistantORM.deleted_at.is_(None))
 
         if request.name:
             stmt = stmt.where(AssistantORM.name.ilike(f"%{request.name}%"))
@@ -293,8 +305,8 @@ class AssistantService:
         if request.graph_id:
             stmt = stmt.where(AssistantORM.graph_id == request.graph_id)
 
-        if request.metadata:
-            stmt = stmt.where(AssistantORM.metadata_dict.op("@>")(request.metadata))
+        if metadata:
+            stmt = stmt.where(AssistantORM.metadata_dict.op("@>")(metadata))
 
         total = await self.session.scalar(stmt)
         return total or 0
@@ -306,6 +318,7 @@ class AssistantService:
             or_(
                 AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
             ),
+            AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
 
@@ -328,6 +341,8 @@ class AssistantService:
                 detail="Cannot specify both configurable and context. Use only one.",
             )
 
+        restore = str(metadata.pop("restore", False)).lower() == "true"
+
         # Keep config and context up to date with one another
         if config.get("configurable"):
             context = config["configurable"]
@@ -341,6 +356,11 @@ class AssistantService:
         assistant = await self.session.scalar(stmt)
         if not assistant:
             raise HTTPException(404, f"Assistant '{assistant_id}' not found")
+
+        if restore and assistant.deleted_at is not None:
+            assistant.deleted_at = None
+            await self.session.commit()
+            return to_pydantic(assistant)
 
         now = datetime.now(UTC)
         version_stmt = select(func.max(AssistantVersionORM.version)).where(
@@ -387,17 +407,18 @@ class AssistantService:
         return to_pydantic(updated_assistant)
 
     async def delete_assistant(self, assistant_id: str, user_identity: str) -> dict:
-        """Delete assistant by ID"""
+        """Delete assistant by ID (soft delete)"""
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
             AssistantORM.user_id == user_identity,
+            AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
 
         if not assistant:
             raise HTTPException(404, f"Assistant '{assistant_id}' not found")
 
-        await self.session.delete(assistant)
+        assistant.deleted_at = datetime.now(UTC)
         await self.session.commit()
 
         return {"status": "deleted"}
@@ -409,6 +430,7 @@ class AssistantService:
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
             AssistantORM.user_id == user_identity,
+            AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
         if not assistant:
@@ -454,6 +476,7 @@ class AssistantService:
             or_(
                 AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
             ),
+            AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
         if not assistant:
@@ -525,6 +548,7 @@ class AssistantService:
             or_(
                 AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
             ),
+            AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
 
@@ -570,6 +594,7 @@ class AssistantService:
             or_(
                 AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
             ),
+            AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
 
