@@ -6,11 +6,112 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 # Import our serializer for handling complex objects
 from .serializers import GeneralSerializer
 
 # Global serializer instance
 _serializer = GeneralSerializer()
+
+_SENSITIVE_KEYS: set[str] = {
+    "system_prompt",
+}
+
+_DROP_MESSAGE_CLASSNAMES: set[str] = {"SystemMessage"}
+
+
+def _is_message_like(obj: object) -> bool:
+    if isinstance(obj, dict):
+        return "content" in obj or "type" in obj
+    return hasattr(obj, "content")
+
+
+def _sanitize_message_obj(obj: object) -> object | None:
+    cls_name = getattr(obj, "__class__", type(obj)).__name__
+    if cls_name in _DROP_MESSAGE_CLASSNAMES:
+        return None
+
+    if isinstance(obj, dict):
+        t = obj.get("type")
+        if isinstance(t, str) and t.lower() == "system":
+            return None
+        return obj
+
+    return obj
+
+
+def _sanitize_dict(d: dict) -> dict:
+    safe: dict[str, object] = {}
+    for k, v in d.items():
+        if k in _SENSITIVE_KEYS:
+            continue
+        if k == "supervisor_messages" and isinstance(v, list):
+            filtered = [
+                msg
+                for msg in v
+                if not (isinstance(msg, dict) and msg.get("type") == "human")
+            ]
+            if filtered:
+                safe[k] = _sanitize_any(filtered)
+            continue
+        elif (
+            k == "supervisor_messages"
+            and isinstance(v, dict)
+            and isinstance(v.get("value"), list)
+        ):
+            inner = v.get("value")
+            filtered_inner = [
+                msg
+                for msg in inner
+                if not (isinstance(msg, dict) and msg.get("type") == "human")
+            ]
+            if filtered_inner:
+                wrapper = dict(v)
+                wrapper["value"] = _sanitize_any(filtered_inner)
+                safe[k] = wrapper
+            continue
+        if _is_message_like(v):
+            reduced = _sanitize_message_obj(v)
+            if reduced is None:
+                continue
+            safe[k] = _sanitize_any(reduced)
+        else:
+            safe[k] = _sanitize_any(v)
+    return safe
+
+
+def _sanitize_sequence(seq: list | tuple) -> list:
+    """Sanitize each element in a list/tuple and drop Nones."""
+    out: list[object] = []
+    for item in seq:
+        if _is_message_like(item):
+            reduced = _sanitize_message_obj(item)
+            if reduced is None:
+                continue
+            out.append(_sanitize_any(reduced))
+        else:
+            sanitized = _sanitize_any(item)
+            if sanitized is not None:
+                out.append(sanitized)
+    return out
+
+
+def _sanitize_any(obj: object) -> object | None:
+    """Recursively sanitize arbitrary payloads for SSE"""
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+
+    if isinstance(obj, dict):
+        return _sanitize_dict(obj)
+
+    if isinstance(obj, (list, tuple)):
+        return _sanitize_sequence(list(obj))
+
+    if _is_message_like(obj):
+        return _sanitize_message_obj(obj)
+
+    return str(obj)
 
 
 def get_sse_headers() -> dict[str, str]:
@@ -48,7 +149,20 @@ def format_sse_message(
     else:
         # Use our general serializer by default to handle complex objects
         default_serializer = serializer or _serializer.serialize
-        data_str = json.dumps(data, default=default_serializer, separators=(",", ":"))
+        if event.startswith("messages"):
+            if isinstance(data, list) and len(data) == 2:
+                message_chunk, metadata = data[0], data[1]
+                if isinstance(message_chunk, (SystemMessage, HumanMessage)):
+                    message_chunk.content = ""
+                    message_chunk.id = f"do-not-render-{message_chunk.id}"
+                payload = [message_chunk, _sanitize_any(metadata)]
+            else:
+                payload = data
+        else:
+            payload = _sanitize_any(data)
+        data_str = json.dumps(
+            payload, default=default_serializer, separators=(",", ":")
+        )
 
     lines.append(f"data: {data_str}")
 

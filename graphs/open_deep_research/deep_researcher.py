@@ -2,6 +2,7 @@
 
 import asyncio
 import inspect
+import json
 from typing import Literal
 
 from langchain.chat_models import init_chat_model
@@ -673,8 +674,24 @@ async def supervisor_tools(
         if exec_tasks:
             results = await asyncio.gather(*exec_tasks)
             for result, tc in zip(results, other_tool_calls, strict=False):
+                name = tc["name"]
+                args = tc.get("args") or {}
+
+                tool_content = result
+
+                if name == "rag_search":
+                    tool_content = json.dumps(
+                        {"answer": result, "question": args.get("query")},
+                        ensure_ascii=False,
+                    )
+
                 all_tool_messages.append(
-                    ToolMessage(content=result, name=tc["name"], tool_call_id=tc["id"])
+                    ToolMessage(
+                        content=tool_content,
+                        name=name,
+                        tool_call_id=tc["id"],
+                        additional_kwargs={"visibility": "internal"},
+                    )
                 )
 
     # Handle ConductResearch calls (research delegation)
