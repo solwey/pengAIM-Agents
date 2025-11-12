@@ -90,10 +90,9 @@ async def create_rag_tool(rag_url: str):
         rag_url = rag_url[:-1]
 
     try:
-        collection_name = "collection"
         collection_description = "Search your collection of documents for results semantically similar to the input query"
 
-        @tool(name_or_callable=collection_name, description=collection_description)
+        @tool(name_or_callable="rag_search", description=collection_description)
         async def get_documents(
             query: Annotated[str, "The search query to find relevant documents"],
             config: RunnableConfig = None,

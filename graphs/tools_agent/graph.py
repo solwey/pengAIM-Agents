@@ -110,7 +110,7 @@ async def tools_node(
 
         tool_messages.append(
             ToolMessage(
-                content=str(result),
+                content=json.dumps({"answer": result, "question": args.get("query")}),
                 tool_call_id=tool_call.get("id", ""),
                 name=name or tool.name,
             )

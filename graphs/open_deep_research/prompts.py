@@ -76,8 +76,6 @@ Guidelines:
 - If the query is in a specific language, prioritize sources published in that language.
 
 6. MCP-First Handling (Do not reformulate into research when not asked)
-- If the messages clearly request an internal action using MCP tools (e.g., S3 buckets/keys, upload/download, read/write file), DO NOT reformulate the request into a research question.
-- Instead, preserve the user's concrete operational intent (e.g., "write text X to s3://bucket/key"), and leave it verbatim so the downstream agent will call MCP tools directly.
 - Only produce a broad research question when the user explicitly asks to "research", "find information", "look up", "compare sources", or similar.
 - If both are present (an MCP action AND a research ask), output two lines: first the precise MCP action, then the research question.
 """
@@ -135,20 +133,12 @@ You have access to the following tools:
 1. **ConductResearch**: Delegate research tasks to specialized sub-agents
 2. **ResearchComplete**: Indicate that research is complete
 3. **think_tool**: For reflection and strategic planning during research
-4. **buckets_list()**: List names of all S3 buckets accessible with current AWS credentials (account/role)
-5. **objects_list(bucket, prefix?, continuation_token?, max_keys?, fetch_owner?)**: List object keys in a bucket; supports prefix and pagination; returns {{IsTruncated, NextContinuationToken, KeyCount, Keys[]}}
-6. **object_get(bucket, key, as_text?, encoding?)**: Download a single S3 object; decodes to text if requested, otherwise returns raw bytes
-7. **object_put(bucket, key, content, is_base64?, encoding?, content_type?, metadata?)**: Upload text or base64-encoded bytes to S3; infers Content-Type; returns {{uri, etag, version_id}}
-8. **s3_list_resources(start_after?)**: Enumerate S3 objects as MCP Resources (uri, name, mimeType) for agent-side browsing
-9. **object_put_text(bucket, key, text, content_type?, encoding?, cache_control?, fail_if_exists?)**: Upload textual content (UTF-8 by default) as an S3 object; returns {{uri, etag, version_id}}
 
 **Tool Selection Policy**
-- If the user request involves **S3, files, buckets, or keys** → you **MUST** call a relevant S3 tool (buckets_list, objects_list, object_get, object_put, object_put_text, or s3_list_resources) before finalizing your answer.
 - Use **ConductResearch** primarily for open-ended web or literature research, comparisons, or when multiple external sources are required.
 - Always use **think_tool** to plan before complex tool use (do not call it in parallel with other tools).
 
 **MCP-First Policy (No Research Unless Explicitly Requested)**
-- If the user's request is an internal action suited for MCP tools (e.g., S3 read/write, listing objects), you MUST handle it exclusively with MCP tools and MUST NOT call ConductResearch.
 - Do not produce general research, best practices, or external guidance when a direct MCP action is sufficient and the user did not ask for research.
 - Only call ConductResearch if the user explicitly asks to "research", "find information", "compare", "analyze sources", or similar.
 - If an MCP tool has already been called successfully and the task is satisfied, proceed to finalize without any research delegation.
@@ -197,17 +187,6 @@ After each ConductResearch tool call, use think_tool to analyze the results:
 - When calling ConductResearch, provide complete standalone instructions - sub-agents can't see other agents' work
 - Do NOT use acronyms or abbreviations in your research questions, be very clear and specific
 </Scaling Rules>
-
-<Few-Shot Examples>
-User: "Save text 'Hello' into S3 with key research/test.txt"
-Assistant (plan): Need to store text in S3 → call object_put_text(bucket="{{YOUR_BUCKET}}", key="research/test.txt", text="Hello")
-
-User: "Show the list of files under the prefix research/ and read the first .txt"
-Assistant (plan): Inspect then read → call objects_list(bucket="{{YOUR_BUCKET}}", prefix="research/") → then object_get(bucket="{{YOUR_BUCKET}}", key="research/first.txt")
-
-User: "Upload the file /tmp/test.txt to our S3 storage under the key uploads/test.txt, and do not perform any research"
-Assistant (plan): Direct internal action only → call object_put(bucket="{{YOUR_BUCKET}}", key="uploads/test.txt", content="...file contents...") → do NOT call ConductResearch
-</Few-Shot Examples>
 """
 
 research_system_prompt_online = """You are a research assistant conducting research on the user's input topic. For context, today's date is {date}.
@@ -221,32 +200,19 @@ You can use any of the tools provided to you to find resources that can help ans
 You have access to tools:
 - **{search_tool}_search**: For conducting web searches to gather information
 - **think_tool**: For reflection and strategic planning during research
-- **MCP tools (auto-discovered)**: Use these for internal systems/data if listed below.
-- **buckets_list()**: List names of all S3 buckets available to current AWS credentials
-- **objects_list(bucket, prefix?, continuation_token?, max_keys?, fetch_owner?)**: List object keys with pagination
-- **object_get(bucket, key, as_text?, encoding?)**: Get object as text or bytes
-- **object_put(bucket, key, content, is_base64?, encoding?, content_type?, metadata?)**: Put text or bytes
-- **object_put_text(bucket, key, text, content_type?, encoding?, cache_control?, fail_if_exists?)**: Put textual content (UTF-8 by default)
-- **s3_list_resources(start_after?)**: List S3 objects as MCP Resource descriptors for UI/browsing
-{mcp_prompt}
 
 **Tool Selection Policy**
 - Start by deciding **which tool fits the task**.
-- If the query mentions **S3**, **bucket**, **key**, **upload**, or **read file** → you **MUST** call one of: buckets_list, objects_list, object_get, object_put, object_put_text, s3_list_resources.
-- Prefer an MCP tool whenever the task targets internal data; use the web search tool when the task requires external sources, news, or broad domain knowledge.
+- Use the web search tool when the task requires external sources, news, or broad domain knowledge.
 - Use **think_tool** after each tool call to reflect and plan next steps; do not call it in parallel with other tools.
 
-**MCP-First Policy (No Web/Search Unless Explicitly Requested)**
-- If the task is an internal action (S3 list/read/write, MCP resource browse), use ONLY the MCP tools.
-- Do NOT invoke web search or ConductResearch unless the user explicitly asks for research, finding external information, or comparisons across sources.
-- If an MCP tool has already been invoked to satisfy the request, finalize without any web searches.
 </Available Tools>
 
 <Instructions>
 Think like a human researcher with limited time. Follow these steps:
 
 1. **Read the question carefully** - What specific information does the user need?
-2. **Select the appropriate tool** - If internal data is required, call an MCP tool; otherwise use web search.
+2. **Select the appropriate tool** - Use web search.
 3. **After each tool call, pause and assess** - Do I have enough to answer? What's still missing?
 4. **Execute narrower searches as you gather information** - Fill in the gaps
 5. **Stop when you can answer confidently** - Don't keep searching for perfection
@@ -254,12 +220,12 @@ Think like a human researcher with limited time. Follow these steps:
 
 <Hard Limits>
 **Tool Call Budgets** (Prevent excessive searching):
-- **Simple queries**: Use 2-3 tool calls maximum (search or MCP)
+- **Simple queries**: Use 2-3 tool calls maximum (search)
 - **Complex queries**: Use up to 5 total tool calls maximum
 - **Always stop**: After 5 search tool calls if you cannot find the right sources
 
 **Stop Immediately When**:
-- You can answer the user's question comprehensively with the information obtained (from MCP or web)
+- You can answer the user's question comprehensively with the information obtained (from web)
 - You have 3+ relevant examples/sources for the question
 - Your last 2 searches returned similar information
 </Hard Limits>
@@ -273,14 +239,10 @@ After each tool call, use think_tool to analyze the results:
 </Show Your Thinking>
 
 <Few-Shot Examples>
-User: "List the files in the research/ bucket and read the contents of research/notes.txt"
-Assistant (plan): Use objects_list(bucket="{{YOUR_BUCKET}}", prefix="research/") → then object_get(bucket="{{YOUR_BUCKET}}", key="research/notes.txt") → summarize relevant context.
 
 User: "Find the latest news and official sources on the topic X"
 Assistant (plan): Use {search_tool}_search with 2-3 focused queries → analyze with think_tool.
 
-User: "Save the text 'Hello MCP' to the file /research/hello.txt, and do not perform any search"
-Assistant (plan): Internal action only → call object_put_text(bucket="{{YOUR_BUCKET}}", key="research/hello.txt", text="Hello MCP") → do NOT call {search_tool}_search
 </Few-Shot Examples>
 """
 
@@ -554,7 +516,7 @@ Today's date is {date}.
 research_system_prompt_rag = """You are a research assistant operating in a retrieval-only workflow. For context, today's date is {date}.
 
 <Task>
-Use internal **RAG** tools to gather information relevant to the user's topic. Do NOT use web search, browsing, scraping, or MCP.
+Use internal **RAG** tools to gather information relevant to the user's topic. Do NOT use web search, browsing, scraping.
 Your work proceeds in a tool-calling loop with retrieval and reflection only.
 </Task>
 

@@ -43,27 +43,6 @@ class StepConfig(BaseModel):
 
 
 # noinspection PyArgumentList
-class MCPConfig(BaseModel):
-    """Configuration for Model Context Protocol (MCP) servers."""
-
-    url: str | None = Field(
-        default=None,
-        optional=True,
-    )
-    """The URL of the MCP server"""
-    tools: list[str] | None = Field(
-        default=None,
-        optional=True,
-    )
-    """The tools to make available to the LLM"""
-    auth_required: bool | None = Field(
-        default=False,
-        optional=True,
-    )
-    """Whether the MCP server requires authentication"""
-
-
-# noinspection PyArgumentList
 class Configuration(BaseModel):
     """Main configuration class for the Deep Research agent."""
 
@@ -309,34 +288,6 @@ class Configuration(BaseModel):
             }
         },
     )
-    # MCP server configuration
-    mcp_config: MCPConfig | None = Field(
-        default_factory=lambda: MCPConfig(
-            url="http://localhost:4444", tools=[], auth_required=False
-        ),
-        optional=True,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "mcp",
-                "default": {
-                    "url": "http://localhost:4444",
-                    "tools": [],
-                    "auth_required": False,
-                },
-                "description": "MCP server configuration",
-            }
-        },
-    )
-    mcp_prompt: str | None = Field(
-        default=None,
-        optional=True,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "textarea",
-                "description": "Any additional instructions to pass along to the Agent regarding the MCP tools that are available to it.",
-            }
-        },
-    )
     system_prompt: str | None = Field(
         default=None,
         optional=True,
@@ -399,17 +350,6 @@ class Configuration(BaseModel):
             }
         },
     )
-
-    @field_validator("mcp_config", mode="before")
-    @classmethod
-    def _coerce_mcp(cls, v):
-        if v is None or isinstance(v, MCPConfig):
-            return v
-        if isinstance(v, dict):
-            if not any(val not in (None, "", [], {}) for val in v.values()):
-                return None
-            return MCPConfig(**v)
-        return v
 
     @field_validator("steps", mode="before")
     @classmethod

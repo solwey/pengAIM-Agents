@@ -28,25 +28,6 @@ class AgentState(TypedDict):
 
 
 # noinspection PyArgumentList
-class MCPConfig(BaseModel):
-    url: str | None = Field(
-        default=None,
-        optional=True,
-    )
-    """The URL of the MCP server"""
-    tools: list[str] | None = Field(
-        default=None,
-        optional=True,
-    )
-    """The tools to make available to the LLM"""
-    auth_required: bool | None = Field(
-        default=False,
-        optional=True,
-    )
-    """Whether the MCP server requires authentication"""
-
-
-# noinspection PyArgumentList
 class Context(BaseModel):
     model_name: str | None = Field(
         default="openai:gpt-4o-mini",
@@ -119,20 +100,6 @@ class Context(BaseModel):
                     f"{UNEDITABLE_SYSTEM_PROMPT}\n---"
                 ),
                 "default": DEFAULT_SYSTEM_PROMPT,
-            }
-        },
-    )
-    mcp_config: MCPConfig | None = Field(
-        default=None,
-        optional=True,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "mcp",
-                # Here is where you would set the default tools.
-                "default": {
-                    "tools": [],
-                    "url": "http://localhost:4444",
-                },
             }
         },
     )
