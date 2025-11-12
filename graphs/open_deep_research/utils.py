@@ -128,51 +128,75 @@ async def firecrawl_search(
     max_results: Annotated[int, InjectedToolArg] = 5,
     config: RunnableConfig = None,
 ) -> str:
-    """
-    Perform web search using Firecrawl API, scrape pages, and summarize results.
-    """
+    """Perform web searches using Firecrawl and summarize results."""
+    if not queries:
+        return "No valid search results found."
     api_key = await get_api_key(config, "api_key", "firecrawl", "root")
     app = AsyncFirecrawlApp(api_key=api_key)
+    logging.info("firecrawl_search: queries=%d", len(queries or []))
+
+    async def search_query(query: str):
+        try:
+            return await app.search(
+                query,
+                limit=max_results,
+                scrape_options={
+                    "formats": ["markdown"],
+                    "only_main_content": True,
+                    "remove_base64_images": True,
+                },
+            )
+        except Exception as e:
+            logging.warning(f"Search failed for query '{query}': {e}")
+            return None
+
+    search_responses = await asyncio.gather(*[search_query(q) for q in queries])
+
     search_results = []
+    seen_urls: set[str] = set()
 
-    # Run a search for each query
-    for query in queries:
-        resp = await app.search(query, limit=max_results)
-        for item in getattr(resp, "web", []):
-            url = getattr(item, "url", "")
-            if not url:
+    for query, resp in zip(queries, search_responses, strict=False):
+        if not resp:
+            continue
+        for item in getattr(resp, "web", []) or []:
+            metadata = getattr(item, "metadata", None)
+            url = getattr(item, "url", "") or getattr(metadata, "url", "")
+            if not url or url in seen_urls:
                 continue
+            seen_urls.add(url)
 
-            # Scraping pages
-            try:
-                page_data = await app.scrape(url, formats=["markdown"])
-            except Exception:
-                page_data = {}
+            title = (
+                getattr(item, "title", "")
+                or getattr(metadata, "title", "")
+                or "No title"
+            )
+            summary_text = (
+                getattr(item, "description", "")
+                or getattr(metadata, "description", "")
+                or "No description"
+            )
+            raw_md = getattr(item, "markdown", "")
 
             search_results.append(
                 {
-                    "title": getattr(item, "title", "") or "No title",
-                    "content": getattr(item, "description", "")
-                    or getattr(item, "text", ""),
+                    "title": title,
+                    "content": summary_text,
                     "url": url,
-                    "raw_content": getattr(page_data, "markdown", ""),
+                    "raw_content": raw_md,
                     "query": query,
                 }
             )
 
-    if not search_results:
-        return "No valid search results found. Please try another query."
-
-    # URL deduplication
     unique_results = {}
     for result in search_results:
         if result["url"] not in unique_results:
             unique_results[result["url"]] = result
 
+    if not unique_results:
+        return "No valid search results found."
+
     configurable = Configuration.from_runnable_config(config)
     max_char_to_include = configurable.max_content_length
-
-    # Initialization of the summarization model
     model_api_key = await get_api_key_for_model(
         configurable.summarization_model, config
     )
@@ -187,19 +211,17 @@ async def firecrawl_search(
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
     )
 
-    # Preparing summarization tasks
-    async def summarize_or_none(result):
-        if not result.get("raw_content"):
+    async def summarize_or_none(res: dict[str, str]):
+        if not res.get("raw_content"):
             return None
         return await summarize_webpage(
-            summarization_model, result["raw_content"][:max_char_to_include]
+            summarization_model, res["raw_content"][:max_char_to_include]
         )
 
     summaries = await asyncio.gather(
         *[summarize_or_none(r) for r in unique_results.values()]
     )
 
-    # Combining results with summarization
     summarized_results = {
         url: {
             "title": result["title"],
@@ -210,15 +232,11 @@ async def firecrawl_search(
         )
     }
 
-    if not summarized_results:
-        return "No valid search results found. Please try different search queries or use a different search API."
-
     formatted_output = "Search results:\n\n"
     for i, (url, result) in enumerate(summarized_results.items()):
         formatted_output += f"\n\n--- SOURCE {i + 1}: {result['title']} ---\n"
-        formatted_output += f"URL: {url}\n\n"
-        formatted_output += f"SUMMARY:\n{result['content']}\n\n"
-        formatted_output += "\n\n" + "-" * 80 + "\n"
+        formatted_output += f"URL: {url}\n\nSUMMARY:\n{result['content']}\n"
+        formatted_output += "\n" + "-" * 80 + "\n"
 
     return formatted_output
 
