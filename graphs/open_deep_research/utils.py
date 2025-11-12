@@ -75,7 +75,12 @@ async def rag_search(
 ) -> str:
     """Search for documents in the collection based on the query"""
 
-    authorization = config.get("metadata", {}).get("authorization")
+    authorization = (
+        config.get("configurable", {})
+        .get("langgraph_auth_user", {})
+        .get("permissions")[0]
+        .replace("authz:", "")
+    )
     system_prompt = config.get("configurable", {}).get("rag_system_prompt") or None
     retrieval_mode = config.get("configurable", {}).get("rag_retrieval_mode") or None
     key_data = config.get("configurable", {}).get("rag_openai_api_key", {})
