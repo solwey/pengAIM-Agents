@@ -6,11 +6,16 @@ from pydantic import BaseModel
 class User(BaseModel):
     """User context model for authentication"""
 
-    identity: str
+    id: str
+    team_id: str
     display_name: str | None = None
     permissions: list[str] = []
     org_id: str | None = None
     is_authenticated: bool = True
+
+    @property
+    def is_admin(self):
+        return "allow_view_history:true" in self.permissions
 
 
 class AuthContext(BaseModel):

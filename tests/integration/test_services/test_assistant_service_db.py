@@ -418,7 +418,7 @@ class TestAssistantServiceDatabase:
         for i, result in enumerate(results):
             assert result.name == f"Concurrent Assistant {i}"
             assert result.graph_id == "test-graph"
-            assert result.user_id == "user-123"
+            assert result.team_id == "user-123"
 
     @pytest.mark.asyncio
     async def test_assistant_transaction_rollback(self, assistant_service):

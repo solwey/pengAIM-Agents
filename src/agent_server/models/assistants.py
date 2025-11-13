@@ -37,7 +37,7 @@ class Assistant(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)
     graph_id: str
-    user_id: str
+    team_id: str
     version: int = Field(..., description="The version of the assistant.")
     metadata: dict[str, Any] = Field(default_factory=dict, alias="metadata_dict")
     created_at: datetime

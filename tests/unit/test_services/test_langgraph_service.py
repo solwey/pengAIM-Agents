@@ -419,9 +419,12 @@ class TestLangGraphServiceContext:
     def test_inject_user_context_with_user(self):
         """Test injecting user context with user object"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123", "name": "Test User"}
+        mock_user.to_dict.return_value = {
+            "identity": "user-123:team-123",
+            "name": "Test User",
+        }
 
         base_config = {"existing": "value"}
 
@@ -431,7 +434,7 @@ class TestLangGraphServiceContext:
         assert result["configurable"]["user_id"] == "user-123"
         assert result["configurable"]["user_display_name"] == "Test User"
         assert result["configurable"]["langgraph_auth_user"] == {
-            "identity": "user-123",
+            "identity": "user-123:team-123",
             "name": "Test User",
         }
 
@@ -448,9 +451,9 @@ class TestLangGraphServiceContext:
     def test_inject_user_context_no_base_config(self):
         """Test injecting context without base config"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         result = inject_user_context(mock_user, None)
 
@@ -460,7 +463,7 @@ class TestLangGraphServiceContext:
     def test_inject_user_context_user_to_dict_failure(self):
         """Test fallback when user.to_dict() fails"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
         mock_user.to_dict.side_effect = Exception("to_dict failed")
 
@@ -468,14 +471,16 @@ class TestLangGraphServiceContext:
 
         assert result["configurable"]["user_id"] == "user-123"
         assert result["configurable"]["user_display_name"] == "Test User"
-        assert result["configurable"]["langgraph_auth_user"] == {"identity": "user-123"}
+        assert result["configurable"]["langgraph_auth_user"] == {
+            "identity": "user-123:team-123"
+        }
 
     def test_inject_user_context_existing_configurable(self):
         """Test preserving existing configurable values"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         base_config = {"configurable": {"existing_key": "existing_value"}}
 
@@ -491,9 +496,9 @@ class TestLangGraphServiceConfigs:
     def test_create_thread_config(self):
         """Test creating thread configuration"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         thread_id = "thread-456"
         additional_config = {"custom": "value"}
@@ -507,9 +512,9 @@ class TestLangGraphServiceConfigs:
     def test_create_thread_config_no_additional(self):
         """Test creating thread config without additional config"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         thread_id = "thread-456"
 
@@ -521,9 +526,9 @@ class TestLangGraphServiceConfigs:
     def test_create_run_config(self):
         """Test creating run configuration"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         run_id = "run-789"
         thread_id = "thread-456"
@@ -543,9 +548,9 @@ class TestLangGraphServiceConfigs:
     def test_create_run_config_with_checkpoint(self):
         """Test creating run config with checkpoint"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         run_id = "run-789"
         thread_id = "thread-456"
@@ -564,9 +569,9 @@ class TestLangGraphServiceConfigs:
     def test_create_run_config_with_tracing_callbacks(self):
         """Test creating run config with tracing callbacks"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         run_id = "run-789"
         thread_id = "thread-456"
@@ -605,9 +610,9 @@ class TestLangGraphServiceConfigs:
     def test_create_run_config_existing_callbacks(self):
         """Test creating run config with existing callbacks"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         run_id = "run-789"
         thread_id = "thread-456"
@@ -631,9 +636,9 @@ class TestLangGraphServiceConfigs:
     def test_create_run_config_invalid_callbacks(self):
         """Test creating run config with invalid callbacks type"""
         mock_user = Mock()
-        mock_user.identity = "user-123"
+        mock_user.identity = "user-123:team-123"
         mock_user.display_name = "Test User"
-        mock_user.to_dict.return_value = {"identity": "user-123"}
+        mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
         run_id = "run-789"
         thread_id = "thread-456"
