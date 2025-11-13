@@ -10,13 +10,13 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
-from graphs.tools_agent.context import AgentInputState, AgentMode, AgentState, Context
-from graphs.tools_agent.prompts import (
+from graphs.react_agent.context import AgentInputState, AgentMode, AgentState, Context
+from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
     RAG_ONLY_PROMPT,
     UNEDITABLE_SYSTEM_PROMPT,
 )
-from graphs.tools_agent.utils import _build_tools, get_api_key_for_model
+from graphs.react_agent.utils import _build_tools, get_api_key_for_model
 
 
 async def call_model(

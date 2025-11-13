@@ -5,7 +5,7 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 from pydantic import BaseModel, Field
 
-from graphs.tools_agent.prompts import DEFAULT_SYSTEM_PROMPT, UNEDITABLE_SYSTEM_PROMPT
+from graphs.react_agent.prompts import DEFAULT_SYSTEM_PROMPT, UNEDITABLE_SYSTEM_PROMPT
 
 
 class AgentMode(Enum):

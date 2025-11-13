@@ -4,8 +4,8 @@ import aiohttp
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
 
-from graphs.tools_agent.context import AgentMode, Context
-from graphs.tools_agent.tools import create_rag_tool
+from graphs.react_agent.context import AgentMode, Context
+from graphs.react_agent.tools import create_rag_tool
 
 RAG_URL = os.getenv("RAG_API_URL", "")
 
