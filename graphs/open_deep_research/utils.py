@@ -4,8 +4,7 @@ import asyncio
 import json
 import logging
 import os
-import warnings
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import aiohttp
@@ -19,16 +18,7 @@ from langchain_core.messages import (
     filter_messages,
 )
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import (
-    BaseTool,
-    InjectedToolArg,
-    StructuredTool,
-    ToolException,
-    tool,
-)
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.config import get_store
-from mcp import McpError
+from langchain_core.tools import InjectedToolArg, tool
 from tavily import AsyncTavilyClient
 
 from graphs.open_deep_research.configuration import AgentMode, Configuration, SearchAPI
@@ -42,7 +32,7 @@ if not RAG_URL:
 
 
 ##########################
-# Agent Mode utils (RAG = RAG-only, ONLINE = Web+MCP)
+# Agent Mode utils (RAG = RAG-only, ONLINE = Web)
 ##########################
 
 
@@ -467,295 +457,6 @@ def think_tool(reflection: str) -> str:
 
 
 ##########################
-# MCP Utils
-##########################
-
-
-async def get_mcp_access_token(
-    access_token: str,
-    base_mcp_url: str,
-) -> dict[str, Any] | None:
-    """Exchange JWT token for MCP access token using OAuth token exchange.
-
-    Args:
-        access_token: Valid JWT authentication token
-        base_mcp_url: Base URL of the MCP server
-
-    Returns:
-        Token data dictionary if successful, None if failed
-    """
-    try:
-        # Prepare OAuth token exchange request data
-        form_data = {
-            "client_id": "mcp_default",
-            "subject_token": access_token,
-            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-            "resource": base_mcp_url.rstrip("/") + "/mcp",
-            "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
-        }
-
-        # Execute token exchange request
-        async with aiohttp.ClientSession() as session:
-            token_url = base_mcp_url.rstrip("/") + "/oauth/token"
-            headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
-            async with session.post(
-                token_url, headers=headers, data=form_data
-            ) as response:
-                if response.status == 200:
-                    # Successfully obtained token
-                    token_data = await response.json()
-                    return token_data
-                else:
-                    # Log error details for debugging
-                    response_text = await response.text()
-                    logging.error(f"Token exchange failed: {response_text}")
-
-    except Exception as e:
-        logging.error(f"Error during token exchange: {e}")
-
-    return None
-
-
-async def get_tokens(config: RunnableConfig):
-    """Retrieve stored authentication tokens with expiration validation.
-
-    Args:
-        config: Runtime configuration containing thread and user identifiers
-
-    Returns:
-        Token dictionary if valid and not expired, None otherwise
-    """
-    store = get_store()
-
-    # Extract required identifiers from config
-    thread_id = config.get("configurable", {}).get("thread_id")
-    if not thread_id:
-        return None
-
-    team_id = config.get("metadata", {}).get("owner")
-    if not team_id or not isinstance(team_id, str):
-        return None
-
-    # Retrieve stored tokens
-    tokens = await store.aget((team_id, "tokens"), "data")
-    if not tokens:
-        return None
-
-    # Check token expiration
-    expires_in = tokens.value.get("expires_in")  # seconds until expiration
-    created_at = tokens.created_at  # datetime of token creation
-    current_time = datetime.now(UTC)
-    expiration_time = created_at + timedelta(seconds=expires_in)
-
-    if current_time > expiration_time:
-        # Token expired, clean up and return None
-        await store.adelete((team_id, "tokens"), "data")
-        return None
-
-    return tokens.value
-
-
-async def set_tokens(config: RunnableConfig, tokens: dict[str, Any]):
-    """Store authentication tokens in the configuration store.
-
-    Args:
-        config: Runtime configuration containing thread and user identifiers
-        tokens: Token dictionary to store
-    """
-    store = get_store()
-
-    # Extract required identifiers from config
-    thread_id = config.get("configurable", {}).get("thread_id")
-    if not thread_id:
-        return
-
-    team_id = config.get("metadata", {}).get("owner")
-    if not team_id or not isinstance(team_id, str):
-        return
-
-    # Store the tokens
-    await store.aput((team_id, "tokens"), "data", tokens)
-
-
-async def fetch_tokens(config: RunnableConfig) -> dict[str, Any] | None:
-    """Fetch and refresh MCP tokens, getting new ones if needed.
-
-    Args:
-        config: Runtime configuration with authentication details
-
-    Returns:
-        Valid token dictionary, or None if unable to get tokens
-    """
-    # Try to get existing valid tokens first
-    current_tokens = await get_tokens(config)
-    if current_tokens:
-        return current_tokens
-
-    # Extract JWT token for new token exchange
-    access_token = config.get("configurable", {}).get("x-jwt-access-token")
-    if not access_token:
-        return None
-
-    # Extract MCP configuration
-    mcp_config = config.get("configurable", {}).get("mcp_config")
-    if not mcp_config or not mcp_config.get("url"):
-        return None
-
-    # Exchange JWT token for MCP tokens
-    mcp_tokens = await get_mcp_access_token(access_token, mcp_config.get("url"))
-    if not mcp_tokens:
-        return None
-
-    # Store the new tokens and return them
-    await set_tokens(config, mcp_tokens)
-    return mcp_tokens
-
-
-def wrap_mcp_authenticate_tool(tool: StructuredTool) -> StructuredTool:
-    """Wrap MCP tool with comprehensive authentication and error handling.
-
-    Args:
-        tool: The MCP structured tool to wrap
-
-    Returns:
-        Enhanced tool with authentication error handling
-    """
-    original_coroutine = tool.coroutine
-
-    async def authentication_wrapper(**kwargs):
-        """Enhanced coroutine with MCP error handling and user-friendly messages."""
-
-        def _find_mcp_error_in_exception_chain(exc: BaseException) -> McpError | None:
-            """Recursively search for MCP errors in exception chains."""
-            if isinstance(exc, McpError):
-                return exc
-
-            # Handle ExceptionGroup (Python 3.11+) by checking attributes
-            if hasattr(exc, "exceptions"):
-                for sub_exception in exc.exceptions:
-                    if found_error := _find_mcp_error_in_exception_chain(sub_exception):
-                        return found_error
-            return None
-
-        try:
-            # Execute the original tool functionality
-            return await original_coroutine(**kwargs)
-
-        except BaseException as original_error:
-            # Search for MCP-specific errors in the exception chain
-            mcp_error = _find_mcp_error_in_exception_chain(original_error)
-            if not mcp_error:
-                # Not an MCP error, re-raise the original exception
-                raise original_error
-
-            # Handle MCP-specific error cases
-            error_details = mcp_error.error
-            error_code = getattr(error_details, "code", None)
-            error_data = getattr(error_details, "data", None) or {}
-
-            # Check for authentication/interaction required error
-            if error_code == -32003:  # Interaction required error code
-                message_payload = error_data.get("message", {})
-                error_message = "Required interaction"
-
-                # Extract user-friendly message if available
-                if isinstance(message_payload, dict):
-                    error_message = message_payload.get("text") or error_message
-
-                # Append URL if provided for user reference
-                if url := error_data.get("url"):
-                    error_message = f"{error_message} {url}"
-
-                raise ToolException(error_message) from original_error
-
-            # For other MCP errors, re-raise the original
-            raise original_error
-
-    # Replace the tool's coroutine with our enhanced version
-    tool.coroutine = authentication_wrapper
-    return tool
-
-
-async def load_mcp_tools(
-    config: RunnableConfig,
-    existing_tool_names: set[str],
-) -> list[BaseTool]:
-    """Load and configure MCP (Model Context Protocol) tools with authentication.
-
-    Args:
-        config: Runtime configuration containing MCP server details
-        existing_tool_names: Set of tool names already in use to avoid conflicts
-
-    Returns:
-        List of configured MCP tools ready for use
-    """
-    configurable = Configuration.from_runnable_config(config)
-
-    tools_cfg = list(configurable.mcp_config.tools or [])
-    auth_required = configurable.mcp_config.auth_required
-    url_cfg = configurable.mcp_config.url
-
-    # Step 1: Handle authentication if required
-    if configurable.mcp_config and auth_required:
-        mcp_tokens = await fetch_tokens(config)
-    else:
-        mcp_tokens = None
-
-    # Step 2: Validate configuration requirements
-    if not (url_cfg and (mcp_tokens or not auth_required)):
-        return []
-
-    if not tools_cfg:
-        return []
-
-    # Step 3: Set up the MCP server connection
-    server_url = configurable.mcp_config.url.rstrip("/") + "/mcp"
-
-    # Configure authentication headers if tokens are available
-    auth_headers = None
-    if mcp_tokens:
-        auth_headers = {"Authorization": f"Bearer {mcp_tokens['access_token']}"}
-
-    mcp_server_config = {
-        "server_1": {
-            "url": server_url,
-            "headers": auth_headers,
-            "transport": "streamable_http",
-        }
-    }
-    # TODO: When Multi-MCP Server support is merged in OAP, update this code
-
-    # Step 4: Load tools from the MCP server
-    try:
-        client = MultiServerMCPClient(mcp_server_config)
-        available_mcp_tools = await client.get_tools()
-    except Exception:
-        # If the MCP server connection fails, return an empty list
-        return []
-
-    # Step 5: Filter and configure tools
-    configured_tools = []
-    for mcp_tool in available_mcp_tools:
-        # Skip tools with conflicting names
-        if mcp_tool.name in existing_tool_names:
-            warnings.warn(
-                f"MCP tool '{mcp_tool.name}' conflicts with existing tool name - skipping"
-            )
-            continue
-
-        # Only include tools specified in configuration
-        if mcp_tool.name not in set(configurable.mcp_config.tools):
-            continue
-
-        # Wrap the tool with authentication handling and add to the list
-        enhanced_tool = wrap_mcp_authenticate_tool(mcp_tool)
-        configured_tools.append(enhanced_tool)
-
-    return configured_tools
-
-
-##########################
 # Tool Utils
 ##########################
 
@@ -806,8 +507,8 @@ async def get_all_tools(config: RunnableConfig):
     """Assemble toolkit strictly based on agent mode.
 
     Modes:
-      - RAG: Core only (ResearchComplete, think_tool). No web search. No MCP.
-      - ONLINE: Core + Web search (per SearchAPI) + MCP tools.
+      - RAG: Core only (ResearchComplete, think_tool). No web search
+      - ONLINE: Core + Web search (per SearchAPI).
 
     Note: RAG/vector tools should be mounted by the calling code in RAG mode.
     This function intentionally avoids adding *any* network-capable tools when use rag mode.
@@ -817,24 +518,15 @@ async def get_all_tools(config: RunnableConfig):
     mode = get_agent_mode(config)
 
     if mode == AgentMode.RAG:
-        # do NOT include web search or MCP tools
+        # do NOT include web search
         tools.append(rag_search)
         return tools
 
-    # ONLINE mode: include Web search + MCP tools when configured
+    # ONLINE mode: include Web search
     configurable = Configuration.from_runnable_config(config)
     search_api = SearchAPI(get_config_value(configurable.search_api))
     search_tools = await get_search_tool(search_api)
     tools.extend(search_tools)
-
-    existing_tool_names = {
-        t.name if hasattr(t, "name") else t.get("name", "web_search") for t in tools
-    }
-
-    # Add MCP tools if configured
-    mcp_tools = await load_mcp_tools(config, existing_tool_names)
-
-    tools.extend(mcp_tools)
 
     return tools
 

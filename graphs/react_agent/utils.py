@@ -1,27 +1,55 @@
-"""Utility & helper functions."""
+import os
 
-from langchain.chat_models import init_chat_model
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
+import aiohttp
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import StructuredTool
 
+from graphs.react_agent.context import AgentMode, Context
+from graphs.react_agent.tools import create_rag_tool
 
-def get_message_text(msg: BaseMessage) -> str:
-    """Get the text content of a message."""
-    content = msg.content
-    if isinstance(content, str):
-        return content
-    elif isinstance(content, dict):
-        return content.get("text", "")
-    else:
-        txts = [c if isinstance(c, str) else (c.get("text") or "") for c in content]
-        return "".join(txts).strip()
+RAG_URL = os.getenv("RAG_API_URL", "")
+
+if not RAG_URL:
+    raise RuntimeError("RAG-only mode is enabled but RAG_API_URL is not set.")
 
 
-def load_chat_model(fully_specified_name: str) -> BaseChatModel:
-    """Load a chat model from a fully specified name.
+async def get_api_key_for_model(config: RunnableConfig) -> str | None:
+    authorization = (
+        config.get("configurable", {})
+        .get("langgraph_auth_user", {})
+        .get("permissions")[0]
+        .replace("authz:", "")
+    )
+    key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
 
-    Args:
-        fully_specified_name (str): String in the format 'provider/model'.
+    if not authorization or not key_data:
+        return None
+
+    search_endpoint = f"{RAG_URL}/keys/{key_data.get('keyId')}/reveal"
+    headers = {"authorization": authorization, "Accept": "text/plain"}
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(search_endpoint, headers=headers) as search_response:
+                search_response.raise_for_status()
+                key = await search_response.text()
+        return key
+    except Exception as e:
+        print("Key exception", e)
+        return None
+
+
+async def _build_tools(cfg: Context) -> dict[str, StructuredTool]:
+    """Build a mapping of tool name -> tool instance based on the config.
+
+    This preserves the previous behavior:
+    * In RAG mode, only the RAG `rag_search` tool is available.
+    * In ONLINE mode, only simple agent is available.
     """
-    provider, model = fully_specified_name.split("/", maxsplit=1)
-    return init_chat_model(model, model_provider=provider)
+    tools: list[StructuredTool] = []
+
+    if cfg.mode == AgentMode.RAG:
+        rag_tool = await create_rag_tool(RAG_URL)
+        tools.append(rag_tool)
+
+    return {t.name: t for t in tools}
