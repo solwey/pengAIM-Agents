@@ -831,7 +831,7 @@ async def researcher(
     """Individual researcher that conducts focused research on specific topics.
 
     This researcher is given a specific research topic by the supervisor and uses
-    available tools (search, think_tool, MCP tools) to gather comprehensive information.
+    available tools (search, think_tool) to gather comprehensive information.
     It can use think_tool for strategic planning between searches.
 
     Args:
@@ -845,12 +845,11 @@ async def researcher(
     configurable = Configuration.from_runnable_config(config)
     researcher_messages = state.get("researcher_messages", [])
 
-    # Get all available research tools (search, MCP, think_tool)
+    # Get all available research tools (search, think_tool)
     tools = await get_all_tools(config)
     if len(tools) == 0:
         raise ValueError(
-            "No tools found to conduct research: Please configure either your "
-            "search API or add MCP tools to your configuration."
+            "No tools found to conduct research: Please configure your search API"
         )
 
     # Step 2: Configure the researcher model with tools
@@ -862,22 +861,6 @@ async def researcher(
         "tags": ["langsmith:nostream"],
     }
 
-    # Auto-hint MCP tools to the model if none provided
-    mcp_prompt_text = configurable.mcp_prompt or ""
-    mcp_tool_names = [
-        getattr(t, "name", None)
-        for t in tools
-        if getattr(t, "name", None) and t.name != "think_tool"
-    ]
-
-    if not mcp_prompt_text and mcp_tool_names:
-        mcp_prompt_text = (
-            "\n3. **MCP tools available**: "
-            + ", ".join(sorted(mcp_tool_names))
-            + ". Use these when the task requires accessing internal systems/data exposed via MCP "
-            "(e.g., listing S3 resources from internal buckets)."
-        )
-
     # Choose mode-specific researcher prompt
     agent_mode = get_agent_mode(config)
     prompt_template = (
@@ -886,7 +869,6 @@ async def researcher(
         else research_system_prompt_online
     )
     researcher_prompt = prompt_template.format(
-        mcp_prompt=mcp_prompt_text,
         date=get_today_str(),
         search_tool=configurable.search_api.value,
     )
@@ -942,8 +924,7 @@ async def researcher_tools(
     This function handles various types of researcher tool calls:
     1. think_tool - Strategic reflection that continues the research conversation
     2. Search tools (tavily_search, firecrawl_search, web_search) - Information gathering
-    3. MCP tools - External tool integrations
-    4. ResearchComplete - Signals completion of individual research task
+    3. ResearchComplete - Signals completion of individual research task
 
     Args:
         state: Current researcher state with messages and iteration count
@@ -979,7 +960,7 @@ async def researcher_tools(
     if not has_tool_calls and not has_native_search:
         return Command(goto="compress_research")
 
-    # Step 2: Handle other tool calls (search, MCP tools, etc.)
+    # Step 2: Handle other tool calls
     tools = await get_all_tools(config)
     tools_by_name = {
         tool.name if hasattr(tool, "name") else tool.get("name", "web_search"): tool

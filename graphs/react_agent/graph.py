@@ -1,116 +1,160 @@
-"""Define a custom Reasoning and Action agent.
+import json
+from typing import Literal
 
-Works with a chat model with tool calling support.
-"""
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import (
+    AIMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, START, StateGraph
 
-from datetime import UTC, datetime
-from typing import Literal, cast
-
-from langchain_core.messages import AIMessage
-from langgraph.graph import StateGraph
-from langgraph.prebuilt import ToolNode
-from langgraph.runtime import Runtime
-
-from react_agent.context import Context
-from react_agent.state import InputState, State
-from react_agent.tools import TOOLS
-from react_agent.utils import load_chat_model
-
-# Define the function that calls the model
+from graphs.react_agent.context import AgentInputState, AgentMode, AgentState, Context
+from graphs.react_agent.prompts import (
+    DEFAULT_SYSTEM_PROMPT,
+    RAG_ONLY_PROMPT,
+    UNEDITABLE_SYSTEM_PROMPT,
+)
+from graphs.react_agent.utils import _build_tools, get_api_key_for_model
 
 
 async def call_model(
-    state: State, runtime: Runtime[Context]
+    state: AgentState, config: RunnableConfig
 ) -> dict[str, list[AIMessage]]:
-    """Call the LLM powering our "agent".
+    cfg = Context(**config.get("configurable", {}))
 
-    This function prepares the prompt, initializes the model, and processes the response.
+    # Prepare tools
+    tools_by_name = await _build_tools(cfg)
+    tools = list(tools_by_name.values())
 
-    Args:
-        state (State): The current state of the conversation.
-        config (RunnableConfig): Configuration for the model run.
+    # Resolve API key for the selected model
+    api_key = await get_api_key_for_model(config)
 
-    Returns:
-        dict: A dictionary containing the model's response message.
-    """
-    # Initialize the model with tool binding. Change the model or add more tools here.
-    model = load_chat_model(runtime.context.model).bind_tools(TOOLS)
-
-    # Format the system prompt. Customize this to change the agent's behavior.
-    system_message = runtime.context.system_prompt.format(
-        system_time=datetime.now(tz=UTC).isoformat()
+    model = init_chat_model(
+        cfg.model_name,
+        temperature=cfg.temperature,
+        max_tokens=cfg.max_tokens,
+        api_key=api_key or "No token found",
     )
 
-    # Get the model's response
-    response = cast(
-        "AIMessage",
-        await model.ainvoke(
-            [{"role": "system", "content": system_message}, *state.messages]
-        ),
+    if tools:
+        model = model.bind_tools(tools)
+
+    rag_only_contract = ""
+    if cfg.mode == AgentMode.RAG:
+        rag_only_contract = RAG_ONLY_PROMPT
+
+    final_system_prompt = (
+        (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
+        + rag_only_contract
+        + UNEDITABLE_SYSTEM_PROMPT
     )
 
-    # Handle the case when it's the last step and the model still wants to use a tool
-    if state.is_last_step and response.tool_calls:
-        return {
-            "messages": [
-                AIMessage(
-                    id=response.id,
-                    content="Sorry, I could not find an answer to your question in the specified number of steps.",
-                )
-            ]
-        }
+    system_message = SystemMessage(content=final_system_prompt)
 
-    # Return the model's response as a list to be added to existing messages
+    response = await model.ainvoke([system_message, *state["messages"]])
+    if not isinstance(response, AIMessage):
+        raise TypeError(f"Expected AIMessage from model, got {type(response)}")
+
     return {"messages": [response]}
 
 
-# Define a new graph
+async def tools_node(
+    state: AgentState, config: RunnableConfig
+) -> dict[str, list[ToolMessage]]:
+    last_ai: AIMessage | None = None
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            last_ai = msg
+            break
 
-builder = StateGraph(State, input_schema=InputState, context_schema=Context)
+    if not last_ai or not last_ai.tool_calls:
+        return {"messages": []}
 
-# Define the two nodes we will cycle between
-builder.add_node(call_model)
-builder.add_node("tools", ToolNode(TOOLS))
+    cfg = Context(**config.get("configurable", {}))
+    tools_by_name = await _build_tools(cfg)
 
-# Set the entrypoint as `call_model`
-# This means that this node is the first one called
-builder.add_edge("__start__", "call_model")
+    tool_messages: list[ToolMessage] = []
 
+    for tool_call in last_ai.tool_calls:
+        name = tool_call.get("name")
+        raw_args = tool_call.get("args") or {}
 
-def route_model_output(state: State) -> Literal["__end__", "tools"]:
-    """Determine the next node based on the model's output.
+        if isinstance(raw_args, str):
+            try:
+                args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                args = {}
+        elif isinstance(raw_args, dict):
+            args = raw_args
+        else:
+            args = {}
 
-    This function checks if the model's last message contains tool calls.
+        tool = tools_by_name.get(name or "")
+        if tool is None:
+            content = f"Tool '{name}' is not available in the current configuration."
+            tool_messages.append(
+                ToolMessage(
+                    content=content,
+                    tool_call_id=tool_call.get("id", ""),
+                    name=name or "unknown_tool",
+                )
+            )
+            continue
 
-    Args:
-        state (State): The current state of the conversation.
+        try:
+            result = await tool.ainvoke(args)
+        except Exception as e:
+            result = f"Tool '{name}' raised an error: {e}"
 
-    Returns:
-        str: The name of the next node to call ("__end__" or "tools").
-    """
-    last_message = state.messages[-1]
-    if not isinstance(last_message, AIMessage):
-        raise ValueError(
-            f"Expected AIMessage in output edges, but got {type(last_message).__name__}"
+        tool_messages.append(
+            ToolMessage(
+                content=json.dumps({"answer": result, "question": args.get("query")}),
+                tool_call_id=tool_call.get("id", ""),
+                name=name or tool.name,
+            )
         )
-    # If there is no tool call, then we finish
-    if not last_message.tool_calls:
+
+    return {"messages": tool_messages}
+
+
+def route_model_output(state: AgentState) -> Literal["tools", "__end__"]:
+    last_ai: AIMessage | None = None
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, AIMessage):
+            last_ai = msg
+            break
+
+    if last_ai is None:
         return "__end__"
-    # Otherwise we execute the requested actions
-    return "tools"
+
+    if getattr(last_ai, "tool_calls", None):
+        return "tools"
+
+    return "__end__"
 
 
-# Add a conditional edge to determine the next step after `call_model`
-builder.add_conditional_edges(
-    "call_model",
-    # After call_model finishes running, the next node(s) are scheduled
-    # based on the output from route_model_output
-    route_model_output,
+builder = StateGraph(
+    AgentState,
+    input=AgentInputState,
+    config_schema=Context,
 )
 
-# Add a normal edge from `tools` to `call_model`
-# This creates a cycle: after using tools, we always return to the model
+builder.add_node("call_model", call_model)
+builder.add_node("tools", tools_node)
+
+builder.add_edge(START, "call_model")
+
+builder.add_conditional_edges(
+    "call_model",
+    route_model_output,
+    {
+        "tools": "tools",
+        "__end__": END,
+    },
+)
+
 builder.add_edge("tools", "call_model")
 
-# Compile the builder into an executable graph
-graph = builder.compile(name="ReAct Agent")
+graph = builder.compile()
