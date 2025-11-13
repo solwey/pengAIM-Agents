@@ -170,20 +170,10 @@ class LangGraphService:
             # set one.
             checkpointer_cm = await db_manager.get_checkpointer()
             try:
-                try:
-                    print("GET STORE")
-                    store_cm = await db_manager.get_store()
-                    print("COMPILE GRAPH")
-                    compiled_graph = base_graph.copy(
-                        update={"checkpointer": checkpointer_cm, "store": store_cm}
-                    )
-                except:
-                    print("GET STORE2")
-                    store_cm = await db_manager.get_store()
-                    print("COMPILE GRAPH2")
-                    compiled_graph = base_graph.copy(
-                        update={"checkpointer": checkpointer_cm, "store": store_cm}
-                    )
+                store_cm = await db_manager.get_store()
+                compiled_graph = base_graph.copy(
+                    update={"checkpointer": checkpointer_cm, "store": store_cm}
+                )
             except Exception as e:
                 print("PRE-COMPILED GRAPH ERROR", e)
                 # Fallback: property may be immutably set; run as-is with warning
