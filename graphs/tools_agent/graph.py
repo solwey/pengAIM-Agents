@@ -25,7 +25,7 @@ async def call_model(
     cfg = Context(**config.get("configurable", {}))
 
     # Prepare tools
-    tools_by_name = await _build_tools(cfg, config)
+    tools_by_name = await _build_tools(cfg)
     tools = list(tools_by_name.values())
 
     # Resolve API key for the selected model
@@ -73,7 +73,7 @@ async def tools_node(
         return {"messages": []}
 
     cfg = Context(**config.get("configurable", {}))
-    tools_by_name = await _build_tools(cfg, config)
+    tools_by_name = await _build_tools(cfg)
 
     tool_messages: list[ToolMessage] = []
 
