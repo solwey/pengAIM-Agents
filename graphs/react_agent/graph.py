@@ -13,7 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from graphs.react_agent.context import AgentInputState, AgentMode, AgentState, Context
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
-    RAG_ONLY_PROMPT,
+    RAG_RETRIEVAL_POLICY,
     UNEDITABLE_SYSTEM_PROMPT,
 )
 from graphs.react_agent.utils import _build_tools, get_api_key_for_model
@@ -43,7 +43,7 @@ async def call_model(
 
     rag_only_contract = ""
     if cfg.mode == AgentMode.RAG:
-        rag_only_contract = RAG_ONLY_PROMPT
+        rag_only_contract = RAG_RETRIEVAL_POLICY
 
     final_system_prompt = (
         (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
