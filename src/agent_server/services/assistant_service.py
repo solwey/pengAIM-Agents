@@ -43,8 +43,8 @@ def to_pydantic(row: AssistantORM) -> Assistant:
     # Cast UUIDs to str so they match the Pydantic schema
     if hasattr(row, "assistant_id") and row.assistant_id is not None:
         row.assistant_id = str(row.assistant_id)
-    if hasattr(row, "user_id") and isinstance(row.user_id, uuid.UUID):
-        row.user_id = str(row.user_id)
+    if hasattr(row, "team_id") and isinstance(row.team_id, uuid.UUID):
+        row.team_id = str(row.team_id)
 
     # Use Pydantic's built-in ORM conversion with from_attributes=True
     return Assistant.model_validate(row, from_attributes=True)
@@ -138,7 +138,7 @@ class AssistantService:
         self.langgraph_service = langgraph_service
 
     async def create_assistant(
-        self, request: AssistantCreate, user_identity: str
+        self, request: AssistantCreate, team_id: str
     ) -> Assistant:
         """Create a new assistant"""
         # Get LangGraph service to validate graph
@@ -182,7 +182,7 @@ class AssistantService:
 
         # Check if an assistant already exists for this user, graph and config pair (ignore soft-deleted)
         existing_stmt = select(AssistantORM).where(
-            AssistantORM.user_id == user_identity,
+            AssistantORM.team_id == team_id,
             or_(
                 (AssistantORM.graph_id == graph_id) & (AssistantORM.config == config),
                 AssistantORM.assistant_id == assistant_id,
@@ -205,7 +205,7 @@ class AssistantService:
             config=config,
             context=context,
             graph_id=graph_id,
-            user_id=user_identity,
+            team_id=team_id,
             metadata_dict=request.metadata,
             version=1,
         )
@@ -231,11 +231,10 @@ class AssistantService:
 
         return to_pydantic(assistant_orm)
 
-    async def list_assistants(self, user_identity: str) -> list[Assistant]:
-        """List user's assistants and system assistants"""
-        # Include both user's assistants and system assistants (like search_assistants does)
+    async def list_assistants(self, team_id: str) -> list[Assistant]:
+        """List user's assistants"""
         stmt = select(AssistantORM).where(
-            or_(AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"),
+            or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system"),
             AssistantORM.deleted_at.is_(None),
         )
         result = await self.session.scalars(stmt)
@@ -245,14 +244,14 @@ class AssistantService:
     async def search_assistants(
         self,
         request: Any,  # AssistantSearchRequest
-        user_identity: str,
+        team_id: str,
     ) -> list[Assistant]:
         """Search assistants with filters"""
         metadata = request.metadata or {}
         include_deleted = metadata.pop("include_deleted", "false") == "true"
         # Start with user's assistants
         stmt = select(AssistantORM).where(
-            or_(AssistantORM.user_id == user_identity, AssistantORM.user_id == "system")
+            or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system")
         )
         if not include_deleted:
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
@@ -285,7 +284,7 @@ class AssistantService:
     async def count_assistants(
         self,
         request: Any,  # AssistantSearchRequest
-        user_identity: str,
+        team_id: str,
     ) -> int:
         """Count assistants with filters"""
         metadata = request.metadata or {}
@@ -293,7 +292,7 @@ class AssistantService:
 
         # Include both user's assistants and system assistants (like search_assistants does)
         stmt = select(func.count()).where(
-            or_(AssistantORM.user_id == user_identity, AssistantORM.user_id == "system")
+            or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system")
         )
         if not include_deleted:
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
@@ -315,13 +314,11 @@ class AssistantService:
         total = await self.session.scalar(stmt)
         return total or 0
 
-    async def get_assistant(self, assistant_id: str, user_identity: str) -> Assistant:
+    async def get_assistant(self, assistant_id: str, team_id: str) -> Assistant:
         """Get assistant by ID"""
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            or_(
-                AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
-            ),
+            or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system"),
             AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
@@ -332,7 +329,7 @@ class AssistantService:
         return to_pydantic(assistant)
 
     async def update_assistant(
-        self, assistant_id: str, request: AssistantUpdate, user_identity: str
+        self, assistant_id: str, request: AssistantUpdate, team_id: str
     ) -> Assistant:
         """Update assistant by ID"""
         metadata = request.metadata or {}
@@ -355,7 +352,7 @@ class AssistantService:
 
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            AssistantORM.user_id == user_identity,
+            AssistantORM.team_id == team_id,
         )
         assistant = await self.session.scalar(stmt)
         if not assistant:
@@ -393,7 +390,7 @@ class AssistantService:
             update(AssistantORM)
             .where(
                 AssistantORM.assistant_id == assistant_id,
-                AssistantORM.user_id == user_identity,
+                AssistantORM.team_id == team_id,
             )
             .values(
                 name=new_version_details["name"],
@@ -410,11 +407,11 @@ class AssistantService:
         updated_assistant = await self.session.scalar(stmt)
         return to_pydantic(updated_assistant)
 
-    async def delete_assistant(self, assistant_id: str, user_identity: str) -> dict:
+    async def delete_assistant(self, assistant_id: str, team_id: str) -> dict:
         """Delete assistant by ID (soft delete)"""
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            AssistantORM.user_id == user_identity,
+            AssistantORM.team_id == team_id,
             AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
@@ -428,12 +425,12 @@ class AssistantService:
         return {"status": "deleted"}
 
     async def set_assistant_latest(
-        self, assistant_id: str, version: int, user_identity: str
+        self, assistant_id: str, version: int, team_id: str
     ) -> Assistant:
         """Set the given version as the latest version of an assistant"""
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            AssistantORM.user_id == user_identity,
+            AssistantORM.team_id == team_id,
             AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
@@ -454,7 +451,7 @@ class AssistantService:
             update(AssistantORM)
             .where(
                 AssistantORM.assistant_id == assistant_id,
-                AssistantORM.user_id == user_identity,
+                AssistantORM.team_id == team_id,
             )
             .values(
                 name=assistant_version.name,
@@ -472,14 +469,12 @@ class AssistantService:
         return to_pydantic(updated_assistant)
 
     async def list_assistant_versions(
-        self, assistant_id: str, user_identity: str
+        self, assistant_id: str, team_id: str
     ) -> list[Assistant]:
         """List all versions of an assistant"""
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            or_(
-                AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
-            ),
+            or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system"),
             AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
@@ -508,7 +503,7 @@ class AssistantService:
                 config=v.config or {},
                 context=v.context or {},
                 graph_id=v.graph_id,
-                user_id=user_identity,
+                team_id=team_id,
                 version=v.version,
                 created_at=v.created_at,
                 updated_at=v.created_at,
@@ -519,15 +514,11 @@ class AssistantService:
 
         return version_list
 
-    async def get_assistant_schemas(
-        self, assistant_id: str, user_identity: str
-    ) -> dict:
+    async def get_assistant_schemas(self, assistant_id: str, team_id: str) -> dict:
         """Get input, output, state, config and context schemas for an assistant"""
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            or_(
-                AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
-            ),
+            or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system"),
         )
         assistant = await self.session.scalar(stmt)
 
@@ -544,14 +535,12 @@ class AssistantService:
             raise HTTPException(400, f"Failed to extract schemas: {str(e)}") from e
 
     async def get_assistant_graph(
-        self, assistant_id: str, xray: bool | int, user_identity: str
+        self, assistant_id: str, xray: bool | int, team_id: str
     ) -> dict:
         """Get the graph structure for visualization"""
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            or_(
-                AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
-            ),
+            or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system"),
             AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)
@@ -590,14 +579,12 @@ class AssistantService:
         assistant_id: str,
         namespace: str | None,
         recurse: bool,
-        user_identity: str,
+        team_id: str,
     ) -> dict:
         """Get subgraphs of an assistant"""
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            or_(
-                AssistantORM.user_id == user_identity, AssistantORM.user_id == "system"
-            ),
+            or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system"),
             AssistantORM.deleted_at.is_(None),
         )
         assistant = await self.session.scalar(stmt)

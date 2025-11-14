@@ -25,7 +25,7 @@ async def put_store_item(
     """Store an item in the LangGraph store"""
 
     # Apply user namespace scoping
-    scoped_namespace = apply_user_namespace_scoping(user.identity, request.namespace)
+    scoped_namespace = apply_user_namespace_scoping(user.id, request.namespace)
 
     # Get LangGraph store from database manager
     from ..core.database import db_manager
@@ -57,7 +57,7 @@ async def get_store_item(
         ns_list = []
 
     # Apply user namespace scoping
-    scoped_namespace = apply_user_namespace_scoping(user.identity, ns_list)
+    scoped_namespace = apply_user_namespace_scoping(user.id, ns_list)
 
     # Get LangGraph store from database manager
     from ..core.database import db_manager
@@ -95,7 +95,7 @@ async def delete_store_item(
         k = key
 
     # Apply user namespace scoping
-    scoped_namespace = apply_user_namespace_scoping(user.identity, ns)
+    scoped_namespace = apply_user_namespace_scoping(user.id, ns)
 
     # Get LangGraph store from database manager
     from ..core.database import db_manager
@@ -114,9 +114,7 @@ async def search_store_items(
     """Search items in the LangGraph store"""
 
     # Apply user namespace scoping
-    scoped_prefix = apply_user_namespace_scoping(
-        user.identity, request.namespace_prefix
-    )
+    scoped_prefix = apply_user_namespace_scoping(user.id, request.namespace_prefix)
 
     # Get LangGraph store from database manager
     from ..core.database import db_manager

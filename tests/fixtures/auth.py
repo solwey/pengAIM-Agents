@@ -6,7 +6,9 @@ from typing import Any
 class DummyUser:
     """Mock user for testing"""
 
-    def __init__(self, identity: str = "test-user", display_name: str = "Test User"):
+    def __init__(
+        self, identity: str = "test-user:team-123", display_name: str = "Test User"
+    ):
         self.identity = identity
         self.display_name = display_name
         self.is_authenticated = True

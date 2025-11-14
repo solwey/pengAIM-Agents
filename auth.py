@@ -10,7 +10,7 @@ auth = Auth()
 AUTH_VERIFICATION_URL = os.getenv("RAG_API_URL")
 
 
-async def verify_token_status(token: str) -> str:
+async def verify_token_status(token: str) -> tuple[str, str, str]:
     if not AUTH_VERIFICATION_URL:
         raise ValueError("AUTH_VERIFICATION_URL is not configured")
 
@@ -25,7 +25,7 @@ async def verify_token_status(token: str) -> str:
 
     user = resp.json()
 
-    return user.get("team_id")
+    return user.get("id"), user.get("team_id"), user.get("role")
 
 
 def extract_authz(ctx: Auth.types.AuthContext) -> str | None:
@@ -79,14 +79,17 @@ async def get_current_user(
         )
 
     try:
-        team_id = await verify_token_status(token)
+        user_id, team_id, role = await verify_token_status(token)
         if not team_id:
             raise ValueError("Team id not found in verification response")
 
         return {
-            "identity": team_id,
+            "identity": f"{user_id}:{team_id}",
             "is_authenticated": True,
-            "permissions": [f"authz:{authorization}"],
+            "permissions": [
+                f"authz:{authorization}",
+                f"allow_view_history:{'true' if role == 'superadmin' else 'false'}",
+            ],
         }
     except Exception as e:
         raise Auth.exceptions.HTTPException(

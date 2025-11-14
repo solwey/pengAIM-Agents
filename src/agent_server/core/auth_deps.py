@@ -34,9 +34,11 @@ def get_current_user(request: Request) -> User:
     # Convert LangGraphUser to our User model
     # request.user is the LangGraphUser instance from auth_middleware
     user_data = request.user.to_dict()
+    user_id, team_id = user_data["identity"].split(":")
 
     return User(
-        identity=user_data["identity"],
+        id=user_id,
+        team_id=team_id,
         display_name=user_data.get("display_name"),
         permissions=user_data.get("permissions", []),
         org_id=user_data.get("org_id"),
@@ -54,7 +56,7 @@ def get_user_id(user: User = Depends(get_current_user)) -> str:
     Returns:
         User identity string
     """
-    return user.identity
+    return user.id
 
 
 def require_permission(permission: str):

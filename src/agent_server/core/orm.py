@@ -43,7 +43,7 @@ class Assistant(Base):
     graph_id: Mapped[str] = mapped_column(Text, nullable=False)
     config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     context: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    team_id: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("1")
     )
@@ -62,8 +62,8 @@ class Assistant(Base):
 
     # Indexes for performance
     __table_args__ = (
-        Index("idx_assistant_user", "user_id"),
-        Index("idx_assistant_user_assistant", "user_id", "assistant_id", unique=True),
+        Index("idx_assistant_user", "team_id"),
+        Index("idx_assistant_user_assistant", "team_id", "assistant_id", unique=True),
         Index("idx_assistant_deleted_at", "deleted_at"),
     )
 
@@ -98,6 +98,7 @@ class Thread(Base):
         "metadata_json", JSONB, server_default=text("'{}'::jsonb")
     )
     user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    team_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )
@@ -106,7 +107,11 @@ class Thread(Base):
     )
 
     # Indexes for performance
-    __table_args__ = (Index("idx_thread_user", "user_id"),)
+    __table_args__ = (
+        Index("idx_thread_user", "user_id"),
+        Index("idx_thread_team", "team_id"),
+        Index("idx_thread_team_user", "team_id", "user_id"),
+    )
 
 
 class Run(Base):
@@ -133,6 +138,7 @@ class Run(Base):
     output: Mapped[dict | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(Text)
     user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    team_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )
@@ -147,6 +153,8 @@ class Run(Base):
         Index("idx_runs_status", "status"),
         Index("idx_runs_assistant_id", "assistant_id"),
         Index("idx_runs_created_at", "created_at"),
+        Index("idx_runs_team", "team_id"),
+        Index("idx_runs_team_user", "team_id", "user_id"),
     )
 
 

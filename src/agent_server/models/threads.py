@@ -27,6 +27,7 @@ class Thread(BaseModel):
     status: str = "idle"  # Valid values: idle, busy, interrupted, error
     metadata: dict[str, Any] = Field(default_factory=dict)
     user_id: str
+    team_id: str
     created_at: datetime
 
     @field_validator("status", mode="before")

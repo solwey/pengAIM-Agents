@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..api.runs import active_runs
 from ..core.auth_deps import get_current_user
+from ..core.orm import Assistant as AssistantORM
 from ..core.orm import Run as RunORM
 from ..core.orm import Thread as ThreadORM
 from ..core.orm import get_session
@@ -49,6 +50,30 @@ thread_state_service = ThreadStateService()
 # In-memory storage removed; using database via ORM
 
 
+async def ensure_access(thread: ThreadORM, user: User, session: AsyncSession) -> None:
+    if user.is_admin or thread.user_id == user.id:
+        return
+
+    assistant_id = thread.metadata_json.get("assistant_id")
+    if not assistant_id:
+        raise HTTPException(404, f"Thread '{thread.thread_id}' not found")
+
+    stmt = select(AssistantORM).where(
+        AssistantORM.assistant_id == assistant_id,
+        AssistantORM.team_id == user.team_id,
+    )
+    assistant = await session.scalar(stmt)
+    if not assistant:
+        raise HTTPException(404, f"Thread '{thread.thread_id}' not found")
+
+    cfg_allow = assistant.config.get("configurable", {}).get(
+        "allow_view_history", False
+    )
+
+    if not cfg_allow:
+        raise HTTPException(404, f"Thread '{thread.thread_id}' not found")
+
+
 @router.post("/threads", response_model=Thread)
 async def create_thread(
     request: ThreadCreate,
@@ -63,7 +88,7 @@ async def create_thread(
     metadata = request.metadata or {}
     metadata.update(
         {
-            "owner": user.identity,
+            "owner": user.id,
             "assistant_id": None,  # Will be set when first run is created
             "graph_id": None,  # Will be set when first run is created
             "thread_name": "",  # User can update this later
@@ -74,7 +99,8 @@ async def create_thread(
         thread_id=thread_id,
         status="idle",
         metadata_json=metadata,
-        user_id=user.identity,
+        user_id=user.id,
+        team_id=user.team_id,
     )
     # SQLAlchemy AsyncSession.add is sync; do not await
     session.add(thread_orm)
@@ -107,8 +133,9 @@ async def create_thread(
         getattr(thread_orm, "thread_id", thread_id), thread_id
     )
     coerced_status = _coerce_str(getattr(thread_orm, "status", "idle"), "idle")
-    coerced_user_id = _coerce_str(
-        getattr(thread_orm, "user_id", user.identity), user.identity
+    coerced_user_id = _coerce_str(getattr(thread_orm, "user_id", user.id), user.id)
+    coerced_team_id = _coerce_str(
+        getattr(thread_orm, "team_id", user.team_id), user.team_id
     )
     coerced_metadata = _coerce_dict(
         getattr(thread_orm, "metadata_json", metadata), metadata
@@ -122,6 +149,7 @@ async def create_thread(
         "status": coerced_status,
         "metadata": coerced_metadata,
         "user_id": coerced_user_id,
+        "team_id": coerced_team_id,
         "created_at": coerced_created_at,
     }
 
@@ -133,9 +161,20 @@ async def list_threads(
     user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)
 ):
     """List user's threads"""
-    stmt = select(ThreadORM).where(ThreadORM.user_id == user.identity)
+    # Fetch all threads for the current team
+    stmt = select(ThreadORM).where(ThreadORM.team_id == user.team_id)
     result = await session.scalars(stmt)
     rows = result.all()
+
+    visible_threads: list[ThreadORM] = []
+    for t in rows:
+        try:
+            await ensure_access(t, user, session)
+        except HTTPException:
+            # Hide threads the user is not allowed to see
+            continue
+        visible_threads.append(t)
+
     user_threads = [
         Thread.model_validate(
             {
@@ -143,7 +182,7 @@ async def list_threads(
                 "metadata": t.metadata_json,
             }
         )
-        for t in rows
+        for t in visible_threads
     ]
     return ThreadList(threads=user_threads, total=len(user_threads))
 
@@ -156,11 +195,14 @@ async def get_thread(
 ):
     """Get thread by ID"""
     stmt = select(ThreadORM).where(
-        ThreadORM.thread_id == thread_id, ThreadORM.user_id == user.identity
+        ThreadORM.thread_id == thread_id,
+        ThreadORM.team_id == user.team_id,
     )
     thread = await session.scalar(stmt)
     if not thread:
         raise HTTPException(404, f"Thread '{thread_id}' not found")
+
+    await ensure_access(thread, user, session)
 
     return Thread.model_validate(
         {
@@ -183,11 +225,14 @@ async def get_thread_state(
     """Get state for a thread (i.e. latest checkpoint)"""
     try:
         stmt = select(ThreadORM).where(
-            ThreadORM.thread_id == thread_id, ThreadORM.user_id == user.identity
+            ThreadORM.thread_id == thread_id,
+            ThreadORM.team_id == user.team_id,
         )
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
+
+        await ensure_access(thread, user, session)
 
         thread_metadata = thread.metadata_json or {}
         graph_id = thread_metadata.get("graph_id")
@@ -453,11 +498,13 @@ async def get_thread_state_at_checkpoint(
     try:
         # Verify the thread exists and belongs to the user
         stmt = select(ThreadORM).where(
-            ThreadORM.thread_id == thread_id, ThreadORM.user_id == user.identity
+            ThreadORM.thread_id == thread_id, ThreadORM.team_id == user.team_id
         )
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
+
+        await ensure_access(thread, user, session)
 
         # Extract graph_id from thread metadata
         thread_metadata = thread.metadata_json or {}
@@ -612,11 +659,13 @@ async def get_thread_history_post(
 
         # Verify the thread exists and belongs to the user
         stmt = select(ThreadORM).where(
-            ThreadORM.thread_id == thread_id, ThreadORM.user_id == user.identity
+            ThreadORM.thread_id == thread_id, ThreadORM.team_id == user.team_id
         )
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
+
+        await ensure_access(thread, user, session)
 
         # Extract graph_id from thread metadata
         thread_metadata = thread.metadata_json or {}
@@ -741,16 +790,18 @@ async def delete_thread(
     """
     # Check if thread exists
     stmt = select(ThreadORM).where(
-        ThreadORM.thread_id == thread_id, ThreadORM.user_id == user.identity
+        ThreadORM.thread_id == thread_id, ThreadORM.team_id == user.team_id
     )
     thread = await session.scalar(stmt)
     if not thread:
         raise HTTPException(404, f"Thread '{thread_id}' not found")
 
+    await ensure_access(thread, user, session)
+
     # Check for active runs and cancel them
     active_runs_stmt = select(RunORM).where(
         RunORM.thread_id == thread_id,
-        RunORM.user_id == user.identity,
+        RunORM.team_id == user.team_id,
         RunORM.status.in_(["pending", "running"]),
     )
     active_runs_list = (await session.scalars(active_runs_stmt)).all()
@@ -798,7 +849,9 @@ async def search_threads(
 ):
     """Search threads with filters"""
 
-    stmt = select(ThreadORM).where(ThreadORM.user_id == user.identity)
+    print("USER", user.team_id, user.is_admin)
+
+    stmt = select(ThreadORM).where(ThreadORM.team_id == user.team_id)
 
     if request.status:
         stmt = stmt.where(ThreadORM.status == request.status)
@@ -815,6 +868,15 @@ async def search_threads(
 
     result = await session.scalars(stmt)
     rows = result.all()
+
+    visible_threads: list[ThreadORM] = []
+    for t in rows:
+        try:
+            await ensure_access(t, user, session)
+        except HTTPException:
+            continue
+        visible_threads.append(t)
+
     threads_models = [
         Thread.model_validate(
             {
@@ -822,7 +884,7 @@ async def search_threads(
                 "metadata": t.metadata_json,
             }
         )
-        for t in rows
+        for t in visible_threads
     ]
 
     # Return array of threads for client/vendor parity

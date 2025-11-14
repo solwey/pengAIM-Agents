@@ -173,7 +173,8 @@ class LangGraphService:
                 compiled_graph = base_graph.copy(
                     update={"checkpointer": checkpointer_cm, "store": store_cm}
                 )
-            except Exception:
+            except Exception as e:
+                print("PRE-COMPILED GRAPH ERROR", e)
                 # Fallback: property may be immutably set; run as-is with warning
                 logger.warning(
                     f"⚠️  Pre-compiled graph '{graph_id}' does not support checkpointer injection; running without persistence"
@@ -261,9 +262,9 @@ def inject_user_context(user, base_config: dict = None) -> dict:
     # All user-related data injection (only if user exists)
     if user:
         # Basic user identity for multi-tenant scoping
-        config["configurable"].setdefault("user_id", user.identity)
+        config["configurable"].setdefault("user_id", user.id)
         config["configurable"].setdefault(
-            "user_display_name", getattr(user, "display_name", user.identity)
+            "user_display_name", getattr(user, "display_name", user.id)
         )
 
         # Full auth payload for graph nodes
@@ -273,7 +274,7 @@ def inject_user_context(user, base_config: dict = None) -> dict:
             except Exception:
                 # Fallback: minimal dict if to_dict unavailable
                 config["configurable"]["langgraph_auth_user"] = {
-                    "identity": user.identity,
+                    "identity": f"{user.id}:{user.team_id}",
                     "permissions": user.permissions,
                 }
 
@@ -327,7 +328,7 @@ def create_run_config(
 
     # Add metadata from all observability providers (independent of callbacks)
     cfg.setdefault("metadata", {})
-    user_identity = user.identity if user else None
+    user_identity = f"{user.id}:{user.team_id}" if user else None
     observability_metadata = get_tracing_metadata(run_id, thread_id, user_identity)
     cfg["metadata"].update(observability_metadata)
 
