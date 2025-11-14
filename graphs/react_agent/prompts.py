@@ -7,10 +7,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful assistant that has access to a variety of tools."
 )
 
-RAG_RETRIEVAL_POLICY = """
-[RAG RETRIEVAL POLICY]
-
-For context, today's date is {date}.
+RAG_RETRIEVAL_POLICY = """[RAG RETRIEVAL POLICY]
 
 Priority and scope
 - This section defines your default behavior for using the internal knowledge base.
