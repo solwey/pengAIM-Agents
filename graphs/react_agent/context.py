@@ -5,7 +5,11 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 from pydantic import BaseModel, Field
 
-from graphs.react_agent.prompts import DEFAULT_SYSTEM_PROMPT, UNEDITABLE_SYSTEM_PROMPT
+from graphs.react_agent.prompts import (
+    DEFAULT_SYSTEM_PROMPT,
+    RAG_RETRIEVAL_POLICY,
+    UNEDITABLE_SYSTEM_PROMPT,
+)
 
 
 class AgentMode(Enum):
@@ -88,29 +92,13 @@ class Context(BaseModel):
                 "default": "openai:gpt-4o-mini",
                 "description": "The model to use in all generations",
                 "options": [
-                    {
-                        "label": "Claude Sonnet 4",
-                        "value": "anthropic:claude-sonnet-4-0",
-                    },
-                    {
-                        "label": "Claude 3.7 Sonnet",
-                        "value": "anthropic:claude-3-7-sonnet-latest",
-                    },
-                    {
-                        "label": "Claude 3.5 Sonnet",
-                        "value": "anthropic:claude-3-5-sonnet-latest",
-                    },
-                    {
-                        "label": "Claude 3.5 Haiku",
-                        "value": "anthropic:claude-3-5-haiku-latest",
-                    },
-                    {"label": "o4 mini", "value": "openai:o4-mini"},
-                    {"label": "o3", "value": "openai:o3"},
-                    {"label": "o3 mini", "value": "openai:o3-mini"},
                     {"label": "GPT 4o", "value": "openai:gpt-4o"},
                     {"label": "GPT 4o mini", "value": "openai:gpt-4o-mini"},
                     {"label": "GPT 4.1", "value": "openai:gpt-4.1"},
                     {"label": "GPT 4.1 mini", "value": "openai:gpt-4.1-mini"},
+                    {"label": "GPT 5.0", "value": "openai:gpt-5.0"},
+                    {"label": "GPT 5.1", "value": "openai:gpt-5.1"},
+                    {"label": "GPT 5 mini", "value": "openai:gpt-5-mini"},
                 ],
             }
         },
@@ -196,6 +184,18 @@ class Context(BaseModel):
                     f"{UNEDITABLE_SYSTEM_PROMPT}\n---"
                 ),
                 "default": DEFAULT_SYSTEM_PROMPT,
+            }
+        },
+    )
+
+    tools_policy_prompt: str | None = Field(
+        default=RAG_RETRIEVAL_POLICY,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "textarea",
+                "placeholder": "Enter a tools policy prompt...",
+                "description": ("The tools policy prompt to use in all generations."),
+                "default": RAG_RETRIEVAL_POLICY,
             }
         },
     )

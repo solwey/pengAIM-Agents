@@ -226,8 +226,14 @@ class Configuration(BaseModel):
         default="openai:gpt-4o-mini",
         metadata={
             "x_oap_ui_config": {
-                "type": "text",
+                "type": "select",
                 "default": "openai:gpt-4o-mini",
+                "options": [
+                    {"label": "GPT‑4o‑mini", "value": "openai:gpt-4o-mini"},
+                    {"label": "GPT‑5.0", "value": "openai:gpt-5.0"},
+                    {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
+                    {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                ],
                 "description": "Model for summarizing research results from Tavily search results",
             }
         },
@@ -258,8 +264,14 @@ class Configuration(BaseModel):
         default="openai:gpt-4o-mini",
         metadata={
             "x_oap_ui_config": {
-                "type": "text",
+                "type": "select",
                 "default": "openai:gpt-4o-mini",
+                "options": [
+                    {"label": "GPT‑4o‑mini", "value": "openai:gpt-4o-mini"},
+                    {"label": "GPT‑5.0", "value": "openai:gpt-5.0"},
+                    {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
+                    {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                ],
                 "description": "Model for conducting research. NOTE: Make sure your Researcher Model supports the selected search API.",
             }
         },
@@ -278,8 +290,14 @@ class Configuration(BaseModel):
         default="openai:gpt-4o-mini",
         metadata={
             "x_oap_ui_config": {
-                "type": "text",
+                "type": "select",
                 "default": "openai:gpt-4o-mini",
+                "options": [
+                    {"label": "GPT‑4o‑mini", "value": "openai:gpt-4o-mini"},
+                    {"label": "GPT‑5.0", "value": "openai:gpt-5.0"},
+                    {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
+                    {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                ],
                 "description": "Model for compressing research findings from sub-agents. NOTE: Make sure your Compression Model supports the selected search API.",
             }
         },
@@ -298,8 +316,14 @@ class Configuration(BaseModel):
         default="openai:gpt-4o-mini",
         metadata={
             "x_oap_ui_config": {
-                "type": "text",
+                "type": "select",
                 "default": "openai:gpt-4o-mini",
+                "options": [
+                    {"label": "GPT‑4o‑mini", "value": "openai:gpt-4o-mini"},
+                    {"label": "GPT‑5.0", "value": "openai:gpt-5.0"},
+                    {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
+                    {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                ],
                 "description": "Model for writing the final report from all research findings",
             }
         },
