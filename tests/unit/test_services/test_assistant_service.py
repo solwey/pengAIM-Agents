@@ -271,7 +271,7 @@ class TestAssistantServiceCreate:
             obj.assistant_id = "test-id"
             obj.name = "Test Assistant"
             obj.description = "Test description"
-            obj.user_id = "user-123"
+            obj.team_id = "user-123"
             obj.graph_id = "test-graph"
             obj.version = 1
             obj.created_at = datetime.now(UTC)
@@ -375,7 +375,7 @@ class TestAssistantServiceCreate:
             obj.assistant_id = "test-id"
             obj.name = "Test Assistant"
             obj.description = "Test description"
-            obj.user_id = "user-123"
+            obj.team_id = "user-123"
             obj.graph_id = "test-graph"
             obj.version = 1
             obj.created_at = datetime.now(UTC)
@@ -415,7 +415,7 @@ class TestAssistantServiceCreate:
             obj.assistant_id = "test-id"
             obj.name = "Test Assistant"
             obj.description = "Test description"
-            obj.user_id = "user-123"
+            obj.team_id = "user-123"
             obj.graph_id = "test-graph"
             obj.version = 1
             obj.created_at = datetime.now(UTC)

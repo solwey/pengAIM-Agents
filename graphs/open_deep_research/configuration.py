@@ -46,26 +46,13 @@ class StepConfig(BaseModel):
 class Configuration(BaseModel):
     """Main configuration class for the Deep Research agent."""
 
-    # General Configuration
-    max_structured_output_retries: int = Field(
-        default=3,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "number",
-                "default": 3,
-                "min": 1,
-                "max": 10,
-                "description": "Maximum number of retries for structured output calls from models",
-            }
-        },
-    )
-
     mode: AgentMode = Field(
         default=AgentMode.RAG,
         optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
+                "required": True,
                 "default": AgentMode.RAG.value,
                 "description": "Select how the agent retrieves information: from local RAG data or online sources.",
                 "options": [
@@ -76,19 +63,47 @@ class Configuration(BaseModel):
         },
     )
 
-    rag_system_prompt: str | None = Field(
-        default=None,
-        optional=True,
+    agent_openai_api_key: dict[str, str] = Field(
+        default="No token found",
         metadata={
             "x_oap_ui_config": {
-                "type": "textarea",
-                "placeholder": "Enter a custom system prompt or leave empty to use the default one...",
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your custom OpenAI API key for this agent...",
                 "description": (
-                    "Define a custom system prompt to guide the RAG agent’s behavior and tone. "
-                    "If left empty, the agent will automatically use the platform’s default prompt. "
-                    "Use this to personalize responses for your specific project or domain."
+                    "Provide a dedicated OpenAI API key to be used only by this agent. "
                 ),
                 "default": "",
+            }
+        },
+    )
+
+    rag_openai_api_key: dict[str, str] = Field(
+        default="No token found",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your OpenAI API key for RAG operations...",
+                "description": (
+                    "Specify a separate OpenAI API key to be used for RAG tasks "
+                    "such as document search, summarization, or contextual QA. "
+                ),
+                "default": "",
+            }
+        },
+    )
+
+    # General Configuration
+    max_structured_output_retries: int = Field(
+        default=3,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 3,
+                "min": 1,
+                "max": 10,
+                "description": "Maximum number of retries for structured output calls from models",
             }
         },
     )
@@ -117,6 +132,17 @@ class Configuration(BaseModel):
                 "type": "boolean",
                 "default": False,
                 "description": "Whether to allow the researcher to ask the user clarifying questions before starting research",
+            }
+        },
+    )
+
+    allow_view_history: bool = Field(
+        default=False,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "switch",
+                "default": False,
+                "description": "Allow all members of the team to view and access this agent’s runs and threads",
             }
         },
     )
@@ -320,31 +346,17 @@ class Configuration(BaseModel):
         },
     )
 
-    agent_openai_api_key: dict[str, str] | None = Field(
+    rag_system_prompt: str | None = Field(
         default=None,
         optional=True,
         metadata={
             "x_oap_ui_config": {
-                "type": "password",
-                "placeholder": "Enter your custom OpenAI API key for this agent...",
+                "type": "textarea",
+                "placeholder": "Enter a custom system prompt or leave empty to use the default one...",
                 "description": (
-                    "Provide a dedicated OpenAI API key to be used only by this agent. "
-                ),
-                "default": "",
-            }
-        },
-    )
-
-    rag_openai_api_key: dict[str, str] | None = Field(
-        default=None,
-        optional=True,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "password",
-                "placeholder": "Enter your OpenAI API key for RAG operations...",
-                "description": (
-                    "Specify a separate OpenAI API key to be used for RAG tasks "
-                    "such as document search, summarization, or contextual QA. "
+                    "Define a custom system prompt to guide the RAG agent’s behavior and tone. "
+                    "If left empty, the agent will automatically use the platform’s default prompt. "
+                    "Use this to personalize responses for your specific project or domain."
                 ),
                 "default": "",
             }

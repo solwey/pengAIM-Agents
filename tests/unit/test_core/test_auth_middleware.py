@@ -23,7 +23,7 @@ class TestLangGraphUser:
     def test_user_initialization(self):
         """Test user initialization with user data"""
         user_data = {
-            "identity": "user-123",
+            "identity": "user-123:team-123",
             "display_name": "Test User",
             "is_authenticated": True,
             "email": "test@example.com",
@@ -37,49 +37,52 @@ class TestLangGraphUser:
 
     def test_user_identity_property(self):
         """Test identity property"""
-        user_data = {"identity": "test-identity"}
+        user_data = {"identity": "test-identity:team-123"}
         user = LangGraphUser(user_data)
 
         assert user.identity == "test-identity"
 
     def test_user_display_name_default(self):
         """Test display_name defaults to identity"""
-        user_data = {"identity": "test-identity"}
+        user_data = {"identity": "test-identity:team-123"}
         user = LangGraphUser(user_data)
 
         assert user.display_name == "test-identity"
 
     def test_user_display_name_custom(self):
         """Test custom display_name"""
-        user_data = {"identity": "test-identity", "display_name": "Custom Name"}
+        user_data = {
+            "identity": "test-identity:team-123",
+            "display_name": "Custom Name",
+        }
         user = LangGraphUser(user_data)
 
         assert user.display_name == "Custom Name"
 
     def test_user_is_authenticated_default(self):
         """Test is_authenticated defaults to True"""
-        user_data = {"identity": "test-identity"}
+        user_data = {"identity": "test-identity:team-123"}
         user = LangGraphUser(user_data)
 
         assert user.is_authenticated is True
 
     def test_user_is_authenticated_custom(self):
         """Test custom is_authenticated value"""
-        user_data = {"identity": "test-identity", "is_authenticated": False}
+        user_data = {"identity": "test-identity:team-123", "is_authenticated": False}
         user = LangGraphUser(user_data)
 
         assert user.is_authenticated is False
 
     def test_user_getattr_existing_field(self):
         """Test __getattr__ with existing field"""
-        user_data = {"identity": "test-identity", "email": "test@example.com"}
+        user_data = {"identity": "test-identity:team-123", "email": "test@example.com"}
         user = LangGraphUser(user_data)
 
         assert user.email == "test@example.com"
 
     def test_user_getattr_nonexistent_field(self):
         """Test __getattr__ with non-existent field"""
-        user_data = {"identity": "test-identity"}
+        user_data = {"identity": "test-identity:team-123"}
         user = LangGraphUser(user_data)
 
         with pytest.raises(AttributeError, match="no attribute 'nonexistent'"):
@@ -88,7 +91,7 @@ class TestLangGraphUser:
     def test_user_to_dict(self):
         """Test to_dict method"""
         user_data = {
-            "identity": "test-identity",
+            "identity": "test-identity:team-123",
             "display_name": "Test User",
             "email": "test@example.com",
         }
@@ -222,7 +225,7 @@ class TestLangGraphAuthBackend:
         mock_auth_instance = Mock()
         mock_auth_instance._authenticate_handler = AsyncMock(
             return_value={
-                "identity": "user-123",
+                "identity": "user-123:team-123",
                 "display_name": "Test User",
                 "permissions": ["read", "write"],
             }
@@ -250,7 +253,7 @@ class TestLangGraphAuthBackend:
         """Test authentication with string permissions"""
         mock_auth_instance = Mock()
         mock_auth_instance._authenticate_handler = AsyncMock(
-            return_value={"identity": "user-123", "permissions": "admin"}
+            return_value={"identity": "user-123:team-123", "permissions": "admin"}
         )
 
         backend = LangGraphAuthBackend()
@@ -325,7 +328,7 @@ class TestLangGraphAuthBackend:
         """Test header conversion for different types"""
         mock_auth_instance = Mock()
         mock_auth_instance._authenticate_handler = AsyncMock(
-            return_value={"identity": "user-123"}
+            return_value={"identity": "user-123:team-123"}
         )
 
         backend = LangGraphAuthBackend()
@@ -435,7 +438,7 @@ class TestAuthMiddlewareIntegration:
         mock_auth_instance = Mock()
         mock_auth_instance._authenticate_handler = AsyncMock(
             return_value={
-                "identity": "user-123",
+                "identity": "user-123:team-123",
                 "display_name": "Test User",
                 "email": "test@example.com",
                 "permissions": ["read", "write", "admin"],

@@ -22,6 +22,7 @@ class Thread(BaseModel):
     status: str = "idle"
     metadata: dict[str, Any] = Field(default_factory=dict)
     user_id: str
+    team_id: str
     created_at: datetime
 
     class Config:

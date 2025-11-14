@@ -29,6 +29,57 @@ class AgentState(TypedDict):
 
 # noinspection PyArgumentList
 class Context(BaseModel):
+    mode: AgentMode = Field(
+        default=AgentMode.RAG,
+        optional=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": AgentMode.RAG.value,
+                "description": (
+                    "Select how the agent retrieves information: "
+                    "from local RAG data or online sources."
+                ),
+                "options": [
+                    {"label": "Rag only", "value": AgentMode.RAG.value},
+                    {"label": "Online only", "value": AgentMode.ONLINE.value},
+                ],
+            }
+        },
+    )
+
+    agent_openai_api_key: dict[str, str] | None = Field(
+        default=None,
+        optional=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your custom OpenAI API key for this agent...",
+                "description": (
+                    "Provide a dedicated OpenAI API key to be used only by this agent. "
+                ),
+                "default": "",
+            }
+        },
+    )
+    rag_openai_api_key: dict[str, str] | None = Field(
+        default=None,
+        optional=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your OpenAI API key for RAG operations...",
+                "description": (
+                    "Specify a separate OpenAI API key to be used for RAG tasks "
+                    "such as document search, summarization, or contextual QA. "
+                ),
+                "default": "",
+            }
+        },
+    )
+
     model_name: str | None = Field(
         default="openai:gpt-4o-mini",
         metadata={
@@ -88,55 +139,18 @@ class Context(BaseModel):
             }
         },
     )
-    system_prompt: str | None = Field(
-        default=DEFAULT_SYSTEM_PROMPT,
+
+    allow_view_history: bool = Field(
+        default=False,
         metadata={
             "x_oap_ui_config": {
-                "type": "textarea",
-                "placeholder": "Enter a system prompt...",
-                "description": (
-                    "The system prompt to use in all generations. "
-                    "The following prompt will always be included at the end of the system prompt:\n---"
-                    f"{UNEDITABLE_SYSTEM_PROMPT}\n---"
-                ),
-                "default": DEFAULT_SYSTEM_PROMPT,
+                "type": "switch",
+                "default": False,
+                "description": "Allow all members of the team to view and access this agent’s runs and threads",
             }
         },
     )
-    mode: AgentMode = Field(
-        default=AgentMode.RAG,
-        optional=True,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "select",
-                "default": AgentMode.RAG.value,
-                "description": (
-                    "Select how the agent retrieves information: "
-                    "from local RAG data or online sources."
-                ),
-                "options": [
-                    {"label": "Rag only", "value": AgentMode.RAG.value},
-                    {"label": "Online only", "value": AgentMode.ONLINE.value},
-                ],
-            }
-        },
-    )
-    rag_system_prompt: str | None = Field(
-        default=None,
-        optional=True,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "textarea",
-                "placeholder": "Enter a custom system prompt or leave empty to use the default one...",
-                "description": (
-                    "Define a custom system prompt to guide the RAG agent’s behavior and tone. "
-                    "If left empty, the agent will automatically use the platform’s default prompt. "
-                    "Use this to personalize responses for your specific project or domain."
-                ),
-                "default": "",
-            }
-        },
-    )
+
     rag_retrieval_mode: RetrievalMode = Field(
         default=RetrievalMode.RRF,
         description="How the agent retrieves information during RAG operations.",
@@ -153,32 +167,35 @@ class Context(BaseModel):
             }
         },
     )
-    agent_openai_api_key: dict[str, str] | None = Field(
+
+    rag_system_prompt: str | None = Field(
         default=None,
         optional=True,
         metadata={
             "x_oap_ui_config": {
-                "type": "password",
-                "placeholder": "Enter your custom OpenAI API key for this agent...",
+                "type": "textarea",
+                "placeholder": "Enter a custom system prompt or leave empty to use the default one...",
                 "description": (
-                    "Provide a dedicated OpenAI API key to be used only by this agent. "
+                    "Define a custom system prompt to guide the RAG agent’s behavior and tone. "
+                    "If left empty, the agent will automatically use the platform’s default prompt. "
+                    "Use this to personalize responses for your specific project or domain."
                 ),
                 "default": "",
             }
         },
     )
-    rag_openai_api_key: dict[str, str] | None = Field(
-        default=None,
-        optional=True,
+    system_prompt: str | None = Field(
+        default=DEFAULT_SYSTEM_PROMPT,
         metadata={
             "x_oap_ui_config": {
-                "type": "password",
-                "placeholder": "Enter your OpenAI API key for RAG operations...",
+                "type": "textarea",
+                "placeholder": "Enter a system prompt...",
                 "description": (
-                    "Specify a separate OpenAI API key to be used for RAG tasks "
-                    "such as document search, summarization, or contextual QA. "
+                    "The system prompt to use in all generations. "
+                    "The following prompt will always be included at the end of the system prompt:\n---"
+                    f"{UNEDITABLE_SYSTEM_PROMPT}\n---"
                 ),
-                "default": "",
+                "default": DEFAULT_SYSTEM_PROMPT,
             }
         },
     )

@@ -86,6 +86,7 @@ class Run(BaseModel):
     config: dict[str, Any] | None = {}
     context: dict[str, Any] | None = {}
     user_id: str
+    team_id: str
     created_at: datetime
     updated_at: datetime
 
