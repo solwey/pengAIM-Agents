@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from graphs.react_agent.context import AgentInputState, AgentState, Context
+from graphs.react_agent.rag_models import RagToolError
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
     UNEDITABLE_SYSTEM_PROMPT,
@@ -99,13 +100,24 @@ async def tools_node(
             continue
 
         try:
-            result = await tool.ainvoke(args)
+            # Pass config to tool invocation for proper context propagation
+            result = await tool.ainvoke(args, config=config)
         except Exception as e:
-            result = f"Tool '{name}' raised an error: {e}"
+            # Create structured error response matching tool format
 
+            error = RagToolError(
+                error=f"Tool '{name}' raised an error: {str(e)}",
+                error_type="tool_execution_error",
+                details={"tool_name": name},
+            )
+            result = json.dumps(error.model_dump(), ensure_ascii=False)
+
+        # Don't re-encode! The tool already returns a JSON string
+        # For RAG tool: result is already JSON with {context_text, sources, retrieval_metadata}
+        # For other tools: preserve their native return format
         tool_messages.append(
             ToolMessage(
-                content=json.dumps({"answer": result, "question": args.get("query")}),
+                content=result,  # Use result directly without wrapping
                 tool_call_id=tool_call.get("id", ""),
                 name=name or tool.name,
             )
