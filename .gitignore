@@ -27,3 +27,6 @@ htmlcov/
 
 # Pre-commit
 .pre-commit-cache/
+
+# Claude local settings
+.claude/settings.local.json
