@@ -119,7 +119,7 @@ class LangGraphService:
                         description=f"Default assistant for graph '{graph_id}'",
                         graph_id=graph_id,
                         config={},
-                        user_id="system",
+                        team_id="system",
                         metadata_dict={"created_by": "system"},
                     )
                 )
