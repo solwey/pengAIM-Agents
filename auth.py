@@ -82,20 +82,24 @@ async def get_current_user(
         user_id, team_id, role = await verify_token_status(token)
         if not team_id:
             raise ValueError("Team id not found in verification response")
+        shared_chat_history = "false"
+        
+        # Uncomment if superadmin should have access:
+        # if role == "superadmin":
+        #     shared_chat_history = "true"
 
         return {
             "identity": f"{user_id}:{team_id}",
             "is_authenticated": True,
             "permissions": [
                 f"authz:{authorization}",
-                f"allow_view_history:{'true' if role == 'superadmin' else 'false'}",
+                f"shared_chat_history:{shared_chat_history}",
             ],
         }
     except Exception as e:
         raise Auth.exceptions.HTTPException(
             status_code=401, detail=f"Authentication error: {str(e)}"
         )
-
 
 @auth.on
 async def authorize(

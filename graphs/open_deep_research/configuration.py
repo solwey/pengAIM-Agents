@@ -136,7 +136,7 @@ class Configuration(BaseModel):
         },
     )
 
-    allow_view_history: bool = Field(
+    shared_chat_history: bool = Field(
         default=False,
         metadata={
             "x_oap_ui_config": {
