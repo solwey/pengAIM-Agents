@@ -96,7 +96,7 @@ class Context(BaseModel):
                     {"label": "GPT 4o mini", "value": "openai:gpt-4o-mini"},
                     {"label": "GPT 4.1", "value": "openai:gpt-4.1"},
                     {"label": "GPT 4.1 mini", "value": "openai:gpt-4.1-mini"},
-                    {"label": "GPT 5.0", "value": "openai:gpt-5.0"},
+                    {"label": "GPT 5", "value": "openai:gpt-5"},
                     {"label": "GPT 5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT 5 mini", "value": "openai:gpt-5-mini"},
                 ],
