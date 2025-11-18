@@ -56,7 +56,7 @@ async def ensure_access(run_orm: RunORM, user: User, session: AsyncSession) -> N
         raise HTTPException(404, f"Run '{run_orm.run_id}' not found")
 
     cfg_allow = assistant.config.get("configurable", {}).get(
-        "allow_view_history", False
+        "shared_chat_history", False
     )
 
     if not cfg_allow:
@@ -483,7 +483,7 @@ async def list_runs(
     cfg_allow_expr = func.coalesce(
         cast(
             func.jsonb_extract_path_text(
-                RunORM.config, "configurable", "allow_view_history"
+                RunORM.config, "configurable", "shared_chat_history"
             ),
             Boolean,
         ),

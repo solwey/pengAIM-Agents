@@ -15,7 +15,7 @@ class User(BaseModel):
 
     @property
     def is_admin(self):
-        return "allow_view_history:true" in self.permissions
+        return "shared_chat_history:true" in self.permissions
 
 
 class AuthContext(BaseModel):
