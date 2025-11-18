@@ -67,7 +67,7 @@ async def ensure_access(thread: ThreadORM, user: User, session: AsyncSession) ->
         raise HTTPException(404, f"Thread '{thread.thread_id}' not found")
 
     cfg_allow = assistant.config.get("configurable", {}).get(
-        "allow_view_history", False
+        "shared_chat_history", False
     )
 
     if not cfg_allow:
