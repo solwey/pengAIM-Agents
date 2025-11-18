@@ -242,7 +242,7 @@ class TestDeleteAssistant:
         data = resp.json()
         assert data["status"] == "deleted"
         mock_assistant_service.delete_assistant.assert_called_once_with(
-            "test-assistant-123", "test-user"
+            "test-assistant-123", "test_team"
         )
 
     def test_delete_assistant_not_found(self, client, mock_assistant_service):

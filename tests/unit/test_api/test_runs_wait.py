@@ -23,7 +23,7 @@ class TestWaitForRunExceptionPaths:
         # Setup mocks
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         # Mock request
         request = MagicMock()
@@ -112,7 +112,7 @@ class TestWaitForRunExceptionPaths:
         """Test that CancelledError is handled gracefully."""
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
@@ -189,7 +189,7 @@ class TestWaitForRunExceptionPaths:
         """Test that generic Exception is handled gracefully."""
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
@@ -266,7 +266,7 @@ class TestWaitForRunExceptionPaths:
         """Test that HTTPException 500 is raised if run disappears during execution."""
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
@@ -330,7 +330,7 @@ class TestWaitForRunExceptionPaths:
         """Test that failed runs return output and log error."""
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
@@ -409,7 +409,7 @@ class TestWaitForRunExceptionPaths:
         """Test that interrupted runs return partial output."""
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
@@ -485,7 +485,7 @@ class TestWaitForRunExceptionPaths:
         """Test that cancelled runs return empty output."""
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
@@ -560,7 +560,7 @@ class TestWaitForRunExceptionPaths:
     async def test_wait_for_run_graph_not_found(self):
         """Test that HTTPException 404 is raised if assistant's graph doesn't exist."""
         thread_id = "test-thread-123"
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
@@ -617,7 +617,7 @@ class TestWaitForRunExceptionPaths:
         """Test the context branch where context is provided."""
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
@@ -693,7 +693,7 @@ class TestWaitForRunExceptionPaths:
         """Test the else branch where context is not provided."""
         thread_id = "test-thread-123"
         run_id = str(uuid4())
-        user = User(id="test-user", scopes=[])
+        user = User(id="test-user", team_id="test-team", scopes=[])
 
         request = MagicMock()
         request.assistant_id = "test-assistant"
