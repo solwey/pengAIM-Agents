@@ -11,6 +11,9 @@ wheels/
 
 # env files
 .env
+.env_deploy
+!.env.*example
+/scripts/.env.*
 
 # Pycharm
 .idea/

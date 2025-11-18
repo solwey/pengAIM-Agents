@@ -26,6 +26,18 @@ class SourceDocument(BaseModel):
     )
 
 
+class DocumentCollectionInfo(BaseModel):
+    """Document with its collection ID mapping.
+
+    Maps document UUIDs to their parent collection IDs, allowing for
+    collection-level attribution and organization of retrieved documents.
+    """
+
+    document_id: str = Field(..., description="Document UUID")
+    collection_id: str = Field(..., description="Collection ID the document belongs to")
+    document_title: Optional[str] = Field(None, description="Document title (file name)")
+
+
 class RagToolResponse(BaseModel):
     """Structured response from RAG tool matching RagContextResponse API.
 
@@ -33,6 +45,7 @@ class RagToolResponse(BaseModel):
     - context_text: Full retrieved context as a single string for direct use
     - sources: Individual source documents with metadata for citation
     - retrieval_metadata: Information about the retrieval process
+    - document_collections: Mapping of documents to their collections
     """
 
     context_text: str = Field(
@@ -46,6 +59,10 @@ class RagToolResponse(BaseModel):
     retrieval_metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Metadata about the retrieval process (mode, timing, counts, etc.)"
+    )
+    document_collections: List[DocumentCollectionInfo] = Field(
+        default_factory=list,
+        description="List of documents with their collection mappings"
     )
 
     def format_for_llm(self) -> str:

@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import ValidationError
 
-from graphs.react_agent.rag_models import RagToolResponse, RagToolError, SourceDocument
+from graphs.react_agent.rag_models import RagToolResponse, RagToolError, SourceDocument, DocumentCollectionInfo
 
 
 async def create_rag_tool(rag_url: str):
@@ -152,15 +152,29 @@ async def create_rag_tool(rag_url: str):
                             print(f"Warning: Invalid source document: {e}")
                             continue
 
+                # Parse document collections if present
+                document_collections = []
+                raw_collections = data.get("document_collections", [])
+                if isinstance(raw_collections, list):
+                    for coll_data in raw_collections:
+                        try:
+                            collection = DocumentCollectionInfo(**coll_data)
+                            document_collections.append(collection)
+                        except ValidationError as e:
+                            # Log but don't fail on individual collection errors
+                            print(f"Warning: Invalid document collection: {e}")
+                            continue
+
                 # Build structured response
                 rag_response = RagToolResponse(
                     context_text=data.get("context_text", ""),
                     sources=sources,
                     retrieval_metadata=data.get("retrieval_metadata", {}),
+                    document_collections=document_collections,
                 )
 
                 # Return structured JSON
-                return json.dumps(rag_response.model_dump(), ensure_ascii=False)
+                return rag_response.model_dump_json(indent=2, ensure_ascii=False)
 
             except (ValidationError, ValueError) as e:
                 error = RagToolError(
