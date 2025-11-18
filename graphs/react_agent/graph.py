@@ -1,5 +1,5 @@
 import json
-from typing import Literal
+from typing import Literal, Any
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
@@ -10,8 +10,13 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
-from graphs.react_agent.context import AgentInputState, AgentState, Context
-from graphs.react_agent.rag_models import RagToolError
+from graphs.react_agent.context import AgentInputState, AgentState, AgentOutputState, Context
+from graphs.react_agent.rag_models import (
+    RagToolError,
+    RagToolResponse,
+    SourceDocument,
+    DocumentCollectionInfo,
+)
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
     UNEDITABLE_SYSTEM_PROMPT,
@@ -58,7 +63,7 @@ async def call_model(
 
 async def tools_node(
     state: AgentState, config: RunnableConfig
-) -> dict[str, list[ToolMessage]]:
+) -> dict[str, Any]:
     last_ai: AIMessage | None = None
     for msg in reversed(state["messages"]):
         if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
@@ -72,6 +77,8 @@ async def tools_node(
     tools_by_name = await _build_tools(cfg)
 
     tool_messages: list[ToolMessage] = []
+    extracted_sources: list[SourceDocument] = []
+    extracted_collections: list[DocumentCollectionInfo] = []
 
     for tool_call in last_ai.tool_calls:
         name = tool_call.get("name")
@@ -113,7 +120,7 @@ async def tools_node(
             result = json.dumps(error.model_dump(), ensure_ascii=False)
 
         # Don't re-encode! The tool already returns a JSON string
-        # For RAG tool: result is already JSON with {context_text, sources, retrieval_metadata}
+        # For RAG tool: result is already JSON with {context_text, sources, retrieval_metadata, document_collections}
         # For other tools: preserve their native return format
         tool_messages.append(
             ToolMessage(
@@ -123,7 +130,25 @@ async def tools_node(
             )
         )
 
-    return {"messages": tool_messages}
+        # Extract sources and document_collections from RAG tool responses
+        if name == "rag_search":
+            try:
+                parsed_result = json.loads(result)
+                # Check if this is a successful RagToolResponse (not RagToolError)
+                if "context_text" in parsed_result and "sources" in parsed_result:
+                    # Parse the response as RagToolResponse
+                    rag_response = RagToolResponse(**parsed_result)
+                    extracted_sources.extend(rag_response.sources)
+                    extracted_collections.extend(rag_response.document_collections)
+            except (json.JSONDecodeError, Exception):
+                # If parsing fails, skip extraction (could be error response or malformed)
+                pass
+
+    return {
+        "messages": tool_messages,
+        "sources": extracted_sources,
+        "document_collections": extracted_collections,
+    }
 
 
 def route_model_output(state: AgentState) -> Literal["tools", "__end__"]:
@@ -145,6 +170,7 @@ def route_model_output(state: AgentState) -> Literal["tools", "__end__"]:
 builder = StateGraph(
     AgentState,
     input=AgentInputState,
+    output=AgentOutputState,
     config_schema=Context,
 )
 

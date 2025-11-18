@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import Annotated, TypedDict
+import operator
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
@@ -10,6 +11,7 @@ from graphs.react_agent.prompts import (
     RAG_RETRIEVAL_POLICY,
     UNEDITABLE_SYSTEM_PROMPT,
 )
+from graphs.react_agent.rag_models import SourceDocument, DocumentCollectionInfo
 
 
 class AgentMode(Enum):
@@ -29,6 +31,14 @@ class AgentInputState(TypedDict):
 
 class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
+    sources: Annotated[list[SourceDocument], operator.add]
+    document_collections: Annotated[list[DocumentCollectionInfo], operator.add]
+
+
+class AgentOutputState(TypedDict):
+    messages: list[AnyMessage]
+    sources: list[SourceDocument]
+    document_collections: list[DocumentCollectionInfo]
 
 
 # noinspection PyArgumentList
