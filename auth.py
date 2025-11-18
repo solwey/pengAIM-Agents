@@ -83,10 +83,9 @@ async def get_current_user(
         if not team_id:
             raise ValueError("Team id not found in verification response")
         shared_chat_history = "false"
-        
-        # Uncomment if superadmin should have access:
-        # if role == "superadmin":
-        #     shared_chat_history = "true"
+
+        if role == "superadmin":
+            shared_chat_history = "true"
 
         return {
             "identity": f"{user_id}:{team_id}",
@@ -100,6 +99,7 @@ async def get_current_user(
         raise Auth.exceptions.HTTPException(
             status_code=401, detail=f"Authentication error: {str(e)}"
         )
+
 
 @auth.on
 async def authorize(
