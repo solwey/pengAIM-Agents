@@ -268,7 +268,7 @@ async def test_system_assistant_graph_access():
     # Find a system assistant (created with graph_id)
     system_assistant = None
     for assistant in assistants:
-        if assistant.get("user_id") == "system":
+        if assistant.get("team_id") == "system":
             system_assistant = assistant
             break
 

@@ -97,7 +97,7 @@ class TestAssistantServiceDatabase:
         assert result.name == "Test Assistant"
         assert result.description == "A test assistant"
         assert result.graph_id == "test-graph"
-        assert result.user_id == "user-123"
+        assert result.team_id == "user-123"
         assert result.version == 1
         assert result.config == {"temperature": 0.7}
         assert result.metadata == {"env": "test"}
@@ -200,7 +200,8 @@ class TestAssistantServiceDatabase:
         )
 
         assert result == {"status": "deleted"}
-        assert assistant in assistant_service.session.deleted_objects
+        assert assistant not in assistant_service.session.deleted_objects
+        assert assistant.deleted_at is not None
 
     @pytest.mark.asyncio
     async def test_search_assistants_pagination(self, assistant_service):

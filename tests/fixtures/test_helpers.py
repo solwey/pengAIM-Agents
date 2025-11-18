@@ -11,7 +11,7 @@ def make_assistant(
     name: str = "Test Assistant",
     graph_id: str = "test-graph",
     metadata: dict[str, Any] | None = None,
-    user_id: str = "test-user",
+    team_id: str = "test-team",
     description: str | None = None,
 ) -> Assistant:
     """Create a mock assistant object"""
@@ -21,7 +21,7 @@ def make_assistant(
         description=description,
         graph_id=graph_id,
         metadata_dict=metadata or {},
-        user_id=user_id,
+        team_id=team_id,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
         config={},
@@ -34,6 +34,7 @@ def make_thread(
     status: str = "idle",
     metadata: dict[str, Any] | None = None,
     user_id: str = "test-user",
+    team_id: str = "test-team",
 ) -> Thread:
     """Create a mock thread object"""
     return Thread(
@@ -41,6 +42,7 @@ def make_thread(
         status=status,
         metadata=metadata or {"owner": user_id},
         user_id=user_id,
+        team_id=team_id,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
@@ -52,6 +54,7 @@ def make_run(
     assistant_id: str = "test-assistant-123",
     status: str = "running",
     user_id: str = "test-user",
+    team_id: str = "test-team",
     metadata: dict[str, Any] | None = None,
     input_data: dict[str, Any] | None = None,
     output_data: dict[str, Any] | None = None,
@@ -63,6 +66,7 @@ def make_run(
         assistant_id=assistant_id,
         status=status,
         user_id=user_id,
+        team_id=team_id,
         metadata=metadata or {},
         input=input_data or {"message": "test"},
         output=output_data,
@@ -81,6 +85,7 @@ class DummyRun:
         assistant_id: str = "test-assistant-123",
         status: str = "running",
         user_id: str = "test-user",
+        team_id: str = "test-team",
         metadata: dict[str, Any] | None = None,
         input_data: dict[str, Any] | None = None,
         output_data: dict[str, Any] | None = None,
@@ -90,6 +95,7 @@ class DummyRun:
         self.assistant_id = assistant_id
         self.status = status
         self.user_id = user_id
+        self.team_id = team_id
         self.metadata = metadata or {}
         self.input = input_data or {"message": "test"}
         self.output = output_data
@@ -106,11 +112,13 @@ class DummyThread:
         status: str = "idle",
         metadata: dict[str, Any] | None = None,
         user_id: str = "test-user",
+        team_id: str = "test-team",
     ):
         self.thread_id = thread_id
         self.status = status
         self.metadata = metadata or {"owner": user_id}
         self.user_id = user_id
+        self.team_id = team_id
         self.created_at = datetime.now(UTC)
         self.updated_at = datetime.now(UTC)
 

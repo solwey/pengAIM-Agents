@@ -419,7 +419,8 @@ class TestLangGraphServiceContext:
     def test_inject_user_context_with_user(self):
         """Test injecting user context with user object"""
         mock_user = Mock()
-        mock_user.identity = "user-123:team-123"
+        mock_user.id = "user-123"
+        mock_user.team_id = "team-123"
         mock_user.display_name = "Test User"
         mock_user.to_dict.return_value = {
             "identity": "user-123:team-123",
@@ -451,7 +452,8 @@ class TestLangGraphServiceContext:
     def test_inject_user_context_no_base_config(self):
         """Test injecting context without base config"""
         mock_user = Mock()
-        mock_user.identity = "user-123:team-123"
+        mock_user.id = "user-123"
+        mock_user.team_id = "team-123"
         mock_user.display_name = "Test User"
         mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
@@ -463,8 +465,10 @@ class TestLangGraphServiceContext:
     def test_inject_user_context_user_to_dict_failure(self):
         """Test fallback when user.to_dict() fails"""
         mock_user = Mock()
-        mock_user.identity = "user-123:team-123"
+        mock_user.id = "user-123"
+        mock_user.team_id = "team-123"
         mock_user.display_name = "Test User"
+        mock_user.permissions = ["test_permission"]
         mock_user.to_dict.side_effect = Exception("to_dict failed")
 
         result = inject_user_context(mock_user, {})
@@ -472,13 +476,15 @@ class TestLangGraphServiceContext:
         assert result["configurable"]["user_id"] == "user-123"
         assert result["configurable"]["user_display_name"] == "Test User"
         assert result["configurable"]["langgraph_auth_user"] == {
-            "identity": "user-123:team-123"
+            "identity": "user-123:team-123",
+            "permissions": ["test_permission"],
         }
 
     def test_inject_user_context_existing_configurable(self):
         """Test preserving existing configurable values"""
         mock_user = Mock()
-        mock_user.identity = "user-123:team-123"
+        mock_user.id = "user-123"
+        mock_user.team_id = "team-123"
         mock_user.display_name = "Test User"
         mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
@@ -496,7 +502,8 @@ class TestLangGraphServiceConfigs:
     def test_create_thread_config(self):
         """Test creating thread configuration"""
         mock_user = Mock()
-        mock_user.identity = "user-123:team-123"
+        mock_user.id = "user-123"
+        mock_user.team_id = "team-123"
         mock_user.display_name = "Test User"
         mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
@@ -512,7 +519,8 @@ class TestLangGraphServiceConfigs:
     def test_create_thread_config_no_additional(self):
         """Test creating thread config without additional config"""
         mock_user = Mock()
-        mock_user.identity = "user-123:team-123"
+        mock_user.id = "user-123"
+        mock_user.team_id = "team-123"
         mock_user.display_name = "Test User"
         mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 
@@ -526,7 +534,8 @@ class TestLangGraphServiceConfigs:
     def test_create_run_config(self):
         """Test creating run configuration"""
         mock_user = Mock()
-        mock_user.identity = "user-123:team-123"
+        mock_user.id = "user-123"
+        mock_user.team_id = "team-123"
         mock_user.display_name = "Test User"
         mock_user.to_dict.return_value = {"identity": "user-123:team-123"}
 

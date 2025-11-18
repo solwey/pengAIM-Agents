@@ -31,7 +31,7 @@ class TestLangGraphUser:
 
         user = LangGraphUser(user_data)
 
-        assert user.identity == "user-123"
+        assert user.identity == "user-123:team-123"
         assert user.display_name == "Test User"
         assert user.is_authenticated is True
 
@@ -40,14 +40,14 @@ class TestLangGraphUser:
         user_data = {"identity": "test-identity:team-123"}
         user = LangGraphUser(user_data)
 
-        assert user.identity == "test-identity"
+        assert user.identity == "test-identity:team-123"
 
     def test_user_display_name_default(self):
         """Test display_name defaults to identity"""
         user_data = {"identity": "test-identity:team-123"}
         user = LangGraphUser(user_data)
 
-        assert user.display_name == "test-identity"
+        assert user.display_name == "test-identity:team-123"
 
     def test_user_display_name_custom(self):
         """Test custom display_name"""
@@ -245,7 +245,7 @@ class TestLangGraphAuthBackend:
         assert isinstance(credentials, AuthCredentials)
         assert credentials.scopes == ["read", "write"]
         assert isinstance(user, LangGraphUser)
-        assert user.identity == "user-123"
+        assert user.identity == "user-123:team-123"
         assert user.display_name == "Test User"
 
     @pytest.mark.asyncio
@@ -464,14 +464,14 @@ class TestAuthMiddlewareIntegration:
         assert credentials.scopes == ["read", "write", "admin"]
 
         assert isinstance(user, LangGraphUser)
-        assert user.identity == "user-123"
+        assert user.identity == "user-123:team-123"
         assert user.display_name == "Test User"
         assert user.email == "test@example.com"
         assert user.is_authenticated is True
 
         # Test user dict conversion
         user_dict = user.to_dict()
-        assert user_dict["identity"] == "user-123"
+        assert user_dict["identity"] == "user-123:team-123"
         assert user_dict["email"] == "test@example.com"
 
     @pytest.mark.asyncio

@@ -7,11 +7,18 @@ class DummyUser:
     """Mock user for testing"""
 
     def __init__(
-        self, identity: str = "test-user:team-123", display_name: str = "Test User"
+        self,
+        user_id: str = "test-user",
+        team_id: str = "test_team",
+        display_name: str = "Test User",
     ):
-        self.identity = identity
+        self.id = user_id
+        self.team_id = team_id
         self.display_name = display_name
         self.is_authenticated = True
 
     def to_dict(self) -> dict[str, Any]:
-        return {"identity": self.identity, "display_name": self.display_name}
+        return {
+            "identity": f"{self.id}:{self.team_id}",
+            "display_name": self.display_name,
+        }

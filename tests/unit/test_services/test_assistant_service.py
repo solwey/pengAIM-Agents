@@ -107,7 +107,8 @@ class TestToPydantic:
         mock_orm.assistant_id = uuid.uuid4()
         mock_orm.name = "Test Assistant"
         mock_orm.description = "Test Description"
-        mock_orm.user_id = uuid.uuid4()
+        mock_orm.team_id = uuid.uuid4()
+        mock_orm.deleted_at = None
         mock_orm.graph_id = "test-graph"
         mock_orm.version = 1
         mock_orm.created_at = datetime.now(UTC)
@@ -122,7 +123,7 @@ class TestToPydantic:
         assert result.name == "Test Assistant"
         assert result.description == "Test Description"
         assert isinstance(result.assistant_id, str)
-        assert isinstance(result.user_id, str)
+        assert isinstance(result.team_id, str)
 
     def test_to_pydantic_uuid_conversion(self):
         """Test UUID to string conversion"""
@@ -165,7 +166,8 @@ class TestToPydantic:
         mock_orm.assistant_id = test_uuid
         mock_orm.name = "Test Assistant"
         mock_orm.description = "Test description"
-        mock_orm.user_id = test_uuid
+        mock_orm.team_id = test_uuid
+        mock_orm.deleted_at = None
         mock_orm.graph_id = "test-graph"
         mock_orm.version = 1
         mock_orm.created_at = datetime.now(UTC)
@@ -177,7 +179,7 @@ class TestToPydantic:
         result = to_pydantic(mock_orm)
 
         assert result.assistant_id == str(test_uuid)
-        assert result.user_id == str(test_uuid)
+        assert result.team_id == str(test_uuid)
 
     def test_to_pydantic_none_values(self):
         """Test handling of None values"""
@@ -219,7 +221,8 @@ class TestToPydantic:
         mock_orm.assistant_id = "test-id"
         mock_orm.name = "Test"
         mock_orm.description = None
-        mock_orm.user_id = "user-123"
+        mock_orm.team_id = "team-123"
+        mock_orm.deleted_at = None
         mock_orm.graph_id = "test-graph"
         mock_orm.version = 1
         mock_orm.created_at = datetime.now(UTC)
@@ -254,7 +257,8 @@ class TestAssistantServiceCreate:
         mock_assistant.assistant_id = "test-id"
         mock_assistant.name = "Test Assistant"
         mock_assistant.description = "Test description"
-        mock_assistant.user_id = "user-123"
+        mock_assistant.team_id = "team-123"
+        mock_assistant.deleted_at = None
         mock_assistant.graph_id = "test-graph"
         mock_assistant.version = 1
         mock_assistant.created_at = datetime.now(UTC)
@@ -446,7 +450,8 @@ class TestAssistantServiceCreate:
         existing_assistant.assistant_id = "existing-id"
         existing_assistant.name = "Existing Assistant"
         existing_assistant.description = "Existing description"
-        existing_assistant.user_id = "user-123"
+        existing_assistant.team_id = "team-123"
+        existing_assistant.deleted_at = None
         existing_assistant.graph_id = "test-graph"
         existing_assistant.version = 1
         existing_assistant.created_at = datetime.now(UTC)
@@ -510,7 +515,8 @@ class TestAssistantServiceGet:
         mock_assistant.assistant_id = "test-id"
         mock_assistant.name = "Test Assistant"
         mock_assistant.description = "Test description"
-        mock_assistant.user_id = "user-123"
+        mock_assistant.team_id = "team-123"
+        mock_assistant.deleted_at = None
         mock_assistant.graph_id = "test-graph"
         mock_assistant.version = 1
         mock_assistant.created_at = datetime.now(UTC)
@@ -556,7 +562,8 @@ class TestAssistantServiceGet:
         mock_assistant.assistant_id = "system-assistant"
         mock_assistant.name = "System Assistant"
         mock_assistant.description = "System description"
-        mock_assistant.user_id = "system"
+        mock_assistant.team_id = "system"
+        mock_assistant.deleted_at = None
         mock_assistant.graph_id = "system-graph"
         mock_assistant.version = 1
         mock_assistant.created_at = datetime.now(UTC)
@@ -596,7 +603,8 @@ class TestAssistantServiceUpdate:
         mock_assistant.assistant_id = "test-id"
         mock_assistant.name = "Old Name"
         mock_assistant.description = "Old Description"
-        mock_assistant.user_id = "user-123"
+        mock_assistant.team_id = "team-123"
+        mock_assistant.deleted_at = None
         mock_assistant.graph_id = "old-graph"
         mock_assistant.version = 1
         mock_assistant.created_at = datetime.now(UTC)
@@ -683,8 +691,9 @@ class TestAssistantServiceDelete:
         result = await assistant_service.delete_assistant("test-id", "user-123")
 
         assert result == {"status": "deleted"}
-        assistant_service.session.delete.assert_called_once_with(mock_assistant)
+        assistant_service.session.delete.assert_not_called()
         assistant_service.session.commit.assert_called_once()
+        assert mock_assistant.deleted_at is not None
 
     @pytest.mark.asyncio
     async def test_delete_assistant_not_found(self, assistant_service):
@@ -709,7 +718,8 @@ class TestAssistantServiceVersionManagement:
         mock_assistant.assistant_id = "test-id"
         mock_assistant.name = "Test Assistant"
         mock_assistant.description = "Test description"
-        mock_assistant.user_id = "user-123"
+        mock_assistant.team_id = "team-123"
+        mock_assistant.deleted_at = None
         mock_assistant.graph_id = "test-graph"
         mock_assistant.version = 1
         mock_assistant.created_at = datetime.now(UTC)
