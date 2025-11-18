@@ -174,12 +174,43 @@ class LangGraphService:
                     update={"checkpointer": checkpointer_cm, "store": store_cm}
                 )
             except Exception as e:
-                print("PRE-COMPILED GRAPH ERROR", e)
-                # Fallback: property may be immutably set; run as-is with warning
-                logger.warning(
-                    f"⚠️  Pre-compiled graph '{graph_id}' does not support checkpointer injection; running without persistence"
-                )
-                compiled_graph = base_graph
+                msg = str(e).lower()
+                if "connection is closed" in msg:
+                    logger.warning(
+                        "⚠️ LangGraph persistence connection is closed. "
+                        "Attempting to reset and reconnect..."
+                    )
+
+                    try:
+                        # Reset LangGraph components and retry once
+                        await db_manager.reset_langgraph_components()
+
+                        checkpointer_cm = await db_manager.get_checkpointer()
+                        store_cm = await db_manager.get_store()
+
+                        compiled_graph = base_graph.copy(
+                            update={"checkpointer": checkpointer_cm, "store": store_cm}
+                        )
+                        logger.info(
+                            "✅ LangGraph persistence successfully reconnected for graph '%s'",
+                            graph_id,
+                        )
+                    except Exception as retry_err:
+                        logger.error(
+                            "❌ Failed to reinitialize LangGraph persistence for '%s'; "
+                            "running without persistence. Error: %s",
+                            graph_id,
+                            str(retry_err),
+                        )
+                        compiled_graph = base_graph
+                else:
+                    logger.warning(
+                        "⚠️ Pre-compiled graph '%s' does not support checkpointer injection; "
+                        "running without persistence. Error: %s",
+                        graph_id,
+                        str(e),
+                    )
+                    compiled_graph = base_graph
 
         # Cache the compiled graph
         self._graph_cache[graph_id] = compiled_graph

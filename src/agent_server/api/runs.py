@@ -29,9 +29,7 @@ from ..services.graph_streaming import stream_graph_events
 from ..services.langgraph_service import create_run_config, get_langgraph_service
 from ..services.streaming_service import streaming_service
 from ..utils.assistants import resolve_assistant_id
-from ..utils.run_utils import (
-    _merge_jsonb,
-)
+from ..utils.run_utils import _merge_jsonb, _should_skip_event
 from ..utils.status_compat import validate_run_status
 
 router = APIRouter()
@@ -214,22 +212,6 @@ async def create_run(
     available_graphs = langgraph_service.list_graphs()
     resolved_assistant_id = resolve_assistant_id(requested_id, available_graphs)
 
-    config = request.config
-    context = request.context
-    configurable = config.get("configurable", {})
-
-    if config.get("configurable") and context:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot specify both configurable and context. Prefer setting context alone. Context was introduced in LangGraph 0.6.0 and is the long term planned replacement for configurable.",
-        )
-
-    if context:
-        configurable = context.copy()
-        config["configurable"] = configurable
-    else:
-        context = configurable.copy()
-
     assistant_stmt = select(AssistantORM).where(
         AssistantORM.assistant_id == resolved_assistant_id,
     )
@@ -237,8 +219,8 @@ async def create_run(
     if not assistant:
         raise HTTPException(404, f"Assistant '{request.assistant_id}' not found")
 
-    config = _merge_jsonb(assistant.config, config)
-    context = _merge_jsonb(assistant.context, context)
+    config = assistant.config
+    context = assistant.context
 
     # Validate the assistant's graph exists
     available_graphs = langgraph_service.list_graphs()
@@ -347,22 +329,6 @@ async def create_and_stream_run(
 
     resolved_assistant_id = resolve_assistant_id(requested_id, available_graphs)
 
-    config = request.config
-    context = request.context
-    configurable = config.get("configurable", {})
-
-    if config.get("configurable") and context:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot specify both configurable and context. Prefer setting context alone. Context was introduced in LangGraph 0.6.0 and is the long term planned replacement for configurable.",
-        )
-
-    if context:
-        configurable = context.copy()
-        config["configurable"] = configurable
-    else:
-        context = configurable.copy()
-
     assistant_stmt = select(AssistantORM).where(
         AssistantORM.assistant_id == resolved_assistant_id,
     )
@@ -370,8 +336,8 @@ async def create_and_stream_run(
     if not assistant:
         raise HTTPException(404, f"Assistant '{request.assistant_id}' not found")
 
-    config = _merge_jsonb(assistant.config, config)
-    context = _merge_jsonb(assistant.context, context)
+    config = assistant.config
+    context = assistant.context
 
     # Validate the assistant's graph exists
     available_graphs = langgraph_service.list_graphs()
@@ -502,6 +468,7 @@ async def get_run(
         f"[get_run] found run status={run_orm.status} user={user.id} thread_id={thread_id} run_id={run_id}"
     )
     # Convert to Pydantic
+    # noinspection PyTypeChecker
     return Run.model_validate(
         {c.name: getattr(run_orm, c.name) for c in run_orm.__table__.columns}
     )
@@ -555,6 +522,7 @@ async def list_runs(
     result = await session.scalars(stmt)
     rows = result.all()
 
+    # noinspection PyTypeChecker
     runs = [
         Run.model_validate({c.name: getattr(r, c.name) for c in r.__table__.columns})
         for r in rows
@@ -606,11 +574,12 @@ async def update_run(
         await session.commit()
         logger.info(f"[update_run] commit done (interrupted) run_id={run_id}")
 
-    # Return final run state
+    # Return the final run state
     run_orm = await session.scalar(select(RunORM).where(RunORM.run_id == run_id))
     if run_orm:
         # Refresh to ensure we have the latest data after our own update
         await session.refresh(run_orm)
+    # noinspection PyTypeChecker
     return Run.model_validate(
         {c.name: getattr(run_orm, c.name) for c in run_orm.__table__.columns}
     )
@@ -646,7 +615,7 @@ async def join_run(
         output = getattr(run_orm, "output", None) or {}
         return output
 
-    # Wait for background task to complete
+    # Wait for a background task to complete
     task = active_runs.get(run_id)
     if task:
         try:
@@ -658,10 +627,10 @@ async def join_run(
             # Task was cancelled, that's also okay
             pass
 
-    # Return final output from database
+    # Return final output from a database
     run_orm = await session.scalar(select(RunORM).where(RunORM.run_id == run_id))
     if run_orm:
-        await session.refresh(run_orm)  # Refresh to get latest data from DB
+        await session.refresh(run_orm)  # Refresh to get the latest data from DB
     output = getattr(run_orm, "output", None) or {}
     return output
 
@@ -696,22 +665,6 @@ async def wait_for_run(
     available_graphs = langgraph_service.list_graphs()
     resolved_assistant_id = resolve_assistant_id(requested_id, available_graphs)
 
-    config = request.config
-    context = request.context
-    configurable = config.get("configurable", {})
-
-    if config.get("configurable") and context:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot specify both configurable and context. Prefer setting context alone. Context was introduced in LangGraph 0.6.0 and is the long term planned replacement for configurable.",
-        )
-
-    if context:
-        configurable = context.copy()
-        config["configurable"] = configurable
-    else:
-        context = configurable.copy()
-
     assistant_stmt = select(AssistantORM).where(
         AssistantORM.assistant_id == resolved_assistant_id,
         AssistantORM.team_id == user.team_id,
@@ -720,8 +673,8 @@ async def wait_for_run(
     if not assistant:
         raise HTTPException(404, f"Assistant '{request.assistant_id}' not found")
 
-    config = _merge_jsonb(assistant.config, config)
-    context = _merge_jsonb(assistant.context, context)
+    config = assistant.config
+    context = assistant.context
 
     # Validate the assistant's graph exists
     available_graphs = langgraph_service.list_graphs()
@@ -787,15 +740,15 @@ async def wait_for_run(
         await asyncio.wait_for(task, timeout=300.0)  # 5 minute timeout
     except TimeoutError:
         logger.warning(f"[wait_for_run] timeout waiting for run_id={run_id}")
-        # Don't raise, just return current state
+        # Don't raise, just return the current state
     except asyncio.CancelledError:
         logger.info(f"[wait_for_run] cancelled run_id={run_id}")
-        # Task was cancelled, continue to return final state
+        # Task was cancelled, continue to return the final state
     except Exception as e:
         logger.error(f"[wait_for_run] exception in run_id={run_id}: {e}")
         # Exception already handled by execute_run_async
 
-    # Get final output from database
+    # Get final output from a database
     run_orm = await session.scalar(
         select(RunORM).where(
             RunORM.run_id == run_id,
@@ -879,6 +832,7 @@ async def stream_run(
     # Stream active or pending runs via broker
 
     # Build a lightweight Pydantic Run from ORM for streaming context (IDs already strings)
+    # noinspection PyTypeChecker
     run_model = Run.model_validate(
         {c.name: getattr(run_orm, c.name) for c in run_orm.__table__.columns}
     )
@@ -917,7 +871,7 @@ async def cancel_run_endpoint(
 
     - action=cancel => hard cancel
     - action=interrupt => cooperative interrupt if supported
-    - wait=1 => await background task to finish settling
+    - wait=1 => await a background task to finish settling
     """
     logger.info(
         f"[cancel_run] fetch run run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
@@ -959,7 +913,7 @@ async def cancel_run_endpoint(
         )
         await session.commit()
 
-    # Optionally wait for background task
+    # Optionally wait for a background task
     if wait:
         task = active_runs.get(run_id)
         if task:
@@ -979,6 +933,7 @@ async def cancel_run_endpoint(
 
     await ensure_access(run_orm, user, session)
 
+    # noinspection PyTypeChecker
     return Run.model_validate(
         {c.name: getattr(run_orm, c.name) for c in run_orm.__table__.columns}
     )
@@ -1172,6 +1127,7 @@ async def update_run_status(
                 values["output"] = serialized_output
             except Exception as e:
                 logger.warning(f"Failed to serialize output for run {run_id}: {e}")
+                # noinspection PyTypeChecker
                 values["output"] = {
                     "error": "Output serialization failed",
                     "original_type": str(type(output)),

@@ -65,6 +65,31 @@ class DatabaseManager:
 
         logger.info("✅ Database connections closed")
 
+    async def reset_langgraph_components(self) -> None:
+        """Reset LangGraph components (checkpointer + store) on connection errors."""
+        # Close existing LangGraph components safely
+        if self._checkpointer_cm is not None:
+            try:
+                # Properly exit async context manager
+                await self._checkpointer_cm.__aexit__(None, None, None)
+            except Exception as e:
+                # Log but do not raise: this is best-effort cleanup
+                logger.warning("Error while closing checkpointer context", error=str(e))
+            finally:
+                self._checkpointer_cm = None
+                self._checkpointer = None
+
+        if self._store_cm is not None:
+            try:
+                await self._store_cm.__aexit__(None, None, None)
+            except Exception as e:
+                logger.warning("Error while closing store context", error=str(e))
+            finally:
+                self._store_cm = None
+                self._store = None
+
+        logger.info("🔁 LangGraph components have been reset")
+
     async def get_checkpointer(self) -> AsyncPostgresSaver:
         """Return a live AsyncPostgresSaver.
 
