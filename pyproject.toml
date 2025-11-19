@@ -45,7 +45,8 @@ dependencies = [
     "asgi-correlation-id>=4.3.4",
     "open-deep-research>=0.0.16",
     "firecrawl>=4.6.0",
-    "sentry-sdk[fastapi]==2.43.0"
+    "sentry-sdk[fastapi]==2.43.0",
+    "gunicorn"
 ]
 
 [project.urls]
