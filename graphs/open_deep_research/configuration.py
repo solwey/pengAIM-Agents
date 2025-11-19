@@ -64,7 +64,7 @@ class Configuration(BaseModel):
     )
 
     agent_openai_api_key: dict[str, str] = Field(
-        default="No token found",
+        default={},
         metadata={
             "x_oap_ui_config": {
                 "type": "password",
@@ -73,13 +73,13 @@ class Configuration(BaseModel):
                 "description": (
                     "Provide a dedicated OpenAI API key to be used only by this agent. "
                 ),
-                "default": "",
+                "default": {},
             }
         },
     )
 
     rag_openai_api_key: dict[str, str] = Field(
-        default="No token found",
+        default={},
         metadata={
             "x_oap_ui_config": {
                 "type": "password",
@@ -89,7 +89,7 @@ class Configuration(BaseModel):
                     "Specify a separate OpenAI API key to be used for RAG tasks "
                     "such as document search, summarization, or contextual QA. "
                 ),
-                "default": "",
+                "default": {},
             }
         },
     )
