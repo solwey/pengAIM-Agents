@@ -51,7 +51,7 @@ thread_state_service = ThreadStateService()
 
 
 async def ensure_access(thread: ThreadORM, user: User, session: AsyncSession) -> None:
-    if user.is_admin or thread.user_id == user.id:
+    if user.allows_shared_chat_history or thread.user_id == user.id:
         return
 
     assistant_id = thread.metadata_json.get("assistant_id")
@@ -72,6 +72,23 @@ async def ensure_access(thread: ThreadORM, user: User, session: AsyncSession) ->
 
     if not cfg_allow:
         raise HTTPException(404, f"Thread '{thread.thread_id}' not found")
+
+
+# Helper: sanitize ThreadState for non-admin users
+def _sanitize_thread_state_for_user(state: ThreadState, user: User) -> ThreadState:
+    """Hide sensitive config/context fields in ThreadState for non-admin users."""
+    if user.is_admin:
+        return state
+    try:
+        return state.model_copy(
+            update={
+                "metadata": {},
+            },
+        )
+    except TypeError:
+        data = state.model_dump()
+        data["metadata"] = {}
+        return ThreadState.model_validate(data)
 
 
 @router.post("/threads", response_model=Thread)
@@ -323,7 +340,7 @@ async def get_thread_state(
             checkpoint_ns,
         )
 
-        return thread_state
+        return _sanitize_thread_state_for_user(thread_state, user)
 
     except HTTPException:
         raise
@@ -565,7 +582,7 @@ async def get_thread_state_at_checkpoint(
             subgraphs=subgraphs or False,
         )
 
-        return thread_checkpoint
+        return _sanitize_thread_state_for_user(thread_checkpoint, user)
 
     except HTTPException:
         raise
@@ -727,6 +744,11 @@ async def get_thread_history_post(
             state_snapshots, thread_id
         )
 
+        # Sanitize states for non-admin users
+        thread_states = [
+            _sanitize_thread_state_for_user(state, user) for state in thread_states
+        ]
+
         return thread_states
 
     except HTTPException:
@@ -848,8 +870,6 @@ async def search_threads(
     session: AsyncSession = Depends(get_session),
 ):
     """Search threads with filters"""
-
-    print("USER", user.team_id, user.is_admin)
 
     stmt = select(ThreadORM).where(ThreadORM.team_id == user.team_id)
 

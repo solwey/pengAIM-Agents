@@ -93,6 +93,7 @@ async def get_current_user(
             "permissions": [
                 f"authz:{authorization}",
                 f"shared_chat_history:{shared_chat_history}",
+                f"role:{role}",
             ],
         }
     except Exception as e:

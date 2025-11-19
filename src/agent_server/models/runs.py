@@ -21,8 +21,6 @@ class RunCreate(BaseModel):
         None,
         description="Input data for the run. Optional when resuming from a checkpoint.",
     )
-    config: dict[str, Any] | None = Field({}, description="Execution config")
-    context: dict[str, Any] | None = Field({}, description="Execution context")
     checkpoint: dict[str, Any] | None = Field(
         None,
         description="Checkpoint configuration (e.g., {'checkpoint_id': '...', 'checkpoint_ns': ''})",
@@ -97,8 +95,6 @@ class Run(BaseModel):
     input: dict[str, Any]
     output: dict[str, Any] | None = None
     error_message: str | None = None
-    config: dict[str, Any] | None = {}
-    context: dict[str, Any] | None = {}
     user_id: str
     team_id: str
     created_at: datetime

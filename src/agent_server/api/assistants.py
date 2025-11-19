@@ -34,7 +34,7 @@ async def create_assistant(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Create a new assistant"""
-    return await service.create_assistant(request, user.team_id)
+    return await service.create_assistant(request, user)
 
 
 @router.get("/assistants", response_model=AssistantList, response_model_by_alias=False)
@@ -43,7 +43,7 @@ async def list_assistants(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """List user's assistants"""
-    assistants = await service.list_assistants(user.team_id)
+    assistants = await service.list_assistants(user)
     return AssistantList(assistants=assistants, total=len(assistants))
 
 
@@ -56,7 +56,7 @@ async def search_assistants(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Search assistants with filters"""
-    return await service.search_assistants(request, user.team_id)
+    return await service.search_assistants(request, user)
 
 
 @router.post("/assistants/count", response_model=int)
@@ -66,7 +66,7 @@ async def count_assistants(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Count assistants with filters"""
-    return await service.count_assistants(request, user.team_id)
+    return await service.count_assistants(request, user)
 
 
 @router.get(
@@ -80,7 +80,7 @@ async def get_assistant(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Get assistant by ID"""
-    return await service.get_assistant(assistant_id, user.team_id)
+    return await service.get_assistant(assistant_id, user)
 
 
 @router.patch(
@@ -95,7 +95,7 @@ async def update_assistant(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Update assistant by ID"""
-    return await service.update_assistant(assistant_id, request, user.team_id)
+    return await service.update_assistant(assistant_id, request, user)
 
 
 @router.delete("/assistants/{assistant_id}")
@@ -105,7 +105,7 @@ async def delete_assistant(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Delete assistant by ID"""
-    return await service.delete_assistant(assistant_id, user.team_id)
+    return await service.delete_assistant(assistant_id, user)
 
 
 @router.post(
@@ -122,7 +122,7 @@ async def set_assistant_latest(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Set the given version as the latest version of an assistant"""
-    return await service.set_assistant_latest(assistant_id, version, user.team_id)
+    return await service.set_assistant_latest(assistant_id, version, user)
 
 
 @router.post(
@@ -136,7 +136,7 @@ async def list_assistant_versions(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """List all versions of an assistant"""
-    return await service.list_assistant_versions(assistant_id, user.team_id)
+    return await service.list_assistant_versions(assistant_id, user)
 
 
 @router.get("/assistants/{assistant_id}/schemas")
@@ -146,7 +146,7 @@ async def get_assistant_schemas(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Get input, output, state, config and context schemas for an assistant"""
-    return await service.get_assistant_schemas(assistant_id, user.team_id)
+    return await service.get_assistant_schemas(assistant_id, user)
 
 
 @router.get("/assistants/{assistant_id}/graph")
@@ -159,7 +159,7 @@ async def get_assistant_graph(
     """Get the graph structure for visualization"""
     # Default to False if not provided
     xray_value = xray if xray is not None else False
-    return await service.get_assistant_graph(assistant_id, xray_value, user.team_id)
+    return await service.get_assistant_graph(assistant_id, xray_value, user)
 
 
 @router.get("/assistants/{assistant_id}/subgraphs")
@@ -171,6 +171,4 @@ async def get_assistant_subgraphs(
     service: AssistantService = Depends(get_assistant_service),
 ):
     """Get subgraphs of an assistant"""
-    return await service.get_assistant_subgraphs(
-        assistant_id, namespace, recurse, user.team_id
-    )
+    return await service.get_assistant_subgraphs(assistant_id, namespace, recurse, user)

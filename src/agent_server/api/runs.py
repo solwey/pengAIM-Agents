@@ -46,7 +46,7 @@ DEFAULT_STREAM_MODES = ["values"]
 
 
 async def ensure_access(run_orm: RunORM, user: User, session: AsyncSession) -> None:
-    if user.is_admin or run_orm.user_id == user.id:
+    if user.allows_shared_chat_history or run_orm.user_id == user.id:
         return
 
     stmt = select(AssistantORM).where(
@@ -502,7 +502,7 @@ async def list_runs(
         False,
     )
 
-    if user.is_admin:
+    if user.allows_shared_chat_history:
         visibility_filter = sql_true()
     else:
         visibility_filter = or_(
