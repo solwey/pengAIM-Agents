@@ -14,6 +14,12 @@ class AgentMode(Enum):
     ONLINE = "online"
 
 
+class ToolCallsVisibility(Enum):
+    USER_PREFERENCE = "user_preference"
+    ALWAYS_ON = "always_on"
+    ALWAYS_OFF = "always_off"
+
+
 class RetrievalMode(Enum):
     BASIC = "basic"
     HYDE = "hyde"
@@ -143,6 +149,34 @@ class Configuration(BaseModel):
                 "type": "switch",
                 "default": False,
                 "description": "Allow all members of the team to view and access this agent’s runs and threads",
+            }
+        },
+    )
+
+    tool_calls_visibility: ToolCallsVisibility = Field(
+        default=ToolCallsVisibility.ALWAYS_OFF,
+        optional=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": ToolCallsVisibility.ALWAYS_OFF.value,
+                "description": (
+                    "Controls visibility and behavior of tool call toggles for this agent."
+                ),
+                "options": [
+                    {
+                        "label": "User preference",
+                        "value": ToolCallsVisibility.USER_PREFERENCE.value,
+                    },
+                    {
+                        "label": "Always ON (forced)",
+                        "value": ToolCallsVisibility.ALWAYS_ON.value,
+                    },
+                    {
+                        "label": "Always OFF (disabled)",
+                        "value": ToolCallsVisibility.ALWAYS_OFF.value,
+                    },
+                ],
             }
         },
     )

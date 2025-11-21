@@ -85,9 +85,9 @@ def _get_configurable_jsonschema(graph) -> dict:
             for key in EXCLUDED_CONFIG_SCHEMA:
                 json_schema["properties"].pop(key, None)
         if (
-            hasattr(graph, "config_type")
-            and graph.config_type is not None
-            and hasattr(graph.config_type, "__name__")
+                hasattr(graph, "config_type")
+                and graph.config_type is not None
+                and hasattr(graph.config_type, "__name__")
         ):
             json_schema["title"] = graph.config_type.__name__
         return json_schema
@@ -140,8 +140,17 @@ class AssistantService:
     def _to_pydantic_for_user(self, row: AssistantORM, user: User) -> Assistant:
         assistant = to_pydantic(row)
         if not user.is_admin:
-            assistant.config = {}
+            tool_calls_visibility = (
+                getattr(assistant, "config", {})
+                .get("configurable", {})
+                .get("tool_calls_visibility", "always_off")
+            )
+
+            assistant.config = {
+                "configurable": {"tool_calls_visibility": tool_calls_visibility}
+            }
             assistant.context = {}
+
         return assistant
 
     async def create_assistant(self, request: AssistantCreate, user: User) -> Assistant:
@@ -247,9 +256,9 @@ class AssistantService:
         return user_assistants
 
     async def search_assistants(
-        self,
-        request: Any,  # AssistantSearchRequest
-        user: User,
+            self,
+            request: Any,  # AssistantSearchRequest
+            user: User,
     ) -> list[Assistant]:
         """Search assistants with filters"""
         metadata = request.metadata or {}
@@ -289,9 +298,9 @@ class AssistantService:
         return paginated_assistants
 
     async def count_assistants(
-        self,
-        request: Any,  # AssistantSearchRequest
-        user: User,
+            self,
+            request: Any,  # AssistantSearchRequest
+            user: User,
     ) -> int:
         """Count assistants with filters"""
         metadata = request.metadata or {}
@@ -333,7 +342,7 @@ class AssistantService:
         return self._to_pydantic_for_user(assistant, user)
 
     async def update_assistant(
-        self, assistant_id: str, request: AssistantUpdate, user: User
+            self, assistant_id: str, request: AssistantUpdate, user: User
     ) -> Assistant:
         """Update assistant by ID"""
         metadata = request.metadata or {}
@@ -429,7 +438,7 @@ class AssistantService:
         return {"status": "deleted"}
 
     async def set_assistant_latest(
-        self, assistant_id: str, version: int, user: User
+            self, assistant_id: str, version: int, user: User
     ) -> Assistant:
         """Set the given version as the latest version of an assistant"""
         stmt = select(AssistantORM).where(
@@ -473,7 +482,7 @@ class AssistantService:
         return self._to_pydantic_for_user(updated_assistant, user)
 
     async def list_assistant_versions(
-        self, assistant_id: str, user: User
+            self, assistant_id: str, user: User
     ) -> list[Assistant]:
         """List all versions of an assistant"""
         stmt = select(AssistantORM).where(
@@ -540,7 +549,7 @@ class AssistantService:
             raise HTTPException(400, f"Failed to extract schemas: {str(e)}") from e
 
     async def get_assistant_graph(
-        self, assistant_id: str, xray: bool | int, user: User
+            self, assistant_id: str, xray: bool | int, user: User
     ) -> dict:
         """Get the graph structure for visualization"""
         stmt = select(AssistantORM).where(
@@ -580,7 +589,7 @@ class AssistantService:
             raise HTTPException(400, f"Failed to get graph: {str(e)}") from e
 
     async def get_assistant_subgraphs(
-        self, assistant_id: str, namespace: str | None, recurse: bool, user: User
+            self, assistant_id: str, namespace: str | None, recurse: bool, user: User
     ) -> dict:
         """Get subgraphs of an assistant"""
         stmt = select(AssistantORM).where(
@@ -616,8 +625,8 @@ class AssistantService:
 
 
 def get_assistant_service(
-    session: AsyncSession = Depends(get_session),
-    langgraph_service: LangGraphService = Depends(get_langgraph_service),
+        session: AsyncSession = Depends(get_session),
+        langgraph_service: LangGraphService = Depends(get_langgraph_service),
 ) -> AssistantService:
     """Dependency injection for AssistantService"""
     return AssistantService(session, langgraph_service)
