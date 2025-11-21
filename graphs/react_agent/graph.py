@@ -1,5 +1,5 @@
 import json
-from typing import Literal, Any
+from typing import Any, Literal
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
@@ -10,18 +10,23 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
-from graphs.react_agent.context import AgentInputState, AgentState, AgentOutputState, Context
-from graphs.react_agent.rag_models import (
-    RagToolError,
-    RagToolResponse,
-    SourceDocument,
-    DocumentCollectionInfo,
+from graphs.react_agent.context import (
+    AgentInputState,
+    AgentOutputState,
+    AgentState,
+    Context,
 )
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
     UNEDITABLE_SYSTEM_PROMPT,
 )
-from graphs.react_agent.utils import _build_tools, get_api_key_for_model
+from graphs.react_agent.rag_models import (
+    DocumentCollectionInfo,
+    RagToolError,
+    RagToolResponse,
+    SourceDocument,
+)
+from graphs.react_agent.utils import _build_tools, get_api_key_for_model, get_today_str
 
 
 async def call_model(
@@ -49,7 +54,7 @@ async def call_model(
     final_system_prompt = (
         (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
         + (cfg.tools_policy_prompt or "")
-        + UNEDITABLE_SYSTEM_PROMPT
+        + UNEDITABLE_SYSTEM_PROMPT.format(date=get_today_str())
     )
 
     system_message = SystemMessage(content=final_system_prompt)
@@ -61,9 +66,7 @@ async def call_model(
     return {"messages": [response]}
 
 
-async def tools_node(
-    state: AgentState, config: RunnableConfig
-) -> dict[str, Any]:
+async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     last_ai: AIMessage | None = None
     for msg in reversed(state["messages"]):
         if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
