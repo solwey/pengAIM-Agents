@@ -1,4 +1,5 @@
 UNEDITABLE_SYSTEM_PROMPT = (
+    "Today's date is {date}."
     "\nIf the tool throws an error requiring authentication, provide the user with a "
     "Markdown link to the authentication page and prompt them to authenticate."
 )

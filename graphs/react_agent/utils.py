@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 import aiohttp
 from langchain_core.runnables import RunnableConfig
@@ -11,6 +12,16 @@ RAG_URL = os.getenv("RAG_API_URL", "")
 
 if not RAG_URL:
     raise RuntimeError("RAG-only mode is enabled but RAG_API_URL is not set.")
+
+
+def get_today_str() -> str:
+    """Get current date formatted for display in prompts and outputs.
+
+    Returns:
+        Human-readable date string in format like 'Mon Jan 15, 2024'
+    """
+    now = datetime.now()
+    return f"{now:%a %b} {now.day}, {now:%Y}"
 
 
 async def get_api_key_for_model(config: RunnableConfig) -> str | None:
