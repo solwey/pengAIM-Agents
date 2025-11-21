@@ -14,14 +14,18 @@ class User(BaseModel):
     is_authenticated: bool = True
 
     @property
-    def allows_shared_chat_history(self):
-        return "shared_chat_history:true" in self.permissions
+    def allows_share_new_chats_by_default(self):
+        return "share_new_chats_by_default:true" in self.permissions
 
     @property
     def is_admin(self):
         return any(
             role in self.permissions for role in ("role:admin", "role:superadmin")
         )
+
+    @property
+    def is_superadmin(self):
+        return any(role in self.permissions for role in "role:superadmin")
 
 
 class AuthContext(BaseModel):

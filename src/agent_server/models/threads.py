@@ -28,6 +28,8 @@ class Thread(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     user_id: str
     team_id: str
+    assistant_id: str | None
+    is_shared: bool
     created_at: datetime
 
     @field_validator("status", mode="before")
