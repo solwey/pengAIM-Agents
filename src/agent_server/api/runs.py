@@ -7,13 +7,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-import sqlalchemy
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command, Send
-from sqlalchemy import Boolean, cast, delete, func, or_, select, update
-from sqlalchemy import true as sql_true
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth_ctx import with_auth_ctx
@@ -41,26 +39,6 @@ active_runs: dict[str, asyncio.Task] = {}
 
 # Default stream modes for background run execution
 DEFAULT_STREAM_MODES = ["values"]
-
-
-async def ensure_access(run_orm: RunORM, user: User, session: AsyncSession) -> None:
-    if user.allows_shared_chat_history or run_orm.user_id == user.id:
-        return
-
-    stmt = select(AssistantORM).where(
-        AssistantORM.assistant_id == run_orm.assistant_id,
-        AssistantORM.team_id == user.team_id,
-    )
-    assistant = await session.scalar(stmt)
-    if not assistant:
-        raise HTTPException(404, f"Run '{run_orm.run_id}' not found")
-
-    cfg_allow = assistant.config.get("configurable", {}).get(
-        "shared_chat_history", False
-    )
-
-    if not cfg_allow:
-        raise HTTPException(404, f"Run '{run_orm.run_id}' not found")
 
 
 def map_command_to_langgraph(cmd: dict[str, Any]) -> Command:
@@ -101,7 +79,11 @@ async def set_thread_status(session: AsyncSession, thread_id: str, status: str) 
 
 
 async def update_thread_metadata(
-    session: AsyncSession, thread_id: str, assistant_id: str, graph_id: str
+    session: AsyncSession,
+    thread_id: str,
+    assistant_id: str,
+    graph_id: str,
+    is_shared: bool,
 ) -> None:
     """Update thread metadata with assistant and graph information (dialect agnostic)."""
     # Read-modify-write to avoid DB-specific JSON concat operators
@@ -120,7 +102,12 @@ async def update_thread_metadata(
     await session.execute(
         update(ThreadORM)
         .where(ThreadORM.thread_id == thread_id)
-        .values(metadata_json=md, updated_at=datetime.now(UTC))
+        .values(
+            metadata_json=md,
+            updated_at=datetime.now(UTC),
+            assistant_id=assistant_id,
+            is_shared=is_shared,
+        )
     )
     await session.commit()
 
@@ -188,10 +175,13 @@ async def create_run(
             404, f"Graph '{assistant.graph_id}' not found for assistant"
         )
 
+    is_shared = config.get("configurable", {}).get("share_new_chats_by_default", False)
+
     # Mark thread as busy and update metadata with assistant/graph info
     await set_thread_status(session, thread_id, "busy")
+
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id
+        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared
     )
 
     # Persist run record via ORM model in core.orm (Run table)
@@ -221,8 +211,6 @@ async def create_run(
         assistant_id=resolved_assistant_id,
         status="pending",
         input=request.input or {},
-        config=config,
-        context=context,
         user_id=user.id,
         team_id=user.team_id,
         created_at=now,
@@ -304,10 +292,12 @@ async def create_and_stream_run(
             404, f"Graph '{assistant.graph_id}' not found for assistant"
         )
 
+    is_shared = config.get("configurable", {}).get("share_new_chats_by_default", False)
+
     # Mark thread as busy and update metadata with assistant/graph info
     await set_thread_status(session, thread_id, "busy")
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id
+        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared
     )
 
     # Persist run record
@@ -337,8 +327,6 @@ async def create_and_stream_run(
         assistant_id=resolved_assistant_id,
         status="streaming",
         input=request.input or {},
-        config=config,
-        context=context,
         user_id=user.id,
         team_id=user.team_id,
         created_at=now,
@@ -409,14 +397,19 @@ async def get_run(
         RunORM.thread_id == thread_id,
         RunORM.team_id == user.team_id,
     )
+    if not user.is_superadmin:
+        stmt = stmt.where(
+            or_(
+                RunORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            )
+        )
     logger.info(
         f"[get_run] querying DB run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
     )
     run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
-
-    await ensure_access(run_orm, user, session)
 
     # Refresh to ensure we have the latest data (in case background task updated it)
     await session.refresh(run_orm)
@@ -442,44 +435,32 @@ async def list_runs(
 ) -> list[Run]:
     """List runs for a specific thread (persisted)."""
 
-    base_filters: list[sqlalchemy.ColumnElement[bool]] = [
-        RunORM.thread_id == thread_id,
-        RunORM.team_id == user.team_id,
-    ]
-    if status:
-        base_filters.append(RunORM.status == status)
-
-    cfg_allow_expr = func.coalesce(
-        cast(
-            func.jsonb_extract_path_text(
-                RunORM.config, "configurable", "shared_chat_history"
-            ),
-            Boolean,
-        ),
-        False,
-    )
-
-    if user.allows_shared_chat_history:
-        visibility_filter = sql_true()
-    else:
-        visibility_filter = or_(
-            RunORM.user_id == user.id,
-            cfg_allow_expr.is_(True),
-        )
-
     stmt = (
         select(RunORM)
-        .where(*base_filters, visibility_filter)
-        .order_by(RunORM.created_at.desc())
-        .limit(limit)
-        .offset(offset)
+        .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
+        .where(
+            RunORM.thread_id == thread_id,
+            RunORM.team_id == user.team_id,
+        )
     )
+
+    if status:
+        stmt = stmt.where(RunORM.status == status)
+
+    if not user.is_superadmin:
+        stmt = stmt.where(
+            or_(
+                RunORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            )
+        )
+
+    stmt = stmt.order_by(RunORM.created_at.desc()).limit(limit).offset(offset)
 
     logger.info(f"[list_runs] querying DB thread_id={thread_id} user={user.id}")
     result = await session.scalars(stmt)
     rows = result.all()
 
-    # noinspection PyTypeChecker
     runs = [
         Run.model_validate({c.name: getattr(r, c.name) for c in r.__table__.columns})
         for r in rows
@@ -500,17 +481,26 @@ async def update_run(
     logger.info(
         f"[update_run] fetch for update run_id={run_id} thread_id={thread_id} user={user.id}"
     )
-    run_orm = await session.scalar(
-        select(RunORM).where(
+    stmt = (
+        select(RunORM)
+        .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
+        .where(
             RunORM.run_id == str(run_id),
             RunORM.thread_id == thread_id,
             RunORM.team_id == user.team_id,
         )
     )
+
+    if not user.is_superadmin:
+        stmt = stmt.where(
+            or_(
+                RunORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            )
+        )
+    run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
-
-    await ensure_access(run_orm, user, session)
 
     # Handle interruption/cancellation
 
@@ -561,17 +551,26 @@ async def join_run(
 ) -> dict[str, Any]:
     """Join a run (wait for completion and return final output) - persisted."""
     # Get run and validate it exists
-    run_orm = await session.scalar(
-        select(RunORM).where(
+    stmt = (
+        select(RunORM)
+        .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
+        .where(
             RunORM.run_id == str(run_id),
             RunORM.thread_id == thread_id,
             RunORM.team_id == user.team_id,
         )
     )
+
+    if not user.is_superadmin:
+        stmt = stmt.where(
+            or_(
+                RunORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            )
+        )
+    run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
-
-    await ensure_access(run_orm, user, session)
 
     # If already completed, return output immediately
     if run_orm.status in ["completed", "failed", "cancelled"]:
@@ -648,10 +647,12 @@ async def wait_for_run(
             404, f"Graph '{assistant.graph_id}' not found for assistant"
         )
 
+    is_shared = config.get("configurable", {}).get("share_new_chats_by_default", False)
+
     # Mark thread as busy and update metadata with assistant/graph info
     await set_thread_status(session, thread_id, "busy")
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id
+        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared
     )
 
     # Persist run record
@@ -723,8 +724,6 @@ async def wait_for_run(
     if not run_orm:
         raise HTTPException(500, f"Run '{run_id}' disappeared during execution")
 
-    await ensure_access(run_orm, user, session)
-
     await session.refresh(run_orm)
 
     # Return output based on final status
@@ -760,17 +759,25 @@ async def stream_run(
     logger.info(
         f"[stream_run] fetch for stream run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
     )
-    run_orm = await session.scalar(
-        select(RunORM).where(
+    stmt = (
+        select(RunORM)
+        .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
+        .where(
             RunORM.run_id == str(run_id),
             RunORM.thread_id == thread_id,
             RunORM.team_id == user.team_id,
         )
     )
+    if not user.is_superadmin:
+        stmt = stmt.where(
+            or_(
+                RunORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            )
+        )
+    run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
-
-    await ensure_access(run_orm, user, session)
 
     logger.info(
         f"[stream_run] status={run_orm.status} user={user.id} team={user.team_id} thread_id={thread_id} run_id={run_id}"
@@ -841,17 +848,25 @@ async def cancel_run_endpoint(
     logger.info(
         f"[cancel_run] fetch run run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
     )
-    run_orm = await session.scalar(
-        select(RunORM).where(
+    stmt = (
+        select(RunORM)
+        .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
+        .where(
             RunORM.run_id == run_id,
             RunORM.thread_id == thread_id,
             RunORM.team_id == user.team_id,
         )
     )
+    if not user.is_superadmin:
+        stmt = stmt.where(
+            or_(
+                RunORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            )
+        )
+    run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
-
-    await ensure_access(run_orm, user, session)
 
     if action == "interrupt":
         logger.info(
@@ -895,8 +910,6 @@ async def cancel_run_endpoint(
     )
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found after cancellation")
-
-    await ensure_access(run_orm, user, session)
 
     # noinspection PyTypeChecker
     return Run.model_validate(
@@ -1162,17 +1175,25 @@ async def delete_run(
     logger.info(
         f"[delete_run] fetch run run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
     )
-    run_orm = await session.scalar(
-        select(RunORM).where(
+    stmt = (
+        select(RunORM)
+        .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
+        .where(
             RunORM.run_id == str(run_id),
             RunORM.thread_id == thread_id,
             RunORM.team_id == user.team_id,
         )
     )
+    if not user.is_superadmin:
+        stmt = stmt.where(
+            or_(
+                RunORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            )
+        )
+    run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
-
-    await ensure_access(run_orm, user, session)
 
     # If active and not forcing, reject deletion
     if run_orm.status in ["pending", "running", "streaming"] and not force:

@@ -16,14 +16,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from datetime import datetime
 
-from sqlalchemy import (
-    TIMESTAMP,
-    ForeignKey,
-    Index,
-    Integer,
-    Text,
-    text,
-)
+from sqlalchemy import TIMESTAMP, Boolean, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column
@@ -99,6 +92,12 @@ class Thread(Base):
     )
     user_id: Mapped[str] = mapped_column(Text, nullable=False)
     team_id: Mapped[str] = mapped_column(Text, nullable=False)
+    is_shared: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    assistant_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("assistant.assistant_id", ondelete="CASCADE")
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )
@@ -110,7 +109,17 @@ class Thread(Base):
     __table_args__ = (
         Index("idx_thread_user", "user_id"),
         Index("idx_thread_team", "team_id"),
+        Index("idx_thread_assistant", "assistant_id"),
         Index("idx_thread_team_user", "team_id", "user_id"),
+        Index("idx_thread_team_assistant", "team_id", "assistant_id"),
+        Index("idx_thread_user_assistant", "user_id", "assistant_id"),
+        Index("idx_thread_team_is_shared", "team_id", "is_shared"),
+        Index(
+            "idx_thread_team_assistant_created_at",
+            "team_id",
+            "assistant_id",
+            "created_at",
+        ),
     )
 
 
@@ -155,6 +164,13 @@ class Run(Base):
         Index("idx_runs_created_at", "created_at"),
         Index("idx_runs_team", "team_id"),
         Index("idx_runs_team_user", "team_id", "user_id"),
+        Index("idx_runs_thread_team_created_at", "thread_id", "team_id", "created_at"),
+        Index(
+            "idx_runs_team_assistant_created_at",
+            "team_id",
+            "assistant_id",
+            "created_at",
+        ),
     )
 
 
