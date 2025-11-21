@@ -142,13 +142,13 @@ class Configuration(BaseModel):
         },
     )
 
-    shared_chat_history: bool = Field(
+    share_new_chats_by_default: bool = Field(
         default=False,
         metadata={
             "x_oap_ui_config": {
                 "type": "switch",
                 "default": False,
-                "description": "Allow all members of the team to view and access this agent’s runs and threads",
+                "description": "Share new chats created with this agent with the entire team by default.",
             }
         },
     )
