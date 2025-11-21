@@ -1,6 +1,6 @@
+import operator
 from enum import Enum
 from typing import Annotated, TypedDict
-import operator
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
@@ -11,7 +11,7 @@ from graphs.react_agent.prompts import (
     RAG_RETRIEVAL_POLICY,
     UNEDITABLE_SYSTEM_PROMPT,
 )
-from graphs.react_agent.rag_models import SourceDocument, DocumentCollectionInfo
+from graphs.react_agent.rag_models import DocumentCollectionInfo, SourceDocument
 
 
 class AgentMode(Enum):
@@ -33,6 +33,12 @@ class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     sources: Annotated[list[SourceDocument], operator.add]
     document_collections: Annotated[list[DocumentCollectionInfo], operator.add]
+
+
+class ToolCallsVisibility(Enum):
+    USER_PREFERENCE = "user_preference"
+    ALWAYS_ON = "always_on"
+    ALWAYS_OFF = "always_off"
 
 
 class AgentOutputState(TypedDict):
@@ -145,6 +151,34 @@ class Context(BaseModel):
                 "type": "switch",
                 "default": False,
                 "description": "Allow all members of the team to view and access this agent’s runs and threads",
+            }
+        },
+    )
+
+    tool_calls_visibility: ToolCallsVisibility = Field(
+        default=ToolCallsVisibility.ALWAYS_OFF,
+        optional=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": ToolCallsVisibility.ALWAYS_OFF.value,
+                "description": (
+                    "Controls visibility and behavior of tool call toggles for this agent."
+                ),
+                "options": [
+                    {
+                        "label": "User preference",
+                        "value": ToolCallsVisibility.USER_PREFERENCE.value,
+                    },
+                    {
+                        "label": "Always ON (forced)",
+                        "value": ToolCallsVisibility.ALWAYS_ON.value,
+                    },
+                    {
+                        "label": "Always OFF (disabled)",
+                        "value": ToolCallsVisibility.ALWAYS_OFF.value,
+                    },
+                ],
             }
         },
     )
