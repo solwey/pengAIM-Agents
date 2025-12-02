@@ -16,7 +16,8 @@ from graphs.react_agent.rag_models import DocumentCollectionInfo, SourceDocument
 
 class AgentMode(Enum):
     RAG = "rag"
-    ONLINE = "online"
+    WEB_SEARCH = "web_search"
+    MODEL = "model"
 
 
 class RetrievalMode(Enum):
@@ -62,7 +63,8 @@ class Context(BaseModel):
                 ),
                 "options": [
                     {"label": "Rag only", "value": AgentMode.RAG.value},
-                    {"label": "Online only", "value": AgentMode.ONLINE.value},
+                    {"label": "Online only", "value": AgentMode.WEB_SEARCH.value},
+                    {"label": "Model knowledge only", "value": AgentMode.MODEL.value},
                 ],
             }
         },
