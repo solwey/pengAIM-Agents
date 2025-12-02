@@ -3,29 +3,62 @@ from typing import Any
 
 import httpx
 from langgraph_sdk import Auth
+from jose import jwt, JWTError
+import base64
 
 # The "Auth" object is a container that LangGraph will use to mark our authentication function
 auth = Auth()
 
-AUTH_VERIFICATION_URL = os.getenv("RAG_API_URL")
+def decode_jwt_key(v):
+    """
+    Decode base64-encoded JWT public key to PEM format.
+    If the value is already in PEM format (starts with -----BEGIN), return as-is.
+    Otherwise, attempt to decode from base64.
+    """
+    if not v or not isinstance(v, str):
+        return v
 
+    v = v.strip()
+
+    # If already in PEM format, return as-is
+    if v.startswith("-----BEGIN"):
+        return v
+
+    # Try to decode from base64
+    try:
+        decoded = base64.b64decode(v).decode('utf-8')
+        return decoded
+    except Exception:
+        # If decoding fails, return original value (might be empty or invalid)
+        return v
+
+
+JWT_PUBLIC_KEY = decode_jwt_key(os.getenv("JWT_PUBLIC_KEY"))
+JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_ALG = os.getenv("JWT_ALG")
 
 async def verify_token_status(token: str) -> tuple[str, str, str]:
-    if not AUTH_VERIFICATION_URL:
-        raise ValueError("AUTH_VERIFICATION_URL is not configured")
+    try:
+        # Use RSA public key if available (recommended), otherwise fall back to symmetric key
+        if JWT_PUBLIC_KEY:
+            verification_key = JWT_PUBLIC_KEY
+        else:
+            verification_key = JWT_SECRET
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{AUTH_VERIFICATION_URL}/auth/verify",
-            headers={"Authorization": f"Bearer {token}"},
+        payload = jwt.decode(
+            token,
+            verification_key,
+            algorithms=[JWT_ALG]
         )
 
-    if resp.status_code != 200:
-        raise ValueError(f"Verification failed with status {resp.status_code}")
+        # Verify token type
+        if payload.get("typ") != "access":
+            raise ValueError("Invalid token type. Use access token, not refresh token.")
 
-    user = resp.json()
+        return payload.get("sub"), payload.get("team_id"), payload.get("role")
 
-    return user.get("id"), user.get("team_id"), user.get("role")
+    except JWTError as e:
+        raise ValueError("Invalid or expired token")
 
 
 def extract_authz(ctx: Auth.types.AuthContext) -> str | None:

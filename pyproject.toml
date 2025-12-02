@@ -46,7 +46,8 @@ dependencies = [
     "open-deep-research>=0.0.16",
     "firecrawl>=4.6.0",
     "sentry-sdk[fastapi]==2.43.0",
-    "gunicorn"
+    "gunicorn",
+    "python-jose>=3.5.0",
 ]
 
 [project.urls]
