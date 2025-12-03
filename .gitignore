@@ -17,6 +17,7 @@ wheels/
 
 # Pycharm
 .idea/
+.DS_Store
 
 # Testing
 .coverage
