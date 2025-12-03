@@ -14,7 +14,7 @@ from graphs.react_agent.context import (
     AgentInputState,
     AgentOutputState,
     AgentState,
-    Context,
+    Context, AgentMode,
 )
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -30,7 +30,7 @@ from graphs.react_agent.utils import _build_tools, get_api_key_for_model, get_to
 
 
 async def call_model(
-    state: AgentState, config: RunnableConfig
+        state: AgentState, config: RunnableConfig
 ) -> dict[str, list[AIMessage]]:
     cfg = Context(**config.get("configurable", {}))
 
@@ -51,10 +51,13 @@ async def call_model(
     if tools:
         model = model.bind_tools(tools)
 
+    if cfg.mode == AgentMode.WEB_SEARCH:
+        model = model.bind_tools([{"type": "web_search"}])
+
     final_system_prompt = (
-        (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
-        + (cfg.tools_policy_prompt or "")
-        + UNEDITABLE_SYSTEM_PROMPT.format(date=get_today_str())
+            (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
+            + (cfg.tools_policy_prompt or "")
+            + UNEDITABLE_SYSTEM_PROMPT.format(date=get_today_str())
     )
 
     system_message = SystemMessage(content=final_system_prompt)
