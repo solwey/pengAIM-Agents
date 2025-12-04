@@ -262,11 +262,13 @@ class AssistantService:
     ) -> list[Assistant]:
         """Search assistants with filters"""
         metadata = request.metadata or {}
+        req_team_id = metadata.pop("team_id", None)
         include_deleted = metadata.pop("include_deleted", "false") == "true"
-        # Start with user's assistants
-        stmt = select(AssistantORM).where(
-            or_(AssistantORM.team_id == user.team_id, AssistantORM.team_id == "system")
-        )
+
+        team_id = req_team_id if req_team_id and user.is_superadmin else user.team_id
+
+        stmt = select(AssistantORM).where(AssistantORM.team_id.in_([team_id, "system"]))
+
         if not include_deleted:
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
 
@@ -355,6 +357,7 @@ class AssistantService:
                 detail="Cannot specify both configurable and context. Use only one.",
             )
 
+        req_team_id = metadata.pop("team_id", None)
         restore = str(metadata.pop("restore", False)).lower() == "true"
 
         # Keep config and context up to date with one another
@@ -363,9 +366,11 @@ class AssistantService:
         elif context:
             config["configurable"] = context
 
+        team_id = req_team_id if req_team_id and user.is_superadmin else user.team_id
+
         stmt = select(AssistantORM).where(
             AssistantORM.assistant_id == assistant_id,
-            AssistantORM.team_id == user.team_id,
+            AssistantORM.team_id == team_id,
         )
         assistant = await self.session.scalar(stmt)
         if not assistant:
@@ -375,6 +380,11 @@ class AssistantService:
             assistant.deleted_at = None
             await self.session.commit()
             return self._to_pydantic_for_user(assistant, user)
+
+        existing_metadata = assistant.metadata_dict or {}
+        merged_metadata = {**existing_metadata, **metadata}
+
+        print("merged_metadata", merged_metadata)
 
         now = datetime.now(UTC)
         version_stmt = select(func.max(AssistantVersionORM.version)).where(
@@ -392,7 +402,7 @@ class AssistantService:
             "created_at": now,
             "name": request.name or assistant.name,
             "description": request.description or assistant.description,
-            "metadata_dict": metadata,
+            "metadata_dict": merged_metadata,
         }
 
         assistant_version_orm = AssistantVersionORM(**new_version_details)
@@ -403,7 +413,7 @@ class AssistantService:
             update(AssistantORM)
             .where(
                 AssistantORM.assistant_id == assistant_id,
-                AssistantORM.team_id == user.team_id,
+                AssistantORM.team_id == team_id,
             )
             .values(
                 name=new_version_details["name"],
@@ -413,6 +423,7 @@ class AssistantService:
                 context=new_version_details["context"],
                 version=new_version,
                 updated_at=now,
+                metadata_dict=merged_metadata,
             )
         )
         await self.session.execute(assistant_update)
