@@ -25,8 +25,7 @@ class User(BaseModel):
 
     @property
     def is_superadmin(self):
-        return any(role in self.permissions for role in "role:superadmin")
-
+        return "role:superadmin" in self.permissions
 
 class AuthContext(BaseModel):
     """Authentication context for request processing"""
