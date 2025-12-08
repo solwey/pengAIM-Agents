@@ -4,7 +4,7 @@ from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -52,7 +52,6 @@ class AgentOutputState(TypedDict):
 class Context(BaseModel):
     mode: AgentMode = Field(
         default=AgentMode.RAG,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
@@ -72,7 +71,6 @@ class Context(BaseModel):
 
     agent_openai_api_key: dict[str, str] | None = Field(
         default=None,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "password",
@@ -87,7 +85,6 @@ class Context(BaseModel):
     )
     rag_openai_api_key: dict[str, str] | None = Field(
         default=None,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "password",
@@ -159,7 +156,6 @@ class Context(BaseModel):
 
     tool_calls_visibility: ToolCallsVisibility = Field(
         default=ToolCallsVisibility.ALWAYS_OFF,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
@@ -204,7 +200,6 @@ class Context(BaseModel):
 
     rag_system_prompt: str | None = Field(
         default=None,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "textarea",
@@ -245,3 +240,52 @@ class Context(BaseModel):
             }
         },
     )
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v):
+        if v is None or v == "":
+            return AgentMode.RAG
+        return v
+
+    @field_validator("model_name", mode="before")
+    @classmethod
+    def validate_model_name(cls, v):
+        if v is None or v == "":
+            return "openai:gpt-4o-mini"
+        return v
+
+    @field_validator("temperature", mode="before")
+    @classmethod
+    def validate_temperature(cls, v):
+        if v is None:
+            return 0.7
+        return v
+
+    @field_validator("max_tokens", mode="before")
+    @classmethod
+    def validate_max_tokens(cls, v):
+        if v is None:
+            return 4000
+        return v
+
+    @field_validator("share_new_chats_by_default", mode="before")
+    @classmethod
+    def validate_share_flag(cls, v):
+        if v is None:
+            return False
+        return v
+
+    @field_validator("tool_calls_visibility", mode="before")
+    @classmethod
+    def validate_tool_calls_visibility(cls, v):
+        if v is None or v == "":
+            return ToolCallsVisibility.ALWAYS_OFF
+        return v
+
+    @field_validator("rag_retrieval_mode", mode="before")
+    @classmethod
+    def validate_retrieval_mode(cls, v):
+        if v is None or v == "":
+            return RetrievalMode.RRF
+        return v

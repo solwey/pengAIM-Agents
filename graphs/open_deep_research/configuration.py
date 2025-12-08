@@ -54,7 +54,6 @@ class Configuration(BaseModel):
 
     mode: AgentMode = Field(
         default=AgentMode.RAG,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
@@ -155,7 +154,6 @@ class Configuration(BaseModel):
 
     tool_calls_visibility: ToolCallsVisibility = Field(
         default=ToolCallsVisibility.ALWAYS_OFF,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
@@ -374,7 +372,6 @@ class Configuration(BaseModel):
     )
     system_prompt: str | None = Field(
         default=None,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "textarea",
@@ -390,7 +387,6 @@ class Configuration(BaseModel):
 
     sales_context_prompt: str | None = Field(
         default=None,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "textarea",
@@ -406,7 +402,6 @@ class Configuration(BaseModel):
 
     rag_system_prompt: str | None = Field(
         default=None,
-        optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "textarea",
@@ -420,6 +415,132 @@ class Configuration(BaseModel):
             }
         },
     )
+
+    @field_validator("agent_openai_api_key", "rag_openai_api_key", mode="before")
+    @classmethod
+    def _validate_api_keys(cls, v):
+        if v is None or v == "":
+            return {}
+        return v
+
+    @field_validator("max_structured_output_retries", mode="before")
+    @classmethod
+    def _validate_max_structured_output_retries(cls, v):
+        if v is None or (isinstance(v, int) and v <= 0):
+            return 3
+        return v
+
+    @field_validator("allow_clarification", mode="before")
+    @classmethod
+    def _validate_allow_clarification(cls, v):
+        if v is None:
+            return False
+        return v
+
+    @field_validator("max_concurrent_research_units", mode="before")
+    @classmethod
+    def _validate_max_concurrent_research_units(cls, v):
+        if v is None or not isinstance(v, int) or v <= 0:
+            return 5
+        if v > 20:
+            return 20
+        return v
+
+    @field_validator("search_api", mode="before")
+    @classmethod
+    def _validate_search_api(cls, v):
+        if v is None or v == "":
+            return SearchAPI.FIRECRAWL
+        return v
+
+    @field_validator("max_researcher_iterations", mode="before")
+    @classmethod
+    def _validate_max_researcher_iterations(cls, v):
+        if v is None or not isinstance(v, int) or v <= 0:
+            return 6
+        if v > 10:
+            return 10
+        return v
+
+    @field_validator("max_react_tool_calls", mode="before")
+    @classmethod
+    def _validate_max_react_tool_calls(cls, v):
+        if v is None or not isinstance(v, int) or v <= 0:
+            return 10
+        if v > 30:
+            return 30
+        return v
+
+    @field_validator(
+        "summarization_model",
+        "research_model",
+        "compression_model",
+        "final_report_model",
+        mode="before",
+    )
+    @classmethod
+    def _validate_model_names(cls, v):
+        if v is None:
+            return "openai:gpt-4o-mini"
+        if isinstance(v, str) and v.strip() == "":
+            return "openai:gpt-4o-mini"
+        return v
+
+    @field_validator(
+        "summarization_model_max_tokens",
+        "research_model_max_tokens",
+        "compression_model_max_tokens",
+        "final_report_model_max_tokens",
+        mode="before",
+    )
+    @classmethod
+    def _validate_model_max_tokens(cls, v, info):
+        default_map = {
+            "summarization_model_max_tokens": 8192,
+            "research_model_max_tokens": 10000,
+            "compression_model_max_tokens": 8192,
+            "final_report_model_max_tokens": 10000,
+        }
+        field_name = info.field_name
+        default_value = default_map.get(field_name, 1000)
+        if v is None or not isinstance(v, int) or v <= 0:
+            return default_value
+        return v
+
+    @field_validator("max_content_length", mode="before")
+    @classmethod
+    def _validate_max_content_length(cls, v):
+        if v is None or not isinstance(v, int) or v <= 0:
+            return 50000
+        return v
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _validate_mode(cls, v):
+        if v is None or v == "":
+            return AgentMode.RAG
+        return v
+
+    @field_validator("rag_retrieval_mode", mode="before")
+    @classmethod
+    def _validate_rag_retrieval_mode(cls, v):
+        if v is None or v == "":
+            return RetrievalMode.RRF
+        return v
+
+    @field_validator("share_new_chats_by_default", mode="before")
+    @classmethod
+    def _validate_share_new_chats_by_default(cls, v):
+        if v is None:
+            return False
+        return v
+
+    @field_validator("tool_calls_visibility", mode="before")
+    @classmethod
+    def _validate_tool_calls_visibility(cls, v):
+        if v is None or v == "":
+            return ToolCallsVisibility.ALWAYS_OFF
+        return v
 
     @field_validator("steps", mode="before")
     @classmethod
