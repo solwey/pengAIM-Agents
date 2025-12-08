@@ -70,6 +70,38 @@ configurable_model = init_chat_model(
 )
 
 
+def parse_start_message(message_text: str) -> tuple[bool, list | None]:
+    """Parse a message starting with 'Start' followed by optional JSON placeholders.
+
+    Expected format: Start [{"field_name1": "value1", "field_name2": "value2"}, ...]
+    Each element in the array corresponds to placeholders for each step (by step_index).
+
+    Returns:
+        tuple: (is_start_message, all_steps_placeholders or None)
+    """
+    if not message_text or not message_text.strip().startswith("Start"):
+        return False, None
+
+    text = message_text.strip()
+
+    # Check if it's just "Start" with no placeholders
+    if text == "Start":
+        return True, []
+
+    # Try to extract JSON array after "Start"
+    json_part = text[5:].strip()  # Remove "Start" prefix
+    if not json_part:
+        return True, []
+
+    try:
+        placeholders = json.loads(json_part)
+        if isinstance(placeholders, list):
+            return True, placeholders
+        return True, []
+    except json.JSONDecodeError:
+        return True, []
+
+
 async def provide_placeholders(state: AgentState, config: RunnableConfig):
     configurable = Configuration.from_runnable_config(config)
     steps = configurable.steps or []
@@ -79,7 +111,14 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
     if not steps:
         return Command(goto="prepare_step")
 
-    if isinstance(last_message, HumanMessage) and last_message.text() != "Start":
+    # Parse the message to check for "Start" format with inline placeholders
+    message_text = ""
+    if isinstance(last_message, HumanMessage):
+        message_text = last_message.text() if hasattr(last_message, "text") else str(last_message.content)
+
+    is_start_message, all_steps_placeholders = parse_start_message(message_text)
+
+    if isinstance(last_message, HumanMessage) and not is_start_message:
         return Command(goto="clarify_with_user", update={"step_index": -1})
 
     step_index = state.get("step_index", 0)
@@ -101,6 +140,36 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
     if not expected_placeholders:
         return Command(goto=goto)
 
+    # Check if we have inline placeholders from the "Start" message
+    # Format: Start [{"company_name": "Acme", "context": "..."}, {"other_field": "value"}]
+    # Each array element corresponds to a step by index
+    if all_steps_placeholders and step_index < len(all_steps_placeholders):
+        step_placeholders_dict = all_steps_placeholders[step_index]
+
+        if isinstance(step_placeholders_dict, dict):
+            # Check if all expected placeholders are provided for this step
+            all_provided = all(
+                field in step_placeholders_dict for field in expected_placeholders
+            )
+
+            if all_provided:
+                # Convert dict format to list of {"field": key, "value": val} for normalize_placeholders
+                placeholders_list = [
+                    {"field": key, "value": value}
+                    for key, value in step_placeholders_dict.items()
+                ]
+                # Use the inline placeholders directly, no interrupt needed
+                return Command(
+                    goto=goto,
+                    update={
+                        "placeholders": {
+                            "type": "override",
+                            "value": normalize_placeholders(placeholders_list),
+                        },
+                    },
+                )
+
+    # Fall back to interrupt if placeholders not provided inline
     human_payload = interrupt(
         {
             "type": "placeholders_required",
