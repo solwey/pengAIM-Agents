@@ -235,7 +235,7 @@ async def create_run(
     # Mark thread as busy and update metadata with assistant/graph info
     # update_thread_metadata will auto-create thread if it doesn't exist
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input, user.identity
+        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input, user.id
     )
     await set_thread_status(session, thread_id, "busy")
 
@@ -352,7 +352,7 @@ async def create_and_stream_run(
     # Mark thread as busy and update metadata with assistant/graph info
     # update_thread_metadata will auto-create thread if it doesn't exist
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input, user.identity
+        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input, user.id
     )
     await set_thread_status(session, thread_id, "busy")
 
@@ -564,7 +564,7 @@ async def update_run(
 
     if validated_status == "interrupted":
         logger.info(
-            f"[update_run] cancelling/interrupting run_id={run_id} user={user.identity} team={user.team_id} thread_id={thread_id}"
+            f"[update_run] cancelling/interrupting run_id={run_id} user={user.id} team={user.team_id} thread_id={thread_id}"
         )
         # Handle interruption - use interrupt_run for cooperative interruption
         await streaming_service.interrupt_run(run_id)
@@ -700,7 +700,7 @@ async def wait_for_run(
     # Mark thread as busy and update metadata with assistant/graph info
     # update_thread_metadata will auto-create thread if it doesn't exist
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input, user.identity
+        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input, user.id
     )
     await set_thread_status(session, thread_id, "busy")
 

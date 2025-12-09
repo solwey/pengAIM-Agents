@@ -373,7 +373,7 @@ async def update_thread_state(
     # Otherwise, update the state
     try:
         stmt = select(ThreadORM).where(
-            ThreadORM.thread_id == thread_id, ThreadORM.user_id == user.identity
+            ThreadORM.thread_id == thread_id, ThreadORM.user_id == user.id
         )
         thread = await session.scalar(stmt)
         if not thread:
