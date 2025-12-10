@@ -373,8 +373,16 @@ async def update_thread_state(
     # Otherwise, update the state
     try:
         stmt = select(ThreadORM).where(
-            ThreadORM.thread_id == thread_id, ThreadORM.user_id == user.id
+            ThreadORM.thread_id == thread_id,
+            ThreadORM.team_id == user.team_id,
         )
+        if not user.is_superadmin:
+            stmt = stmt.where(
+                or_(
+                    ThreadORM.user_id == user.id,
+                    ThreadORM.is_shared.is_(True),
+                )
+            )
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
