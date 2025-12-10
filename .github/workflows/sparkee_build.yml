@@ -1,0 +1,70 @@
+name: Sparkee - Build and Push to ECR
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-2
+      SECRET_NAME_CI: pengaim-sparkee-agents-ci
+
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.IAMROLE_GITHUB }}
+          role-session-name: GitHubActionsSession
+
+      - name: Fetch AWS secret values
+        run: |
+          aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_CI --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\(.[$k])"' >> $GITHUB_ENV
+          
+      - name: Create .env file
+        run: |
+          echo -n > $DOTENV_FNAME
+
+      - name: Build, tag, and push image to Amazon ECR (Agents)
+        run: |          
+          # Build docker image and push to ECR
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+          docker buildx build --platform=linux/amd64 --tag $IMG_TAG --build-arg ENV_FILE=$DOTENV_FNAME --file ./Dockerfile .
+          docker push $IMG_TAG
+
+      - name: Send success notification to SQS
+        if: success()
+        run: |
+          # Send success message to SQS queue
+          MESSAGE_BODY=$(cat <<EOF
+          {
+            "event": "deployment_success",
+            "repository": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "commit_sha": "${{ github.sha }}",
+            "commit_message": "${{ github.event.head_commit.message }}",
+            "workflow_run_id": "${{ github.run_id }}",
+            "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "images_pushed": [
+              "$IMG_TAG",
+            ]
+          }
+          EOF
+          )
+
+          aws sqs send-message \
+            --region $AWS_REGION \
+            --queue-url $SQS_QUEUE_URL \
+            --message-body "$MESSAGE_BODY" \
+            --message-attributes "EventType={StringValue=deployment_success,DataType=String}"
