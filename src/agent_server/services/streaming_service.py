@@ -230,11 +230,8 @@ class StreamingService:
         run_id = run.run_id
         broker = broker_manager.get_or_create_broker(run_id)
 
-        # If run finished and broker is done, nothing to stream
-        if (
-            run.status in ["completed", "failed", "cancelled", "interrupted"]
-            and broker.is_finished()
-        ):
+        # If run finished, rely only on stored events for replay
+        if run.status in ["completed", "failed", "cancelled", "interrupted"]:
             return
 
         # Stream live events

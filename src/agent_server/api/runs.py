@@ -49,8 +49,8 @@ def map_command_to_langgraph(cmd: dict[str, Any]) -> Command:
 
     update = cmd.get("update")
     if isinstance(update, (tuple, list)) and all(
-            isinstance(t, (tuple, list)) and len(t) == 2 and isinstance(t[0], str)
-            for t in update
+        isinstance(t, (tuple, list)) and len(t) == 2 and isinstance(t[0], str)
+        for t in update
     ):
         update = [tuple(t) for t in update]
 
@@ -79,12 +79,12 @@ async def set_thread_status(session: AsyncSession, thread_id: str, status: str) 
 
 
 async def update_thread_metadata(
-        session: AsyncSession,
-        thread_id: str,
-        assistant_id: str,
-        graph_id: str,
-        is_shared: bool,
-        input: dict[str, Any],
+    session: AsyncSession,
+    thread_id: str,
+    assistant_id: str,
+    graph_id: str,
+    is_shared: bool,
+    input: dict[str, Any],
 ) -> None:
     """Update thread metadata with assistant and graph information (dialect agnostic)."""
     # Read-modify-write to avoid DB-specific JSON concat operators
@@ -130,7 +130,7 @@ async def update_thread_metadata(
 
 
 async def _validate_resume_command(
-        session: AsyncSession, thread_id: str, command: dict[str, Any] | None
+    session: AsyncSession, thread_id: str, command: dict[str, Any] | None
 ) -> None:
     """Validate resume command requirements."""
     if command and command.get("resume") is not None:
@@ -147,10 +147,10 @@ async def _validate_resume_command(
 
 @router.post("/threads/{thread_id}/runs", response_model=Run)
 async def create_run(
-        thread_id: str,
-        request: RunCreate,
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    request: RunCreate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> Run:
     """Create and execute a new run (persisted)."""
 
@@ -198,7 +198,12 @@ async def create_run(
     await set_thread_status(session, thread_id, "busy")
 
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input
+        session,
+        thread_id,
+        assistant.assistant_id,
+        assistant.graph_id,
+        is_shared,
+        request.input,
     )
 
     # Persist run record via ORM model in core.orm (Run table)
@@ -267,10 +272,10 @@ async def create_run(
 
 @router.post("/threads/{thread_id}/runs/stream")
 async def create_and_stream_run(
-        thread_id: str,
-        request: RunCreate,
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    request: RunCreate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
     """Create a new run and stream its execution - persisted + SSE."""
 
@@ -314,7 +319,12 @@ async def create_and_stream_run(
     # Mark thread as busy and update metadata with assistant/graph info
     await set_thread_status(session, thread_id, "busy")
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input
+        session,
+        thread_id,
+        assistant.assistant_id,
+        assistant.graph_id,
+        is_shared,
+        request.input,
     )
 
     # Persist run record
@@ -403,10 +413,10 @@ async def create_and_stream_run(
 
 @router.get("/threads/{thread_id}/runs/{run_id}", response_model=Run)
 async def get_run(
-        thread_id: str,
-        run_id: str,
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> Run:
     """Get run by ID (persisted)."""
     stmt = select(RunORM).where(
@@ -443,12 +453,12 @@ async def get_run(
 
 @router.get("/threads/{thread_id}/runs", response_model=list[Run])
 async def list_runs(
-        thread_id: str,
-        limit: int = Query(10, ge=1, description="Maximum number of runs to return"),
-        offset: int = Query(0, ge=0, description="Number of runs to skip for pagination"),
-        status: str | None = Query(None, description="Filter by run status"),
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    limit: int = Query(10, ge=1, description="Maximum number of runs to return"),
+    offset: int = Query(0, ge=0, description="Number of runs to skip for pagination"),
+    status: str | None = Query(None, description="Filter by run status"),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> list[Run]:
     """List runs for a specific thread (persisted)."""
 
@@ -488,11 +498,11 @@ async def list_runs(
 
 @router.patch("/threads/{thread_id}/runs/{run_id}")
 async def update_run(
-        thread_id: str,
-        run_id: str,
-        request: RunStatus,
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    run_id: str,
+    request: RunStatus,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> Run:
     """Update run status (for cancellation/interruption, persisted)."""
     logger.info(
@@ -561,10 +571,10 @@ async def update_run(
 
 @router.get("/threads/{thread_id}/runs/{run_id}/join")
 async def join_run(
-        thread_id: str,
-        run_id: str,
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Join a run (wait for completion and return final output) - persisted."""
     # Get run and validate it exists
@@ -618,10 +628,10 @@ async def join_run(
 
 @router.post("/threads/{thread_id}/runs/wait")
 async def wait_for_run(
-        thread_id: str,
-        request: RunCreate,
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    request: RunCreate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Create a run, execute it, and wait for completion (Agent Protocol).
 
@@ -669,7 +679,12 @@ async def wait_for_run(
     # Mark thread as busy and update metadata with assistant/graph info
     await set_thread_status(session, thread_id, "busy")
     await update_thread_metadata(
-        session, thread_id, assistant.assistant_id, assistant.graph_id, is_shared, request.input
+        session,
+        thread_id,
+        assistant.assistant_id,
+        assistant.graph_id,
+        is_shared,
+        request.input,
     )
 
     # Persist run record
@@ -765,12 +780,12 @@ async def wait_for_run(
 # TODO: check if this method is actually required because the implementation doesn't seem correct.
 @router.get("/threads/{thread_id}/runs/{run_id}/stream")
 async def stream_run(
-        thread_id: str,
-        run_id: str,
-        last_event_id: str | None = Header(None, alias="Last-Event-ID"),
-        _stream_mode: str | None = Query(None),
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    run_id: str,
+    last_event_id: str | None = Header(None, alias="Last-Event-ID"),
+    _stream_mode: str | None = Query(None),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
     """Stream run execution with SSE and reconnection support - persisted metadata."""
     logger.info(
@@ -801,6 +816,7 @@ async def stream_run(
     )
     # If already terminal, emit a final end event
     if run_orm.status in ["completed", "failed", "cancelled"]:
+
         async def generate_final() -> AsyncIterator[str]:
             yield create_end_event()
 
@@ -840,16 +856,16 @@ async def stream_run(
 
 @router.post("/threads/{thread_id}/runs/{run_id}/cancel")
 async def cancel_run_endpoint(
-        thread_id: str,
-        run_id: str,
-        wait: int = Query(
-            0, ge=0, le=1, description="Whether to wait for the run task to settle"
-        ),
-        action: str = Query(
-            "cancel", pattern="^(cancel|interrupt)$", description="Cancellation action"
-        ),
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    run_id: str,
+    wait: int = Query(
+        0, ge=0, le=1, description="Whether to wait for the run task to settle"
+    ),
+    action: str = Query(
+        "cancel", pattern="^(cancel|interrupt)$", description="Cancellation action"
+    ),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> Run:
     """
     Cancel or interrupt a run (client-compatible endpoint).
@@ -934,21 +950,21 @@ async def cancel_run_endpoint(
 
 
 async def execute_run_async(
-        run_id: str,
-        thread_id: str,
-        graph_id: str,
-        input_data: dict,
-        user: User,
-        config: dict | None = None,
-        context: dict | None = None,
-        stream_mode: list[str] | None = None,
-        session: AsyncSession | None = None,
-        checkpoint: dict | None = None,
-        command: dict[str, Any] | None = None,
-        interrupt_before: str | list[str] | None = None,
-        interrupt_after: str | list[str] | None = None,
-        _multitask_strategy: str | None = None,
-        subgraphs: bool | None = False,
+    run_id: str,
+    thread_id: str,
+    graph_id: str,
+    input_data: dict,
+    user: User,
+    config: dict | None = None,
+    context: dict | None = None,
+    stream_mode: list[str] | None = None,
+    session: AsyncSession | None = None,
+    checkpoint: dict | None = None,
+    command: dict[str, Any] | None = None,
+    interrupt_before: str | list[str] | None = None,
+    interrupt_after: str | list[str] | None = None,
+    _multitask_strategy: str | None = None,
+    subgraphs: bool | None = False,
 ) -> None:
     """Execute run asynchronously in background using streaming to capture all events"""  # Use provided session or get a new one
     if session is None:
@@ -1027,15 +1043,15 @@ async def execute_run_async(
         if not user_requested_updates:
             final_stream_modes.append("updates")
 
-        only_interrupt_updates = not user_requested_updates
+        only_interrupt_updates = False
 
         async with with_auth_ctx(user, []):
             async for raw_event in graph.astream(
-                    execution_input,
-                    config=run_config,
-                    context=context,
-                    subgraphs=subgraphs,
-                    stream_mode=final_stream_modes,
+                execution_input,
+                config=run_config,
+                context=context,
+                subgraphs=subgraphs,
+                stream_mode=final_stream_modes,
             ):
                 # Skip events that contain langsmith:nostream tag
                 if _should_skip_event(raw_event):
@@ -1130,11 +1146,11 @@ async def execute_run_async(
 
 
 async def update_run_status(
-        run_id: str,
-        status: str,
-        output: Any = None,
-        error: str | None = None,
-        session: AsyncSession | None = None,
+    run_id: str,
+    status: str,
+    output: Any = None,
+    error: str | None = None,
+    session: AsyncSession | None = None,
 ) -> None:
     """Update run status in database (persisted). If session not provided, opens a short-lived session."""
     owns_session = False
@@ -1172,13 +1188,13 @@ async def update_run_status(
 
 @router.delete("/threads/{thread_id}/runs/{run_id}", status_code=204)
 async def delete_run(
-        thread_id: str,
-        run_id: str,
-        force: int = Query(
-            0, ge=0, le=1, description="Force cancel active run before delete (1=yes)"
-        ),
-        user: User = Depends(get_current_user),
-        session: AsyncSession = Depends(get_session),
+    thread_id: str,
+    run_id: str,
+    force: int = Query(
+        0, ge=0, le=1, description="Force cancel active run before delete (1=yes)"
+    ),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> None:
     """
     Delete a run record.
