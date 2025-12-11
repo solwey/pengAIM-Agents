@@ -13,6 +13,54 @@ from graphs.react_agent.prompts import (
 )
 from graphs.react_agent.rag_models import DocumentCollectionInfo, SourceDocument
 
+DEFAULT_QUESTION_CATEGORIES: list[dict] = [
+    {
+        "title": "Getting started",
+        "questions": [
+            {"text": "What can you do for me?"},
+            {"text": "How should I start working with you on my tasks?"},
+        ],
+    },
+    {
+        "title": "Project / data context",
+        "questions": [
+            {"text": "What do you know about my current project or data?"},
+            {"text": "Summarize the key information you have about our documents."},
+        ],
+    },
+    {
+        "title": "Analysis & reasoning",
+        "questions": [
+            {"text": "Help me analyze the main risks and opportunities here."},
+            {"text": "Can you compare the main options and suggest the best one?"},
+        ],
+    },
+    {
+        "title": "Next steps & output",
+        "questions": [
+            {"text": "What are the next steps I should take?"},
+            {"text": "Generate a concise action plan based on our discussion."},
+        ],
+    },
+]
+
+
+class DefaultQuestion(BaseModel):
+    text: str = Field(
+        ..., description="Question text that will be suggested to the user."
+    )
+
+
+class DefaultQuestionsCategory(BaseModel):
+    id: str = Field(
+        ..., description="Stable identifier for the category (used internally)."
+    )
+    title: str = Field(..., description="Human-readable category title.")
+    questions: list[DefaultQuestion] = Field(
+        default_factory=list,
+        description="List of example questions for this category.",
+    )
+
 
 class AgentMode(Enum):
     RAG = "rag"
@@ -241,6 +289,45 @@ class Context(BaseModel):
         },
     )
 
+    default_questions: list[DefaultQuestionsCategory] = Field(
+        default=DEFAULT_QUESTION_CATEGORIES,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "repeatable_group",
+                "description": (
+                    "Configure up to four categories of starter questions that "
+                    "will be shown in the chat UI for this agent."
+                ),
+                "item_label": "Category",
+                "fields": {
+                    "title": {
+                        "type": "text",
+                        "label": "Category title",
+                        "placeholder": "Enter category title",
+                        "description": "Human-friendly name of the category shown to users.",
+                    },
+                    "questions": {
+                        "type": "repeatable",
+                        "label": "Example questions",
+                        "item_label": "Question",
+                        "min_items": 2,
+                        "max_items": 2,
+                        "fields": {
+                            "text": {
+                                "type": "textarea",
+                                "label": "Question text",
+                                "description": "Example question that the user can click to ask.",
+                                "placeholder": "Enter example question...",
+                            }
+                        },
+                    },
+                },
+                "max_items": 4,
+                "default": DEFAULT_QUESTION_CATEGORIES,
+            }
+        },
+    )
+
     @field_validator("mode", mode="before")
     @classmethod
     def validate_mode(cls, v):
@@ -288,4 +375,11 @@ class Context(BaseModel):
     def validate_retrieval_mode(cls, v):
         if v is None or v == "":
             return RetrievalMode.RRF
+        return v
+
+    @field_validator("default_questions", mode="before")
+    @classmethod
+    def validate_default_questions(cls, v):
+        if not v:
+            return DEFAULT_QUESTION_CATEGORIES
         return v
