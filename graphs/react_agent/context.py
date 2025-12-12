@@ -12,66 +12,18 @@ from graphs.react_agent.prompts import (
     UNEDITABLE_SYSTEM_PROMPT,
 )
 from graphs.react_agent.rag_models import DocumentCollectionInfo, SourceDocument
-
-DEFAULT_QUESTION_CATEGORIES: list[dict] = [
-    {
-        "title": "Getting started",
-        "questions": [
-            {"text": "What can you do for me?"},
-            {"text": "How should I start working with you on my tasks?"},
-        ],
-    },
-    {
-        "title": "Project / data context",
-        "questions": [
-            {"text": "What do you know about my current project or data?"},
-            {"text": "Summarize the key information you have about our documents."},
-        ],
-    },
-    {
-        "title": "Analysis & reasoning",
-        "questions": [
-            {"text": "Help me analyze the main risks and opportunities here."},
-            {"text": "Can you compare the main options and suggest the best one?"},
-        ],
-    },
-    {
-        "title": "Next steps & output",
-        "questions": [
-            {"text": "What are the next steps I should take?"},
-            {"text": "Generate a concise action plan based on our discussion."},
-        ],
-    },
-]
-
-
-class DefaultQuestion(BaseModel):
-    text: str = Field(
-        ..., description="Question text that will be suggested to the user."
-    )
-
-
-class DefaultQuestionsCategory(BaseModel):
-    id: str = Field(
-        ..., description="Stable identifier for the category (used internally)."
-    )
-    title: str = Field(..., description="Human-readable category title.")
-    questions: list[DefaultQuestion] = Field(
-        default_factory=list,
-        description="List of example questions for this category.",
-    )
+from graphs.shared import (
+    DEFAULT_QUESTION_CATEGORIES,
+    DefaultQuestionsCategory,
+    RetrievalMode,
+    ToolCallsVisibility,
+)
 
 
 class AgentMode(Enum):
     RAG = "rag"
     WEB_SEARCH = "web_search"
     MODEL = "model"
-
-
-class RetrievalMode(Enum):
-    BASIC = "basic"
-    HYDE = "hyde"
-    RRF = "rrf"
 
 
 class AgentInputState(TypedDict):
@@ -82,12 +34,6 @@ class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     sources: Annotated[list[SourceDocument], operator.add]
     document_collections: Annotated[list[DocumentCollectionInfo], operator.add]
-
-
-class ToolCallsVisibility(Enum):
-    USER_PREFERENCE = "user_preference"
-    ALWAYS_ON = "always_on"
-    ALWAYS_OFF = "always_off"
 
 
 class AgentOutputState(TypedDict):
@@ -300,6 +246,10 @@ class Context(BaseModel):
                 ),
                 "item_label": "Category",
                 "fields": {
+                    "icon": {
+                        "type": "iconify",
+                        "label": "Category icon",
+                    },
                     "title": {
                         "type": "text",
                         "label": "Category title",
