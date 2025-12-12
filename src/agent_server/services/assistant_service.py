@@ -23,6 +23,8 @@ from fastapi import Depends, HTTPException
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from graphs.shared import DEFAULT_QUESTION_CATEGORIES
+
 from ..core.orm import Assistant as AssistantORM
 from ..core.orm import AssistantVersion as AssistantVersionORM
 from ..core.orm import get_session
@@ -145,9 +147,17 @@ class AssistantService:
                 .get("configurable", {})
                 .get("tool_calls_visibility", "always_off")
             )
+            default_questions = (
+                getattr(assistant, "config", {})
+                .get("configurable", {})
+                .get("default_questions", DEFAULT_QUESTION_CATEGORIES)
+            )
 
             assistant.config = {
-                "configurable": {"tool_calls_visibility": tool_calls_visibility}
+                "configurable": {
+                    "tool_calls_visibility": tool_calls_visibility,
+                    "default_questions": default_questions,
+                }
             }
             assistant.context = {}
 

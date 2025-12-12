@@ -12,18 +12,18 @@ from graphs.react_agent.prompts import (
     UNEDITABLE_SYSTEM_PROMPT,
 )
 from graphs.react_agent.rag_models import DocumentCollectionInfo, SourceDocument
+from graphs.shared import (
+    DEFAULT_QUESTION_CATEGORIES,
+    DefaultQuestionsCategory,
+    RetrievalMode,
+    ToolCallsVisibility,
+)
 
 
 class AgentMode(Enum):
     RAG = "rag"
     WEB_SEARCH = "web_search"
     MODEL = "model"
-
-
-class RetrievalMode(Enum):
-    BASIC = "basic"
-    HYDE = "hyde"
-    RRF = "rrf"
 
 
 class AgentInputState(TypedDict):
@@ -34,12 +34,6 @@ class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     sources: Annotated[list[SourceDocument], operator.add]
     document_collections: Annotated[list[DocumentCollectionInfo], operator.add]
-
-
-class ToolCallsVisibility(Enum):
-    USER_PREFERENCE = "user_preference"
-    ALWAYS_ON = "always_on"
-    ALWAYS_OFF = "always_off"
 
 
 class AgentOutputState(TypedDict):
@@ -241,6 +235,49 @@ class Context(BaseModel):
         },
     )
 
+    default_questions: list[DefaultQuestionsCategory] = Field(
+        default=DEFAULT_QUESTION_CATEGORIES,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "repeatable_group",
+                "description": (
+                    "Configure up to four categories of starter questions that "
+                    "will be shown in the chat UI for this agent."
+                ),
+                "item_label": "Category",
+                "fields": {
+                    "icon": {
+                        "type": "iconify",
+                        "label": "Category icon",
+                    },
+                    "title": {
+                        "type": "text",
+                        "label": "Category title",
+                        "placeholder": "Enter category title",
+                        "description": "Human-friendly name of the category shown to users.",
+                    },
+                    "questions": {
+                        "type": "repeatable",
+                        "label": "Example questions",
+                        "item_label": "Question",
+                        "min_items": 2,
+                        "max_items": 2,
+                        "fields": {
+                            "text": {
+                                "type": "textarea",
+                                "label": "Question text",
+                                "description": "Example question that the user can click to ask.",
+                                "placeholder": "Enter example question...",
+                            }
+                        },
+                    },
+                },
+                "max_items": 4,
+                "default": DEFAULT_QUESTION_CATEGORIES,
+            }
+        },
+    )
+
     @field_validator("mode", mode="before")
     @classmethod
     def validate_mode(cls, v):
@@ -288,4 +325,11 @@ class Context(BaseModel):
     def validate_retrieval_mode(cls, v):
         if v is None or v == "":
             return RetrievalMode.RRF
+        return v
+
+    @field_validator("default_questions", mode="before")
+    @classmethod
+    def validate_default_questions(cls, v):
+        if not v:
+            return DEFAULT_QUESTION_CATEGORIES
         return v
