@@ -34,8 +34,8 @@ async def call_model(
 ) -> dict[str, list[AIMessage]]:
     cfg = Context(**config.get("configurable", {}))
 
-    # Prepare tools
-    tools_by_name = await _build_tools(cfg)
+    # Prepare tools (pass config for MCP authorization)
+    tools_by_name = await _build_tools(cfg, config)
     tools = list(tools_by_name.values())
 
     # Resolve API key for the selected model
@@ -80,7 +80,7 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         return {"messages": []}
 
     cfg = Context(**config.get("configurable", {}))
-    tools_by_name = await _build_tools(cfg)
+    tools_by_name = await _build_tools(cfg, config)
 
     tool_messages: list[ToolMessage] = []
     extracted_sources: list[SourceDocument] = []

@@ -20,6 +20,18 @@ from graphs.shared import (
 )
 
 
+class McpServerConfig(BaseModel):
+    """Configuration for a single MCP server.
+
+    MCP (Model Context Protocol) servers provide additional tools that can be
+    dynamically loaded and used by the agent. Each server exposes tools via
+    HTTP endpoints.
+    """
+
+    name: str = Field(..., description="Unique name for this MCP server")
+    url: str = Field(..., description="HTTP URL of the MCP server endpoint")
+
+
 class AgentMode(Enum):
     RAG = "rag"
     WEB_SEARCH = "web_search"
@@ -278,6 +290,22 @@ class Context(BaseModel):
         },
     )
 
+    mcp_servers: list[McpServerConfig] = Field(
+        default_factory=list,
+        description="List of MCP servers to load tools from",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "json",
+                "description": (
+                    "Configure MCP (Model Context Protocol) servers to extend the agent's "
+                    "capabilities with additional tools. Each server should expose tools "
+                    "via HTTP endpoints."
+                ),
+                "default": [],
+            }
+        },
+    )
+
     @field_validator("mode", mode="before")
     @classmethod
     def validate_mode(cls, v):
@@ -325,6 +353,19 @@ class Context(BaseModel):
     def validate_retrieval_mode(cls, v):
         if v is None or v == "":
             return RetrievalMode.RRF
+        return v
+
+    @field_validator("mcp_servers", mode="before")
+    @classmethod
+    def validate_mcp_servers(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, list):
+            # Convert dict items to McpServerConfig if needed
+            return [
+                McpServerConfig(**item) if isinstance(item, dict) else item
+                for item in v
+            ]
         return v
 
     @field_validator("default_questions", mode="before")

@@ -3,9 +3,10 @@ from datetime import datetime
 
 import aiohttp
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool
 
 from graphs.react_agent.context import AgentMode, Context
+from graphs.react_agent.mcp_tools import load_mcp_tools
 from graphs.react_agent.tools import create_rag_tool
 
 RAG_URL = os.getenv("RAG_API_URL", "")
@@ -50,17 +51,60 @@ async def get_api_key_for_model(config: RunnableConfig) -> str | None:
         return None
 
 
-async def _build_tools(cfg: Context) -> dict[str, StructuredTool]:
+def _extract_authorization(config: RunnableConfig | None) -> str | None:
+    """Extract authorization token from RunnableConfig.
+
+    Args:
+        config: The RunnableConfig containing auth user context
+
+    Returns:
+        Authorization token string or None if not found
+    """
+    if not config:
+        return None
+
+    try:
+        configurable = config.get("configurable", {})
+        auth_user = configurable.get("langgraph_auth_user", {})
+        permissions = auth_user.get("permissions", [])
+        if permissions:
+            return permissions[0].replace("authz:", "")
+    except (KeyError, IndexError, AttributeError):
+        pass
+
+    return None
+
+
+async def _build_tools(
+    cfg: Context,
+    config: RunnableConfig | None = None,
+) -> dict[str, BaseTool]:
     """Build a mapping of tool name -> tool instance based on the config.
 
     This preserves the previous behavior:
     * In RAG mode, only the RAG `rag_search` tool is available.
     * In ONLINE mode, only simple agent is available.
-    """
-    tools: list[StructuredTool] = []
 
+    Additionally, MCP tools are loaded if configured.
+
+    Args:
+        cfg: The Context configuration
+        config: Optional RunnableConfig for extracting authorization
+
+    Returns:
+        Dictionary mapping tool names to tool instances
+    """
+    tools: list[BaseTool] = []
+
+    # Load RAG tool if in RAG mode
     if cfg.mode == AgentMode.RAG:
         rag_tool = await create_rag_tool(RAG_URL)
         tools.append(rag_tool)
+
+    # Load MCP tools if configured
+    if cfg.mcp_servers:
+        authorization = _extract_authorization(config)
+        mcp_tools = await load_mcp_tools(cfg.mcp_servers, authorization)
+        tools.extend(mcp_tools)
 
     return {t.name: t for t in tools}
