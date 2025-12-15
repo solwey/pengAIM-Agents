@@ -45,9 +45,6 @@ class DefaultQuestion(BaseModel):
 
 
 class DefaultQuestionsCategory(BaseModel):
-    id: str = Field(
-        ..., description="Stable identifier for the category (used internally)."
-    )
     icon: str | None = Field(
         default=None,
         description="Iconify icon name for this category (e.g., 'lucide:sparkles').",
