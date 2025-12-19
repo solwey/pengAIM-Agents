@@ -56,9 +56,9 @@ def _sanitize_dict(d: dict) -> dict:
                 safe[k] = _sanitize_any(filtered)
             continue
         elif (
-            k == "supervisor_messages"
-            and isinstance(v, dict)
-            and isinstance(v.get("value"), list)
+                k == "supervisor_messages"
+                and isinstance(v, dict)
+                and isinstance(v.get("value"), list)
         ):
             inner = v.get("value")
             filtered_inner = [
@@ -126,10 +126,10 @@ def get_sse_headers() -> dict[str, str]:
 
 
 def format_sse_message(
-    event: str,
-    data: Any,
-    event_id: str | None = None,
-    serializer: Callable[[Any], Any] | None = None,
+        event: str,
+        data: Any,
+        event_id: str | None = None,
+        serializer: Callable[[Any], Any] | None = None,
 ) -> str:
     """Format a message as Server-Sent Event following SSE standard
 
@@ -175,7 +175,7 @@ def format_sse_message(
 
 
 def create_metadata_event(
-    run_id: str, event_id: str | None = None, attempt: int = 1
+        run_id: str, event_id: str | None = None, attempt: int = 1
 ) -> str:
     """Create metadata event for LangSmith Studio compatibility"""
     data = {"run_id": run_id, "attempt": attempt}
@@ -188,7 +188,7 @@ def create_values_event(chunk_data: dict[str, Any], event_id: str | None = None)
 
 
 def create_updates_event(
-    updates_data: dict[str, Any], event_id: str | None = None
+        updates_data: dict[str, Any], event_id: str | None = None
 ) -> str:
     """Create updates event"""
     return format_sse_message("updates", updates_data, event_id)
@@ -262,28 +262,28 @@ def create_tasks_event(tasks_data: dict[str, Any], event_id: str | None = None) 
 
 
 def create_subgraphs_event(
-    subgraphs_data: dict[str, Any], event_id: str | None = None
+        subgraphs_data: dict[str, Any], event_id: str | None = None
 ) -> str:
     """Create subgraphs event"""
     return format_sse_message("subgraphs", subgraphs_data, event_id)
 
 
 def create_checkpoints_event(
-    checkpoints_data: dict[str, Any], event_id: str | None = None
+        checkpoints_data: dict[str, Any], event_id: str | None = None
 ) -> str:
     """Create checkpoints event"""
     return format_sse_message("checkpoints", checkpoints_data, event_id)
 
 
 def create_custom_event(
-    custom_data: dict[str, Any], event_id: str | None = None
+        custom_data: dict[str, Any], event_id: str | None = None
 ) -> str:
     """Create custom event"""
     return format_sse_message("custom", custom_data, event_id)
 
 
 def create_messages_event(
-    messages_data: Any, event_type: str = "messages", event_id: str | None = None
+        messages_data: Any, event_type: str = "messages", event_id: str | None = None
 ) -> str:
     """Create messages event (messages, messages/partial, messages/complete, messages/metadata)"""
     # Handle tuple format for token streaming: (message_chunk, metadata)
@@ -339,7 +339,7 @@ def create_start_event(run_id: str, event_counter: int) -> str:
 
 
 def create_chunk_event(
-    run_id: str, event_counter: int, chunk_data: dict[str, Any]
+        run_id: str, event_counter: int, chunk_data: dict[str, Any]
 ) -> str:
     """Legacy chunk event - deprecated, use create_values_event instead"""
     return format_sse_event(

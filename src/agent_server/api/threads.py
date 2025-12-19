@@ -149,13 +149,13 @@ async def create_thread(
 
 @router.get("/threads", response_model=ThreadList)
 async def list_threads(
-    request: ThreadHistoryRequest,
+    request: ThreadHistoryRequest | None = None,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """List user's threads"""
     # Fetch all threads for the current team
-    metadata = request.metadata or {}
+    metadata = getattr(request, "metadata", {})
     stmt = select(ThreadORM).where(ThreadORM.team_id == user.team_id)
 
     assistant_id = metadata.get("assistant_id")

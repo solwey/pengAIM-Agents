@@ -391,7 +391,7 @@ class AssistantService:
             await self.session.commit()
             return self._to_pydantic_for_user(assistant, user)
 
-        existing_metadata = assistant.metadata_dict or {}
+        existing_metadata = getattr(assistant, "metadata_dict", {})
         merged_metadata = {**existing_metadata, **metadata}
 
         now = datetime.now(UTC)
