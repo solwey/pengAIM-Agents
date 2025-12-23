@@ -16,6 +16,19 @@ from agent_server.services.assistant_service import AssistantService
 from tests.fixtures.database import DummySessionBase
 
 
+@pytest.fixture
+def mock_user():
+    mock_user = Mock()
+    mock_user.id = "user-123"
+    mock_user.team_id = "team-123"
+    mock_user.display_name = "Test User"
+    mock_user.to_dict.return_value = {
+        "identity": "user-123:team-123",
+        "name": "Test User",
+    }
+    return mock_user
+
+
 class TestAssistantServiceDatabase:
     """Test AssistantService with database operations"""
 
@@ -81,7 +94,7 @@ class TestAssistantServiceDatabase:
         return AssistantService(db_session, mock_langgraph_service)
 
     @pytest.mark.asyncio
-    async def test_create_assistant_db_transaction(self, assistant_service):
+    async def test_create_assistant_db_transaction(self, assistant_service, mock_user):
         """Test assistant creation with database transaction"""
         request = AssistantCreate(
             name="Test Assistant",
@@ -91,13 +104,13 @@ class TestAssistantServiceDatabase:
             metadata={"env": "test"},
         )
 
-        result = await assistant_service.create_assistant(request, "user-123")
+        result = await assistant_service.create_assistant(request, mock_user)
 
         assert isinstance(result, Assistant)
         assert result.name == "Test Assistant"
         assert result.description == "A test assistant"
         assert result.graph_id == "test-graph"
-        assert result.team_id == "user-123"
+        assert result.team_id == "team-123"
         assert result.version == 1
         assert result.config == {"temperature": 0.7}
         assert result.metadata == {"env": "test"}
@@ -110,7 +123,7 @@ class TestAssistantServiceDatabase:
         assert assistant_orm.metadata_dict == {"env": "test"}
 
     @pytest.mark.asyncio
-    async def test_create_assistant_version_creation(self, assistant_service):
+    async def test_create_assistant_version_creation(self, assistant_service, mock_user):
         """Test that assistant version is created during assistant creation"""
         request = AssistantCreate(
             name="Versioned Assistant",
@@ -118,7 +131,7 @@ class TestAssistantServiceDatabase:
             config={"model": "gpt-4"},
         )
 
-        result = await assistant_service.create_assistant(request, "user-123")
+        result = await assistant_service.create_assistant(request, mock_user)
 
         # Find the created version
         versions = [
@@ -136,7 +149,7 @@ class TestAssistantServiceDatabase:
         assert version.graph_id == "test-graph"
 
     @pytest.mark.asyncio
-    async def test_update_assistant_version_increment(self, assistant_service):
+    async def test_update_assistant_version_increment(self, assistant_service, mock_user):
         """Test assistant update creates new version"""
         # First create an assistant
         create_request = AssistantCreate(
@@ -144,7 +157,7 @@ class TestAssistantServiceDatabase:
             graph_id="test-graph",
         )
         original_assistant = await assistant_service.create_assistant(
-            create_request, "user-123"
+            create_request, mock_user
         )
 
         # Mock scalar calls: first returns assistant, second returns max version, third returns updated assistant
@@ -162,7 +175,7 @@ class TestAssistantServiceDatabase:
         )
 
         await assistant_service.update_assistant(
-            original_assistant.assistant_id, update_request, "user-123"
+            original_assistant.assistant_id, update_request, mock_user
         )
 
         # Verify new version was created
@@ -183,20 +196,20 @@ class TestAssistantServiceDatabase:
         assert latest_version.config == {"temperature": 0.8}
 
     @pytest.mark.asyncio
-    async def test_delete_assistant_cascade(self, assistant_service):
+    async def test_delete_assistant_cascade(self, assistant_service, mock_user):
         """Test assistant deletion removes from database"""
         # Create an assistant first
         request = AssistantCreate(
             name="To Delete",
             graph_id="test-graph",
         )
-        assistant = await assistant_service.create_assistant(request, "user-123")
+        assistant = await assistant_service.create_assistant(request, mock_user)
 
         # Mock the assistant for deletion
         assistant_service.session.scalar.return_value = assistant
 
         result = await assistant_service.delete_assistant(
-            assistant.assistant_id, "user-123"
+            assistant.assistant_id, mock_user
         )
 
         assert result == {"status": "deleted"}
@@ -204,7 +217,7 @@ class TestAssistantServiceDatabase:
         assert assistant.deleted_at is not None
 
     @pytest.mark.asyncio
-    async def test_search_assistants_pagination(self, assistant_service):
+    async def test_search_assistants_pagination(self, assistant_service, mock_user):
         """Test assistant search with pagination"""
         # Create multiple assistants
         for i in range(5):
@@ -213,7 +226,7 @@ class TestAssistantServiceDatabase:
                 graph_id="test-graph",
                 metadata={"index": i},
             )
-            await assistant_service.create_assistant(request, "user-123")
+            await assistant_service.create_assistant(request, mock_user)
 
         # Mock search request
         mock_request = Mock()
@@ -230,21 +243,21 @@ class TestAssistantServiceDatabase:
 
         assistant_service.session.scalars.return_value = mock_result
 
-        result = await assistant_service.search_assistants(mock_request, "user-123")
+        result = await assistant_service.search_assistants(mock_request, mock_user)
 
         assert isinstance(result, list)
         # Verify pagination parameters were applied
         assistant_service.session.scalars.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_assistant_version_history(self, assistant_service):
+    async def test_assistant_version_history(self, assistant_service, mock_user):
         """Test assistant version history retrieval"""
         # Create an assistant
         create_request = AssistantCreate(
             name="Versioned Assistant",
             graph_id="test-graph",
         )
-        assistant = await assistant_service.create_assistant(create_request, "user-123")
+        assistant = await assistant_service.create_assistant(create_request, mock_user)
 
         # Mock assistant for version listing
         assistant_service.session.scalar.return_value = assistant
@@ -281,7 +294,7 @@ class TestAssistantServiceDatabase:
         assistant_service.session.scalars.return_value = mock_result
 
         result = await assistant_service.list_assistant_versions(
-            assistant.assistant_id, "user-123"
+            assistant.assistant_id, mock_user
         )
 
         assert isinstance(result, list)
@@ -290,14 +303,14 @@ class TestAssistantServiceDatabase:
         assert result[1].version == 1
 
     @pytest.mark.asyncio
-    async def test_set_assistant_latest_version(self, assistant_service):
+    async def test_set_assistant_latest_version(self, assistant_service, mock_user):
         """Test setting assistant latest version"""
         # Create an assistant
         create_request = AssistantCreate(
             name="Versioned Assistant",
             graph_id="test-graph",
         )
-        assistant = await assistant_service.create_assistant(create_request, "user-123")
+        assistant = await assistant_service.create_assistant(create_request, mock_user)
 
         # Mock scalar calls: assistant, version, updated assistant
         from agent_server.core.orm import AssistantVersion as AssistantVersionORM
@@ -321,7 +334,7 @@ class TestAssistantServiceDatabase:
         ]
 
         result = await assistant_service.set_assistant_latest(
-            assistant.assistant_id, 2, "user-123"
+            assistant.assistant_id, 2, mock_user
         )
 
         assert isinstance(result, Assistant)
@@ -330,7 +343,7 @@ class TestAssistantServiceDatabase:
         assert assistant_service.session.commit.called
 
     @pytest.mark.asyncio
-    async def test_assistant_metadata_search(self, assistant_service):
+    async def test_assistant_metadata_search(self, assistant_service, mock_user):
         """Test assistant search by metadata"""
         # Create assistants with different metadata
         request1 = AssistantCreate(
@@ -338,14 +351,14 @@ class TestAssistantServiceDatabase:
             graph_id="test-graph",
             metadata={"env": "prod", "team": "backend"},
         )
-        await assistant_service.create_assistant(request1, "user-123")
+        await assistant_service.create_assistant(request1, mock_user)
 
         request2 = AssistantCreate(
             name="Dev Assistant",
             graph_id="test-graph",
             metadata={"env": "dev", "team": "frontend"},
         )
-        await assistant_service.create_assistant(request2, "user-123")
+        await assistant_service.create_assistant(request2, mock_user)
 
         # Mock search request with metadata filter
         mock_request = Mock()
@@ -362,14 +375,14 @@ class TestAssistantServiceDatabase:
 
         assistant_service.session.scalars.return_value = mock_result
 
-        result = await assistant_service.search_assistants(mock_request, "user-123")
+        result = await assistant_service.search_assistants(mock_request, mock_user)
 
         assert isinstance(result, list)
         # Verify metadata filter was applied
         assistant_service.session.scalars.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_assistant_count_with_filters(self, assistant_service):
+    async def test_assistant_count_with_filters(self, assistant_service, mock_user):
         """Test assistant counting with various filters"""
         # Create multiple assistants
         for i in range(3):
@@ -378,7 +391,7 @@ class TestAssistantServiceDatabase:
                 graph_id="test-graph",
                 metadata={"category": "test"},
             )
-            await assistant_service.create_assistant(request, "user-123")
+            await assistant_service.create_assistant(request, mock_user)
 
         # Mock count request
         mock_request = Mock()
@@ -390,14 +403,14 @@ class TestAssistantServiceDatabase:
         # Mock count result
         assistant_service.session.scalar.return_value = 3
 
-        result = await assistant_service.count_assistants(mock_request, "user-123")
+        result = await assistant_service.count_assistants(mock_request, mock_user)
 
         assert result == 3
         # scalar is called 4 times: 3 for create_assistant + 1 for count_assistants
         assert assistant_service.session.scalar.call_count == 4
 
     @pytest.mark.asyncio
-    async def test_assistant_concurrent_operations(self, assistant_service):
+    async def test_assistant_concurrent_operations(self, assistant_service, mock_user):
         """Test concurrent assistant operations"""
         # Create multiple assistants concurrently
         requests = [
@@ -411,7 +424,7 @@ class TestAssistantServiceDatabase:
         # Create assistants
         results = []
         for request in requests:
-            result = await assistant_service.create_assistant(request, "user-123")
+            result = await assistant_service.create_assistant(request, mock_user)
             results.append(result)
 
         # Verify all assistants were created
@@ -419,10 +432,10 @@ class TestAssistantServiceDatabase:
         for i, result in enumerate(results):
             assert result.name == f"Concurrent Assistant {i}"
             assert result.graph_id == "test-graph"
-            assert result.team_id == "user-123"
+            assert result.team_id == "team-123"
 
     @pytest.mark.asyncio
-    async def test_assistant_transaction_rollback(self, assistant_service):
+    async def test_assistant_transaction_rollback(self, assistant_service, mock_user):
         """Test assistant creation transaction rollback on error"""
         request = AssistantCreate(
             name="Failing Assistant",
@@ -437,13 +450,13 @@ class TestAssistantServiceDatabase:
         with pytest.raises(
             HTTPException, match="Failed to load graph: Graph load failed"
         ):
-            await assistant_service.create_assistant(request, "user-123")
+            await assistant_service.create_assistant(request, mock_user)
 
         # Verify no objects were added to session
         assert len(assistant_service.session.added_objects) == 0
 
     @pytest.mark.asyncio
-    async def test_assistant_large_metadata_handling(self, assistant_service):
+    async def test_assistant_large_metadata_handling(self, assistant_service, mock_user):
         """Test assistant creation with large metadata"""
         large_metadata = {
             "description": "A" * 1000,  # Large description
@@ -457,13 +470,13 @@ class TestAssistantServiceDatabase:
             metadata=large_metadata,
         )
 
-        result = await assistant_service.create_assistant(request, "user-123")
+        result = await assistant_service.create_assistant(request, mock_user)
 
         assert result.metadata == large_metadata
         assert result.name == "Large Metadata Assistant"
 
     @pytest.mark.asyncio
-    async def test_assistant_special_characters(self, assistant_service):
+    async def test_assistant_special_characters(self, assistant_service, mock_user):
         """Test assistant creation with special characters"""
         special_name = "Assistant with émojis 🚀 and spëcial çharacters"
         special_description = "Description with unicode: αβγδε"
@@ -475,7 +488,7 @@ class TestAssistantServiceDatabase:
             metadata={"unicode": "测试", "emoji": "🎉"},
         )
 
-        result = await assistant_service.create_assistant(request, "user-123")
+        result = await assistant_service.create_assistant(request, mock_user)
 
         assert result.name == special_name
         assert result.description == special_description

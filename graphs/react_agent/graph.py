@@ -10,11 +10,13 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
+import graphs.react_agent.utils as utils
 from graphs.react_agent.context import (
     AgentInputState,
+    AgentMode,
     AgentOutputState,
     AgentState,
-    Context, AgentMode,
+    Context,
 )
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -26,20 +28,19 @@ from graphs.react_agent.rag_models import (
     RagToolResponse,
     SourceDocument,
 )
-from graphs.react_agent.utils import _build_tools, get_api_key_for_model, get_today_str
 
 
 async def call_model(
-        state: AgentState, config: RunnableConfig
+    state: AgentState, config: RunnableConfig
 ) -> dict[str, list[AIMessage]]:
     cfg = Context(**config.get("configurable", {}))
 
     # Prepare tools (pass config for MCP authorization)
-    tools_by_name = await _build_tools(cfg, config)
+    tools_by_name = await utils.build_tools(cfg, config)
     tools = list(tools_by_name.values())
 
     # Resolve API key for the selected model
-    api_key = await get_api_key_for_model(config)
+    api_key = await utils.get_api_key_for_model(config)
 
     model = init_chat_model(
         cfg.model_name,
@@ -55,9 +56,9 @@ async def call_model(
         model = model.bind_tools([{"type": "web_search"}])
 
     final_system_prompt = (
-            (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
-            + (cfg.tools_policy_prompt or "")
-            + UNEDITABLE_SYSTEM_PROMPT.format(date=get_today_str())
+        (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
+        + (cfg.tools_policy_prompt or "")
+        + UNEDITABLE_SYSTEM_PROMPT.format(date=utils.get_today_str())
     )
 
     system_message = SystemMessage(content=final_system_prompt)
@@ -80,7 +81,7 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         return {"messages": []}
 
     cfg = Context(**config.get("configurable", {}))
-    tools_by_name = await _build_tools(cfg, config)
+    tools_by_name = await utils.build_tools(cfg, config)
 
     tool_messages: list[ToolMessage] = []
     extracted_sources: list[SourceDocument] = []
@@ -157,6 +158,14 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     }
 
 
+def route_middleware_jump(state: AgentState) -> Literal["continue", "__end__"]:
+    """Allow middleware to short-circuit the graph via a jump instruction."""
+    jump_to = state.get("__mw_jump_to")
+    if jump_to in {"end", "__end__", END}:
+        return "__end__"
+    return "continue"
+
+
 def route_model_output(state: AgentState) -> Literal["tools", "__end__"]:
     last_ai: AIMessage | None = None
     for msg in reversed(state["messages"]):
@@ -180,20 +189,46 @@ builder = StateGraph(
     config_schema=Context,
 )
 
+builder.add_node("before_model_mw", utils.before_model_middleware)
 builder.add_node("call_model", call_model)
-builder.add_node("tools", tools_node)
+builder.add_node("after_model_mw", utils.after_model_middleware)
 
-builder.add_edge(START, "call_model")
+builder.add_node("before_tools_mw", utils.before_tools_middleware)
+builder.add_node("tools", tools_node)
+builder.add_node("after_tools_mw", utils.after_tools_middleware)
+
+builder.add_edge(START, "before_model_mw")
 
 builder.add_conditional_edges(
-    "call_model",
-    route_model_output,
+    "before_model_mw",
+    route_middleware_jump,
     {
-        "tools": "tools",
+        "continue": "call_model",
         "__end__": END,
     },
 )
 
-builder.add_edge("tools", "call_model")
+builder.add_edge("call_model", "after_model_mw")
+
+builder.add_conditional_edges(
+    "after_model_mw",
+    route_model_output,
+    {
+        "tools": "before_tools_mw",
+        "__end__": END,
+    },
+)
+
+builder.add_edge("before_tools_mw", "tools")
+builder.add_edge("tools", "after_tools_mw")
+
+builder.add_conditional_edges(
+    "after_tools_mw",
+    route_middleware_jump,
+    {
+        "continue": "before_model_mw",
+        "__end__": END,
+    },
+)
 
 graph = builder.compile()

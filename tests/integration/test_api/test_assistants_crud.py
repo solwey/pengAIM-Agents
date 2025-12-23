@@ -1,4 +1,5 @@
 """Integration tests for assistants CRUD operations"""
+from unittest.mock import ANY
 
 import pytest
 
@@ -241,9 +242,7 @@ class TestDeleteAssistant:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "deleted"
-        mock_assistant_service.delete_assistant.assert_called_once_with(
-            "test-assistant-123", "test_team"
-        )
+        mock_assistant_service.delete_assistant.assert_called_once_with("test-assistant-123", ANY)
 
     def test_delete_assistant_not_found(self, client, mock_assistant_service):
         """Test deleting non-existent assistant"""

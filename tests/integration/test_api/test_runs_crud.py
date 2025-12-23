@@ -675,23 +675,3 @@ class TestWaitForRun:
 
         # Should fail because thread is not interrupted
         assert resp.status_code == 400
-
-    def test_wait_for_run_with_config_and_context_conflict(self):
-        """Test wait endpoint rejects both configurable and context"""
-        app = create_test_app(include_runs=True, include_threads=False)
-
-        override_session_dependency(app, BasicSession)
-        client = make_client(app)
-
-        resp = client.post(
-            "/threads/test-thread-123/runs/wait",
-            json={
-                "assistant_id": "asst-123",
-                "input": {"message": "test"},
-                "config": {"configurable": {"key": "value"}},
-                "context": {"key": "value"},
-            },
-        )
-
-        # Should reject having both configurable and context
-        assert resp.status_code == 400

@@ -70,10 +70,10 @@ def test_get_logging_config_and_setup(monkeypatch):
 
 def test_main_app_middleware_order():
     # Import app from main and inspect middleware
-    from src.agent_server.main import app
+    from src.agent_server.main import main_app
 
     # FastAPI exposes user_middleware in the order added
-    names = [m.cls.__name__ for m in app.user_middleware]
+    names = [m.cls.__name__ for m in main_app.user_middleware]
     # Expect both middleware to be present
     assert "StructLogMiddleware" in names
     assert "CorrelationIdMiddleware" in names

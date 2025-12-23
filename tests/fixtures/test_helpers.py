@@ -7,12 +7,12 @@ from agent_server.models import Assistant, Run, Thread
 
 
 def make_assistant(
-    assistant_id: str = "test-assistant-123",
-    name: str = "Test Assistant",
-    graph_id: str = "test-graph",
-    metadata: dict[str, Any] | None = None,
-    team_id: str = "test-team",
-    description: str | None = None,
+        assistant_id: str = "test-assistant-123",
+        name: str = "Test Assistant",
+        graph_id: str = "test-graph",
+        metadata: dict[str, Any] | None = None,
+        team_id: str = "test-team",
+        description: str | None = None,
 ) -> Assistant:
     """Create a mock assistant object"""
     return Assistant(
@@ -30,11 +30,11 @@ def make_assistant(
 
 
 def make_thread(
-    thread_id: str = "test-thread-123",
-    status: str = "idle",
-    metadata: dict[str, Any] | None = None,
-    user_id: str = "test-user",
-    team_id: str = "test-team",
+        thread_id: str = "test-thread-123",
+        status: str = "idle",
+        metadata: dict[str, Any] | None = None,
+        user_id: str = "test-user",
+        team_id: str = "test-team",
 ) -> Thread:
     """Create a mock thread object"""
     return Thread(
@@ -49,15 +49,15 @@ def make_thread(
 
 
 def make_run(
-    run_id: str = "test-run-123",
-    thread_id: str = "test-thread-123",
-    assistant_id: str = "test-assistant-123",
-    status: str = "running",
-    user_id: str = "test-user",
-    team_id: str = "test-team",
-    metadata: dict[str, Any] | None = None,
-    input_data: dict[str, Any] | None = None,
-    output_data: dict[str, Any] | None = None,
+        run_id: str = "test-run-123",
+        thread_id: str = "test-thread-123",
+        assistant_id: str = "test-assistant-123",
+        status: str = "running",
+        user_id: str = "test-user",
+        team_id: str = "test-team",
+        metadata: dict[str, Any] | None = None,
+        input_data: dict[str, Any] | None = None,
+        output_data: dict[str, Any] | None = None,
 ) -> Run:
     """Create a mock run object"""
     return Run(
@@ -79,16 +79,16 @@ class DummyRun:
     """Mock run object for testing"""
 
     def __init__(
-        self,
-        run_id: str = "test-run-123",
-        thread_id: str = "test-thread-123",
-        assistant_id: str = "test-assistant-123",
-        status: str = "running",
-        user_id: str = "test-user",
-        team_id: str = "test-team",
-        metadata: dict[str, Any] | None = None,
-        input_data: dict[str, Any] | None = None,
-        output_data: dict[str, Any] | None = None,
+            self,
+            run_id: str = "test-run-123",
+            thread_id: str = "test-thread-123",
+            assistant_id: str = "test-assistant-123",
+            status: str = "running",
+            user_id: str = "test-user",
+            team_id: str = "test-team",
+            metadata: dict[str, Any] | None = None,
+            input_data: dict[str, Any] | None = None,
+            output_data: dict[str, Any] | None = None,
     ):
         self.run_id = run_id
         self.thread_id = thread_id
@@ -107,18 +107,22 @@ class DummyThread:
     """Mock thread object for testing"""
 
     def __init__(
-        self,
-        thread_id: str = "test-thread-123",
-        status: str = "idle",
-        metadata: dict[str, Any] | None = None,
-        user_id: str = "test-user",
-        team_id: str = "test-team",
+            self,
+            thread_id: str = "test-thread-123",
+            status: str = "idle",
+            metadata: dict[str, Any] | None = None,
+            user_id: str = "test-user",
+            team_id: str = "test-team",
+            assistant_id="test-assistant",
+            is_shared=False,
     ):
         self.thread_id = thread_id
         self.status = status
         self.metadata = metadata or {"owner": user_id}
         self.user_id = user_id
         self.team_id = team_id
+        self.assistant_id = assistant_id
+        self.is_shared = is_shared
         self.created_at = datetime.now(UTC)
         self.updated_at = datetime.now(UTC)
 

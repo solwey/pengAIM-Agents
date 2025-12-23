@@ -11,14 +11,16 @@ from tests.fixtures.test_helpers import DummyRun, DummyThread
 
 
 def _thread_row(
-    thread_id="test-thread-123",
-    status="idle",
-    metadata=None,
-    user_id="test-user",
-    team_id="test-team",
+        thread_id="test-thread-123",
+        status="idle",
+        metadata=None,
+        user_id="test-user",
+        team_id="test-team",
+        assistant_id="test-assistant",
+        is_shared=False,
 ):
     """Create a mock thread ORM object"""
-    thread = DummyThread(thread_id, status, metadata, user_id, team_id)
+    thread = DummyThread(thread_id, status, metadata, user_id, team_id, assistant_id, is_shared)
 
     # Add ORM-specific attributes
     thread.metadata_json = metadata or {}
@@ -34,6 +36,8 @@ def _thread_row(
             _Col("metadata"),
             _Col("user_id"),
             _Col("team_id"),
+            _Col("assistant_id"),
+            _Col("is_shared"),
             _Col("created_at"),
             _Col("updated_at"),
         ]
@@ -43,10 +47,10 @@ def _thread_row(
 
 
 def _run_row(
-    run_id="test-run-123",
-    thread_id="test-thread-123",
-    status="running",
-    user_id="test-user",
+        run_id="test-run-123",
+        thread_id="test-thread-123",
+        status="running",
+        user_id="test-user",
 ):
     """Create a mock run ORM object"""
     return DummyRun(run_id, thread_id, status, user_id)

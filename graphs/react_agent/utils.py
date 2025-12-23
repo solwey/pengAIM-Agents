@@ -1,13 +1,16 @@
 import os
 from datetime import datetime
+from typing import Any
 
 import aiohttp
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import BaseTool
 
-from graphs.react_agent.context import AgentMode, Context
+from graphs.react_agent.context import AgentMode, AgentState, Context
 from graphs.react_agent.mcp_tools import load_mcp_tools
 from graphs.react_agent.tools import create_rag_tool
+from graphs.shared import build_middlewares, restore_python_repr_content
 
 RAG_URL = os.getenv("RAG_API_URL", "")
 
@@ -75,7 +78,7 @@ def _extract_authorization(config: RunnableConfig | None) -> str | None:
     return None
 
 
-async def _build_tools(
+async def build_tools(
     cfg: Context,
     config: RunnableConfig | None = None,
 ) -> dict[str, BaseTool]:
@@ -108,3 +111,120 @@ async def _build_tools(
         tools.extend(mcp_tools)
 
     return {t.name: t for t in tools}
+
+
+def _merge_state_updates(updates: dict[str, Any]) -> dict[str, Any]:
+    if not updates:
+        return {}
+
+    out: dict[str, Any] = {}
+
+    if "messages" in updates:
+        out["messages"] = updates["messages"]
+
+    if "jump_to" in updates:
+        out["__mw_jump_to"] = updates["jump_to"]
+
+    for k, v in updates.items():
+        if k in {"messages", "jump_to"}:
+            continue
+        out[k] = v
+
+    return out
+
+
+def _apply_middleware_hook(
+    middlewares: list[Any],
+    hook_name: str,
+    state: AgentState,
+    config: RunnableConfig,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+
+    runtime: dict[str, Any] = {
+        "config": config,
+        "kwargs": kwargs,
+    }
+
+    for mw in middlewares:
+        hook = getattr(mw, hook_name, None)
+        if hook is None:
+            continue
+
+        try:
+            result = hook(state, runtime, **kwargs)  # type: ignore[misc]
+        except TypeError:
+            continue
+        except Exception:
+            continue
+
+        if isinstance(result, dict) and isinstance(result.get("messages"), list):
+            raw_messages = result.get("messages", [])
+            fixed_messages = []
+
+            for m in raw_messages:
+                content = getattr(m, "content", "")
+                fixed_content = restore_python_repr_content(content)
+
+                if hasattr(m, "model_copy"):
+                    fixed_messages.append(
+                        m.model_copy(update={"content": fixed_content})
+                    )
+                else:
+                    m.content = fixed_content
+                    fixed_messages.append(m)
+
+            updates.update({**result, "messages": fixed_messages})
+
+    return updates
+
+
+async def before_model_middleware(
+    state: AgentState, config: RunnableConfig
+) -> dict[str, Any]:
+    mws = build_middlewares()
+    updates = _apply_middleware_hook(mws, "before_model", state, config)
+    return _merge_state_updates(updates)
+
+
+async def after_model_middleware(
+    state: AgentState, config: RunnableConfig
+) -> dict[str, Any]:
+    mws = build_middlewares()
+
+    last_ai: AIMessage | None = None
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, AIMessage):
+            last_ai = msg
+            break
+
+    updates = _apply_middleware_hook(mws, "after_model", state, config, last_ai=last_ai)
+    return _merge_state_updates(updates)
+
+
+async def before_tools_middleware(
+    state: AgentState, config: RunnableConfig
+) -> dict[str, Any]:
+    mws = build_middlewares()
+    updates = _apply_middleware_hook(mws, "before_tools", state, config)
+    return _merge_state_updates(updates)
+
+
+async def after_tools_middleware(
+    state: AgentState, config: RunnableConfig
+) -> dict[str, Any]:
+    mws = build_middlewares()
+
+    tool_messages: list[ToolMessage] = []
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, ToolMessage):
+            tool_messages.append(msg)
+        else:
+            break
+    tool_messages.reverse()
+
+    updates = _apply_middleware_hook(
+        mws, "after_tools", state, config, tool_messages=tool_messages
+    )
+    return _merge_state_updates(updates)

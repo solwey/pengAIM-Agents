@@ -1,7 +1,7 @@
 """Unit tests for SSE utilities"""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.agent_server.core.sse import (
     SSEEvent,
@@ -82,18 +82,21 @@ class TestFormatSSEMessage:
         parsed_data = json.loads(data_line.replace("data: ", ""))
         assert parsed_data == data
 
-    def test_format_message_with_custom_serializer(self):
-        """Test SSE message with custom serializer"""
+    def test_format_message_sanitizes_unknown_types_before_custom_serializer(self):
+        sentinel = object()
 
         def custom_serializer(obj):
-            if isinstance(obj, datetime):
-                return "custom_date"
+            if obj is sentinel:
+                return "custom_obj"
             return str(obj)
 
-        data = {"date": datetime.now()}
-        result = format_sse_message("test_event", data, serializer=custom_serializer)
+        result = format_sse_message("test_event", {"x": sentinel}, serializer=custom_serializer)
 
-        assert "custom_date" in result
+        data_line = next(line for line in result.splitlines() if line.startswith("data: "))
+        payload = json.loads(data_line.removeprefix("data: ").strip())
+
+        assert isinstance(payload["x"], str)
+        assert payload["x"] != "custom_obj"
 
 
 class TestCreateMetadataEvent:

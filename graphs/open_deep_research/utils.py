@@ -13,8 +13,11 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
+    BaseMessage,
     HumanMessage,
     MessageLikeRepresentation,
+    SystemMessage,
+    ToolMessage,
     filter_messages,
 )
 from langchain_core.runnables import RunnableConfig
@@ -23,7 +26,8 @@ from tavily import AsyncTavilyClient
 
 from graphs.open_deep_research.configuration import AgentMode, Configuration, SearchAPI
 from graphs.open_deep_research.prompts import summarize_webpage_prompt
-from graphs.open_deep_research.state import ResearchComplete, Summary
+from graphs.open_deep_research.state import AgentState, ResearchComplete, Summary
+from graphs.shared import build_middlewares, restore_python_repr_content
 
 RAG_URL = os.getenv("RAG_API_URL", "")
 
@@ -951,3 +955,304 @@ def normalize_branch_name(name: str | None, used: set[str]) -> str:
         nm = f"{base}_{i}"
     used.add(nm)
     return nm
+
+
+def parse_start_message(message_text: str) -> tuple[bool, list | None]:
+    """Parse a message starting with 'Start' followed by optional JSON placeholders.
+
+    Expected format: Start [{"field_name1": "value1", "field_name2": "value2"}, ...]
+    Each element in the array corresponds to placeholders for each step (by step_index).
+
+    Returns:
+        tuple: (is_start_message, all_steps_placeholders or None)
+    """
+    if not message_text or not message_text.strip().startswith("Start"):
+        return False, None
+
+    text = message_text.strip()
+
+    # Check if it's just "Start" with no placeholders
+    if text == "Start":
+        return True, []
+
+    # Try to extract JSON array after "Start"
+    json_part = text[5:].strip()  # Remove "Start" prefix
+    if not json_part:
+        return True, []
+
+    try:
+        placeholders = json.loads(json_part)
+        if isinstance(placeholders, list):
+            return True, placeholders
+        return True, []
+    except json.JSONDecodeError:
+        return True, []
+
+
+def _flatten_content_to_text(content: Any) -> str:
+    """Convert structured content parts into plain text."""
+    content = restore_python_repr_content(content)
+
+    if content is None:
+        return ""
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                if item.strip():
+                    parts.append(item)
+                continue
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text)
+        return " ".join(parts).strip()
+
+    return str(content)
+
+
+def _has_middleware_hook(middlewares: list[Any], hook_name: str) -> bool:
+    try:
+        return any(getattr(mw, hook_name, None) is not None for mw in middlewares)
+    except Exception:
+        return False
+
+
+def _make_flat_message(message: BaseMessage) -> BaseMessage:
+    content = _flatten_content_to_text(getattr(message, "content", ""))
+    add_kwargs = getattr(message, "additional_kwargs", None) or {}
+    msg_id = getattr(message, "id", None)
+    resp_meta = getattr(message, "response_metadata", None) or {}
+
+    if isinstance(message, SystemMessage):
+        return SystemMessage(
+            content=content,
+            additional_kwargs=add_kwargs,
+            response_metadata=resp_meta,
+            id=msg_id,
+        )
+    if isinstance(message, HumanMessage):
+        return HumanMessage(
+            content=content,
+            additional_kwargs=add_kwargs,
+            response_metadata=resp_meta,
+            id=msg_id,
+        )
+    if isinstance(message, AIMessage):
+        return AIMessage(
+            content=content,
+            additional_kwargs=add_kwargs,
+            tool_calls=getattr(message, "tool_calls", None),
+            response_metadata=resp_meta,
+            id=msg_id,
+        )
+    if isinstance(message, ToolMessage):
+        return ToolMessage(
+            content=content,
+            name=getattr(message, "name", None),
+            tool_call_id=message.tool_call_id,
+            additional_kwargs=add_kwargs,
+            response_metadata=resp_meta,
+            id=msg_id,
+        )
+
+    try:
+        if hasattr(message, "model_copy"):
+            return message.model_copy()
+    except Exception:
+        pass
+    return message
+
+
+def _restore_message_content(message: BaseMessage) -> BaseMessage:
+    raw = getattr(message, "content", "")
+
+    fixed_content = raw
+    try:
+        if not isinstance(raw, str) or "python_repr_content" in raw:
+            fixed_content = restore_python_repr_content(raw)
+    except Exception:
+        fixed_content = raw
+
+    if fixed_content is raw:
+        return message
+
+    if hasattr(message, "model_copy"):
+        try:
+            return message.model_copy(update={"content": fixed_content})
+        except Exception:
+            pass
+    try:
+        message.content = fixed_content
+    except Exception:
+        pass
+    return message
+
+
+def _apply_middleware_hook(
+    middlewares: list[Any],
+    hook_name: str,
+    messages: list[BaseMessage],
+    config: RunnableConfig,
+    **kwargs: Any,
+) -> list[BaseMessage]:
+    """Apply a middleware hook defensively and return possibly updated messages."""
+
+    if not middlewares or not _has_middleware_hook(middlewares, hook_name):
+        return messages
+
+    runtime: dict[str, Any] = {"config": config, "kwargs": kwargs}
+    state: dict[str, Any] = {"messages": messages}
+
+    for mw in middlewares:
+        hook = getattr(mw, hook_name, None)
+        if hook is None:
+            continue
+
+        try:
+            result = hook(state, runtime, **kwargs)  # type: ignore[misc]
+        except TypeError:
+            continue
+        except Exception:
+            continue
+
+        if isinstance(result, dict) and isinstance(result.get("messages"), list):
+            state["messages"] = result["messages"]
+        elif isinstance(result, list):
+            state["messages"] = result
+
+        raw_messages = state.get("messages", []) or []
+        fixed_messages: list[BaseMessage] = []
+        for m in raw_messages:
+            try:
+                if isinstance(m, BaseMessage):
+                    fixed_messages.append(_restore_message_content(m))
+                else:
+                    fixed_messages.append(m)
+            except Exception:
+                fixed_messages.append(m)
+        state["messages"] = fixed_messages
+
+    return state["messages"]
+
+
+def apply_security_to_model_messages(
+    messages: list[BaseMessage], config: RunnableConfig
+) -> list[BaseMessage]:
+    """Sanitize model input messages using the security middleware chain."""
+    middlewares = build_middlewares()
+    normalized: list[BaseMessage] = []
+
+    for msg in messages:
+        normalized.append(_make_flat_message(msg))
+
+    secured = _apply_middleware_hook(middlewares, "before_model", normalized, config)
+
+    return secured
+
+
+def sanitize_text_block(text: Any, config: RunnableConfig) -> str:
+    """Sanitize an arbitrary text block via the same middleware chain."""
+    try:
+        msg = HumanMessage(content=text)
+        secured = apply_security_to_model_messages([msg], config)
+        if secured and isinstance(secured[0], BaseMessage):
+            return _flatten_content_to_text(getattr(secured[0], "content", ""))
+        return _flatten_content_to_text(text)
+    except Exception:
+        return _flatten_content_to_text(text)
+
+
+def apply_security_to_model_output(
+    message: AIMessage, config: RunnableConfig
+) -> AIMessage:
+    """Sanitize model output using the security middleware chain."""
+    middlewares = build_middlewares()
+
+    normalized_ai = _make_flat_message(
+        AIMessage(
+            content=message.content,
+            additional_kwargs=getattr(message, "additional_kwargs", None) or {},
+            tool_calls=getattr(message, "tool_calls", None),
+        )
+    )
+
+    updated = _apply_middleware_hook(
+        middlewares,
+        "after_model",
+        [normalized_ai],
+        config,
+        last_ai=normalized_ai,
+    )
+
+    if updated:
+        last = updated[-1]
+        if isinstance(last, AIMessage):
+            return last
+
+    return normalized_ai
+
+
+def apply_security_to_tool_result(
+    text: Any, tool_name: str, tool_call_id: str, config: RunnableConfig
+) -> Any:
+    """Sanitize tool output using the security middleware chain."""
+    middlewares = build_middlewares()
+    if not middlewares or not _has_middleware_hook(middlewares, "after_tools"):
+        return _flatten_content_to_text(text)
+
+    tool_msg = _make_flat_message(
+        ToolMessage(
+            content=text,
+            name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+    )
+
+    updated = _apply_middleware_hook(
+        middlewares,
+        "after_tools",
+        [tool_msg],
+        config,
+        tool_messages=[tool_msg],
+    )
+
+    if updated and isinstance(updated[-1], ToolMessage):
+        return updated[-1].content
+
+    return tool_msg.content
+
+
+async def sanitize_input(state: AgentState, config: RunnableConfig):
+    try:
+        raw_messages = state.get("messages", [])
+        if not raw_messages:
+            return {}
+
+        last = raw_messages[-1]
+        if not isinstance(last, HumanMessage):
+            return {}
+
+        sanitized_list = apply_security_to_model_messages([last], config)
+        if not sanitized_list:
+            return {}
+
+        sanitized_last = sanitized_list[0]
+        if not isinstance(sanitized_last, BaseMessage):
+            return {}
+
+        try:
+            orig_text = _flatten_content_to_text(getattr(last, "content", ""))
+            new_text = _flatten_content_to_text(getattr(sanitized_last, "content", ""))
+            if orig_text and not new_text:
+                return {}
+        except Exception:
+            pass
+
+        return {"messages": [sanitized_last]}
+    except Exception:
+        return {}
