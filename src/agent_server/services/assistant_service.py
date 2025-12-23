@@ -204,7 +204,6 @@ class AssistantService:
         # Generate name if not provided
         name = request.name or f"Assistant for {graph_id}"
 
-        # Check if an assistant already exists for this user, graph and config pair (ignore soft-deleted)
         existing_stmt = select(AssistantORM).where(
             AssistantORM.team_id == user.team_id,
             or_(
@@ -218,8 +217,37 @@ class AssistantService:
         if existing:
             if request.if_exists == "do_nothing":
                 return self._to_pydantic_for_user(existing, user)
-            else:  # error (default)
+            elif request.if_exists == "update":
+                existing.name = name
+                existing.description = request.description
+                existing.config = config
+                existing.context = context
+                existing.graph_id = graph_id
+                existing.metadata_dict = request.metadata
+                await self.session.commit()
+                await self.session.refresh(existing)
+                return self._to_pydantic_for_user(existing, user)
+            else:
                 raise HTTPException(409, f"Assistant '{assistant_id}' already exists")
+
+        existing_deleted_stmt = select(AssistantORM).where(
+            AssistantORM.team_id == user.team_id,
+            AssistantORM.assistant_id == assistant_id,
+            AssistantORM.deleted_at.is_not(None),
+        )
+        existing_deleted = await self.session.scalar(existing_deleted_stmt)
+
+        if existing_deleted and request.if_exists == "update":
+            existing_deleted.deleted_at = None
+            existing_deleted.name = name
+            existing_deleted.description = request.description
+            existing_deleted.config = config
+            existing_deleted.context = context
+            existing_deleted.graph_id = graph_id
+            existing_deleted.metadata_dict = request.metadata
+            await self.session.commit()
+            await self.session.refresh(existing_deleted)
+            return self._to_pydantic_for_user(existing_deleted, user)
 
         # Create assistant record
         assistant_orm = AssistantORM(
