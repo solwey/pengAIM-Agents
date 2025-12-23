@@ -120,6 +120,7 @@ class Context(BaseModel):
                     {"label": "GPT 5", "value": "openai:gpt-5"},
                     {"label": "GPT 5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT 5 mini", "value": "openai:gpt-5-mini"},
+                    {"label": "GPT 5.2", "value": "openai:gpt-5.2"},
                 ],
             }
         },
