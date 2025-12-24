@@ -52,12 +52,14 @@ class Assistant(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    type: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Indexes for performance
     __table_args__ = (
         Index("idx_assistant_user", "team_id"),
         Index("idx_assistant_user_assistant", "team_id", "assistant_id", unique=True),
         Index("idx_assistant_deleted_at", "deleted_at"),
+        Index("idx_assistant_type", "type"),
     )
 
 

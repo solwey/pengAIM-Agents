@@ -39,11 +39,12 @@ async def create_assistant(
 
 @router.get("/assistants", response_model=AssistantList, response_model_by_alias=False)
 async def list_assistants(
+    type: str | None = None,
     user: User = Depends(get_current_user),
     service: AssistantService = Depends(get_assistant_service),
 ):
-    """List user's assistants"""
-    assistants = await service.list_assistants(user)
+    """List user's assistants, optionally filtered by type"""
+    assistants = await service.list_assistants(user, type=type)
     return AssistantList(assistants=assistants, total=len(assistants))
 
 
