@@ -217,37 +217,8 @@ class AssistantService:
         if existing:
             if request.if_exists == "do_nothing":
                 return self._to_pydantic_for_user(existing, user)
-            elif request.if_exists == "update":
-                existing.name = name
-                existing.description = request.description
-                existing.config = config
-                existing.context = context
-                existing.graph_id = graph_id
-                existing.metadata_dict = request.metadata
-                await self.session.commit()
-                await self.session.refresh(existing)
-                return self._to_pydantic_for_user(existing, user)
-            else:
+            else:  # error (default)
                 raise HTTPException(409, f"Assistant '{assistant_id}' already exists")
-
-        existing_deleted_stmt = select(AssistantORM).where(
-            AssistantORM.team_id == user.team_id,
-            AssistantORM.assistant_id == assistant_id,
-            AssistantORM.deleted_at.is_not(None),
-        )
-        existing_deleted = await self.session.scalar(existing_deleted_stmt)
-
-        if existing_deleted and request.if_exists == "update":
-            existing_deleted.deleted_at = None
-            existing_deleted.name = name
-            existing_deleted.description = request.description
-            existing_deleted.config = config
-            existing_deleted.context = context
-            existing_deleted.graph_id = graph_id
-            existing_deleted.metadata_dict = request.metadata
-            await self.session.commit()
-            await self.session.refresh(existing_deleted)
-            return self._to_pydantic_for_user(existing_deleted, user)
 
         # Create assistant record
         assistant_orm = AssistantORM(
@@ -259,6 +230,7 @@ class AssistantService:
             graph_id=graph_id,
             team_id=user.team_id,
             metadata_dict=request.metadata,
+            type=request.type,
             version=1,
         )
 
@@ -283,12 +255,17 @@ class AssistantService:
 
         return self._to_pydantic_for_user(assistant_orm, user)
 
-    async def list_assistants(self, user: User) -> list[Assistant]:
-        """List user's assistants"""
-        stmt = select(AssistantORM).where(
+    async def list_assistants(self, user: User, type: str | None = None) -> list[Assistant]:
+        """List user's assistants, optionally filtered by type"""
+        conditions = [
             AssistantORM.team_id == user.team_id,
             AssistantORM.deleted_at.is_(None),
-        )
+        ]
+        
+        if type is not None:
+            conditions.append(AssistantORM.type == type)
+        
+        stmt = select(AssistantORM).where(*conditions)
         result = await self.session.scalars(stmt)
         user_assistants = [self._to_pydantic_for_user(a, user) for a in result.all()]
         return user_assistants
@@ -460,6 +437,7 @@ class AssistantService:
                 version=new_version,
                 updated_at=now,
                 metadata_dict=merged_metadata,
+                type=request.type if request.type is not None else assistant.type,
             )
         )
         await self.session.execute(assistant_update)
