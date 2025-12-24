@@ -23,6 +23,9 @@ class AssistantCreate(BaseModel):
     metadata: dict[str, Any] | None = Field(
         {}, description="Metadata to use for searching and filtering assistants."
     )
+    type: str | None = Field(
+        None, description="Assistant type for filtering (e.g., account, library)"
+    )
     if_exists: str | None = Field(
         "error", description="What to do if assistant exists: error or do_nothing"
     )
@@ -45,6 +48,10 @@ class Assistant(BaseModel):
     deleted_at: datetime | None = Field(
         default=None,
         description="Soft-delete timestamp; when set, the assistant is considered deleted",
+    )
+    type: str | None = Field(
+        default=None,
+        description="Assistant type for filtering (e.g., account, library)"
     )
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
@@ -70,6 +77,9 @@ class AssistantUpdate(BaseModel):
     metadata: dict[str, Any] | None = Field(
         {}, description="Metadata to use for searching and filtering assistants."
     )
+    type: str | None = Field(
+        None, description="Assistant type for filtering (e.g., account, library)"
+    )
 
 
 class AssistantList(BaseModel):
@@ -93,6 +103,9 @@ class AssistantSearchRequest(BaseModel):
     offset: int | None = Field(0, ge=0, description="Results offset")
     metadata: dict[str, Any] | None = Field(
         {}, description="Metadata to use for searching and filtering assistants."
+    )
+    type: str | None = Field(
+        None, description="Filter by assistant type (e.g., account, library)"
     )
 
 
