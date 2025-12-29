@@ -18,6 +18,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, Send, interrupt
 
+import graphs.open_deep_research.utils as utils
 from graphs.open_deep_research.configuration import (
     AgentMode,
     Configuration,
@@ -46,60 +47,11 @@ from graphs.open_deep_research.state import (
     ResearchQuestion,
     SupervisorState,
 )
-from graphs.open_deep_research.utils import (
-    anthropic_websearch_called,
-    apply_placeholders,
-    get_agent_mode,
-    get_all_tools,
-    get_api_key_for_model,
-    get_model_token_limit,
-    get_notes_from_tool_calls,
-    get_today_str,
-    is_token_limit_exceeded,
-    normalize_branch_name,
-    normalize_placeholders,
-    openai_websearch_called,
-    remove_up_to_last_ai_message,
-    think_tool,
-    truncate_result,
-)
 
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
     configurable_fields=("model", "max_tokens", "api_key"),
 )
-
-
-def parse_start_message(message_text: str) -> tuple[bool, list | None]:
-    """Parse a message starting with 'Start' followed by optional JSON placeholders.
-
-    Expected format: Start [{"field_name1": "value1", "field_name2": "value2"}, ...]
-    Each element in the array corresponds to placeholders for each step (by step_index).
-
-    Returns:
-        tuple: (is_start_message, all_steps_placeholders or None)
-    """
-    if not message_text or not message_text.strip().startswith("Start"):
-        return False, None
-
-    text = message_text.strip()
-
-    # Check if it's just "Start" with no placeholders
-    if text == "Start":
-        return True, []
-
-    # Try to extract JSON array after "Start"
-    json_part = text[5:].strip()  # Remove "Start" prefix
-    if not json_part:
-        return True, []
-
-    try:
-        placeholders = json.loads(json_part)
-        if isinstance(placeholders, list):
-            return True, placeholders
-        return True, []
-    except json.JSONDecodeError:
-        return True, []
 
 
 async def provide_placeholders(state: AgentState, config: RunnableConfig):
@@ -114,9 +66,13 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
     # Parse the message to check for "Start" format with inline placeholders
     message_text = ""
     if isinstance(last_message, HumanMessage):
-        message_text = last_message.text() if hasattr(last_message, "text") else str(last_message.content)
+        message_text = (
+            last_message.text()
+            if hasattr(last_message, "text")
+            else str(last_message.content)
+        )
 
-    is_start_message, all_steps_placeholders = parse_start_message(message_text)
+    is_start_message, all_steps_placeholders = utils.parse_start_message(message_text)
 
     if isinstance(last_message, HumanMessage) and not is_start_message:
         return Command(goto="clarify_with_user", update={"step_index": -1})
@@ -164,7 +120,7 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
                     update={
                         "placeholders": {
                             "type": "override",
-                            "value": normalize_placeholders(placeholders_list),
+                            "value": utils.normalize_placeholders(placeholders_list),
                         },
                     },
                 )
@@ -199,7 +155,7 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
         update={
             "placeholders": {
                 "type": "override",
-                "value": normalize_placeholders(human_payload),
+                "value": utils.normalize_placeholders(human_payload),
             },
         },
     )
@@ -229,11 +185,11 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
         ui_messages: list[ToolMessage] = []
 
         for it in step.sequential_sub_prompts or []:
-            name = normalize_branch_name(it.name, used)
-            preview = apply_placeholders(it.text, user_placeholders)
+            name = utils.normalize_branch_name(it.name, used)
+            preview = utils.apply_placeholders(it.text, user_placeholders)
             ui_messages.append(
                 ToolMessage(
-                    content=f"Starting sequential subprompt: {name}\nTopic: {truncate_result(preview)}",
+                    content=f"Starting sequential subprompt: {name}\nTopic: {utils.truncate_result(preview)}",
                     name="SequentialSubprompt",
                     tool_call_id=f"sequential:{name}:start",
                 )
@@ -241,11 +197,11 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
             seq_meta.append({"name": name, "text_template": it.text})
 
         for it in step.parallel_sub_prompts or []:
-            name = normalize_branch_name(it.name, used)
-            preview = apply_placeholders(it.text, user_placeholders)
+            name = utils.normalize_branch_name(it.name, used)
+            preview = utils.apply_placeholders(it.text, user_placeholders)
             ui_messages.append(
                 ToolMessage(
-                    content=f"Starting parallel subprompt: {name}\nTopic: {truncate_result(preview)}",
+                    content=f"Starting parallel subprompt: {name}\nTopic: {utils.truncate_result(preview)}",
                     name="ParallelSubprompt",
                     tool_call_id=f"parallel:{name}:start",
                 )
@@ -277,7 +233,7 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
         name = item.get("name", "subprompt")
         text = item.get("text_template", "")
         merged_ph = list(user_placeholders) + synthetic_placeholders
-        base_text = apply_placeholders(text, merged_ph)
+        base_text = utils.apply_placeholders(text, merged_ph)
         ctx_text = (
             ("\n\nContext from previous steps:\n" + "\n\n".join(context_chunks))
             if context_chunks
@@ -299,7 +255,7 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
         context_chunks.append(compressed)
         ui_messages.append(
             ToolMessage(
-                content=f"Completed: {name}\nShort result:\n{truncate_result(compressed)}",
+                content=f"Completed: {name}\nShort result:\n{utils.truncate_result(compressed)}",
                 name="SequentialSubprompt",
                 tool_call_id=f"sequential:{name}:done",
             )
@@ -359,7 +315,7 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
     tmpl = state.get("subprompt_template", "")
     placeholders = state.get("placeholders", []) or []
 
-    sub_text = apply_placeholders(tmpl, placeholders)
+    sub_text = utils.apply_placeholders(tmpl, placeholders)
 
     try:
         observation = await researcher_subgraph.ainvoke(
@@ -374,7 +330,7 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
         comp = f"Error during parallel subprompt '{nm}': {e}"
 
     ui_msg = ToolMessage(
-        content=f"Completed: {nm}\nShort result:\n{truncate_result(comp)}",
+        content=f"Completed: {nm}\nShort result:\n{utils.truncate_result(comp)}",
         name="ParallelSubprompt",
         tool_call_id=f"parallel:{nm}:done",
     )
@@ -445,7 +401,7 @@ async def prepare_step(state: AgentState, config: RunnableConfig):
         return Command(goto=END)
 
     step = steps[step_index]
-    prompt_text = apply_placeholders(step.text, state.get("placeholders", []))
+    prompt_text = utils.apply_placeholders(step.text, state.get("placeholders", []))
 
     return Command(
         goto="clarify_with_user",
@@ -480,7 +436,7 @@ async def clarify_with_user(
 
     # Step 2: Prepare the model for structured clarification analysis
     messages = state["messages"]
-    api_key = await get_api_key_for_model(configurable.research_model, config)
+    api_key = await utils.get_api_key_for_model(configurable.research_model, config)
     model_config = {
         "model": configurable.research_model,
         "max_tokens": configurable.research_model_max_tokens,
@@ -496,10 +452,16 @@ async def clarify_with_user(
     )
 
     # Step 3: Analyze whether clarification is needed
+    sanitized_messages = utils.apply_security_to_model_messages(messages, config)
     prompt_content = clarify_with_user_instructions.format(
-        messages=get_buffer_string(messages), date=get_today_str()
+        messages=get_buffer_string(sanitized_messages),
+        date=utils.get_today_str(),
     )
-    response = await clarification_model.ainvoke([HumanMessage(content=prompt_content)])
+    secured = utils.apply_security_to_model_messages(
+        [HumanMessage(content=prompt_content)],
+        config,
+    )
+    response = await clarification_model.ainvoke(secured)
 
     # Step 4: Route based on clarification analysis
     if response.need_clarification:
@@ -533,7 +495,7 @@ async def write_research_brief(
     """
     # Step 1: Set up the research model for structured output
     configurable = Configuration.from_runnable_config(config)
-    api_key = await get_api_key_for_model(configurable.research_model, config)
+    api_key = await utils.get_api_key_for_model(configurable.research_model, config)
     research_model_config = {
         "model": configurable.research_model,
         "max_tokens": configurable.research_model_max_tokens,
@@ -549,13 +511,22 @@ async def write_research_brief(
     )
 
     # Step 2: Generate structured research brief from user messages
-    prompt_content = transform_messages_into_research_topic_prompt.format(
-        messages=get_buffer_string(state.get("messages", [])), date=get_today_str()
+    history_messages = state.get("messages", [])
+    sanitized_history_messages = utils.apply_security_to_model_messages(
+        history_messages, config
     )
-    response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
+    prompt_content = transform_messages_into_research_topic_prompt.format(
+        messages=get_buffer_string(sanitized_history_messages),
+        date=utils.get_today_str(),
+    )
+    secured = utils.apply_security_to_model_messages(
+        [HumanMessage(content=prompt_content)],
+        config,
+    )
+    response = await research_model.ainvoke(secured)
 
     # Step 3: Initialize supervisor with research brief and instructions
-    agent_mode = get_agent_mode(config)
+    agent_mode = utils.get_agent_mode(config)
     supervisor_prompt_template = (
         lead_researcher_prompt_rag
         if agent_mode == AgentMode.RAG
@@ -563,7 +534,7 @@ async def write_research_brief(
     )
 
     supervisor_system_prompt = supervisor_prompt_template.format(
-        date=get_today_str(),
+        date=utils.get_today_str(),
         max_concurrent_research_units=configurable.max_concurrent_research_units,
         max_researcher_iterations=configurable.max_researcher_iterations,
     )
@@ -602,7 +573,7 @@ async def supervisor(
     """
     # Step 1: Configure the supervisor model with available tools
     configurable = Configuration.from_runnable_config(config)
-    api_key = await get_api_key_for_model(configurable.research_model, config)
+    api_key = await utils.get_api_key_for_model(configurable.research_model, config)
     research_model_config = {
         "model": configurable.research_model,
         "max_tokens": configurable.research_model_max_tokens,
@@ -610,15 +581,15 @@ async def supervisor(
         "tags": ["langsmith:nostream"],
     }
 
-    agent_mode = get_agent_mode(config)
+    agent_mode = utils.get_agent_mode(config)
 
     # Choose base tools by mode: ConductResearch only in ONLINE
     if agent_mode == AgentMode.RAG:
-        base_tools = [ResearchComplete, think_tool]
+        base_tools = [ResearchComplete, utils.think_tool]
     else:
-        base_tools = [ConductResearch, ResearchComplete, think_tool]
+        base_tools = [ConductResearch, ResearchComplete, utils.think_tool]
 
-    dynamic_tools = await get_all_tools(config)
+    dynamic_tools = await utils.get_all_tools(config)
     lead_researcher_tools = base_tools + dynamic_tools
 
     # Configure model with tools, retry logic, and model settings
@@ -630,7 +601,10 @@ async def supervisor(
 
     # Step 2: Generate supervisor response based on current context
     supervisor_messages = state.get("supervisor_messages", [])
-    response = await research_model.ainvoke(supervisor_messages)
+    secured = utils.apply_security_to_model_messages(supervisor_messages, config)
+    response = await research_model.ainvoke(secured)
+    if isinstance(response, AIMessage):
+        response = utils.apply_security_to_model_output(response, config)
 
     # Step 3: Update state and proceed to tool execution
     return Command(
@@ -665,7 +639,7 @@ async def supervisor_tools(
     research_iterations = state.get("research_iterations", 0)
     most_recent_message = supervisor_messages[-1]
 
-    rag_mode = get_agent_mode(config) == AgentMode.RAG
+    rag_mode = utils.get_agent_mode(config) == AgentMode.RAG
 
     # Define exit criteria for research phase
     exceeded_allowed_iterations = (
@@ -682,7 +656,7 @@ async def supervisor_tools(
         return Command(
             goto=END,
             update={
-                "notes": get_notes_from_tool_calls(supervisor_messages),
+                "notes": utils.get_notes_from_tool_calls(supervisor_messages),
                 "research_brief": {
                     "type": "override",
                     "value": state.get("research_brief", ""),
@@ -719,7 +693,7 @@ async def supervisor_tools(
 
     if other_tool_calls:
         # Execute via the same safe executor used by researchers
-        tools = await get_all_tools(config)
+        tools = await utils.get_all_tools(config)
         tools_by_name = {
             (getattr(t, "name", None) or t.get("name")): t
             for t in tools
@@ -756,7 +730,9 @@ async def supervisor_tools(
 
                 all_tool_messages.append(
                     ToolMessage(
-                        content=tool_content,
+                        content=utils.apply_security_to_tool_result(
+                            tool_content, name, tc["id"], config
+                        ),
                         name=name,
                         tool_call_id=tc["id"],
                         additional_kwargs={"visibility": "internal"},
@@ -818,9 +794,14 @@ async def supervisor_tools(
                 ):
                     all_tool_messages.append(
                         ToolMessage(
-                            content=observation.get(
-                                "compressed_research",
-                                "Error synthesizing research report: Maximum retries exceeded",
+                            content=utils.apply_security_to_tool_result(
+                                observation.get(
+                                    "compressed_research",
+                                    "Error synthesizing research report: Maximum retries exceeded",
+                                ),
+                                tool_call["name"],
+                                tool_call["id"],
+                                config,
                             ),
                             name=tool_call["name"],
                             tool_call_id=tool_call["id"],
@@ -850,12 +831,14 @@ async def supervisor_tools(
 
             except Exception as e:
                 # Handle research execution errors
-                if is_token_limit_exceeded(e, configurable.research_model):
+                if utils.is_token_limit_exceeded(e, configurable.research_model):
                     # Token limit exceeded - end research phase
                     return Command(
                         goto=END,
                         update={
-                            "notes": get_notes_from_tool_calls(supervisor_messages),
+                            "notes": utils.get_notes_from_tool_calls(
+                                supervisor_messages
+                            ),
                             "research_brief": {
                                 "type": "override",
                                 "value": state.get("research_brief", ""),
@@ -915,14 +898,14 @@ async def researcher(
     researcher_messages = state.get("researcher_messages", [])
 
     # Get all available research tools (search, think_tool)
-    tools = await get_all_tools(config)
+    tools = await utils.get_all_tools(config)
     if len(tools) == 0:
         raise ValueError(
             "No tools found to conduct research: Please configure your search API"
         )
 
     # Step 2: Configure the researcher model with tools
-    api_key = await get_api_key_for_model(configurable.research_model, config)
+    api_key = await utils.get_api_key_for_model(configurable.research_model, config)
     research_model_config = {
         "model": configurable.research_model,
         "max_tokens": configurable.research_model_max_tokens,
@@ -931,14 +914,14 @@ async def researcher(
     }
 
     # Choose mode-specific researcher prompt
-    agent_mode = get_agent_mode(config)
+    agent_mode = utils.get_agent_mode(config)
     prompt_template = (
         research_system_prompt_rag
         if agent_mode == AgentMode.RAG
         else research_system_prompt_online
     )
     researcher_prompt = prompt_template.format(
-        date=get_today_str(),
+        date=utils.get_today_str(),
         search_tool=configurable.search_api.value,
     )
 
@@ -955,7 +938,10 @@ async def researcher(
         messages.append(SystemMessage(content=configurable.sales_context_prompt))
     messages += researcher_messages
 
-    response = await research_model.ainvoke(messages)
+    secured = utils.apply_security_to_model_messages(messages, config)
+    response = await research_model.ainvoke(secured)
+    if isinstance(response, AIMessage):
+        response = utils.apply_security_to_model_output(response, config)
 
     # Step 4: Update state and proceed to tool execution
     return Command(
@@ -1009,11 +995,11 @@ async def researcher_tools(
 
     # Early exit if no tool calls were made (including native web search)
     has_tool_calls = bool(most_recent_message.tool_calls)
-    has_native_search = openai_websearch_called(
+    has_native_search = utils.openai_websearch_called(
         most_recent_message
-    ) or anthropic_websearch_called(most_recent_message)
+    ) or utils.anthropic_websearch_called(most_recent_message)
 
-    agent_mode = get_agent_mode(config)
+    agent_mode = utils.get_agent_mode(config)
 
     # Block native provider websearch in RAG mode
     if agent_mode == AgentMode.RAG and has_native_search:
@@ -1030,7 +1016,7 @@ async def researcher_tools(
         return Command(goto="compress_research")
 
     # Step 2: Handle other tool calls
-    tools = await get_all_tools(config)
+    tools = await utils.get_all_tools(config)
     tools_by_name = {
         tool.name if hasattr(tool, "name") else tool.get("name", "web_search"): tool
         for tool in tools
@@ -1047,7 +1033,11 @@ async def researcher_tools(
     # Create tool messages from execution results
     tool_outputs = [
         ToolMessage(
-            content=observation, name=tool_call["name"], tool_call_id=tool_call["id"]
+            content=utils.apply_security_to_tool_result(
+                observation, tool_call["name"], tool_call["id"], config
+            ),
+            name=tool_call["name"],
+            tool_call_id=tool_call["id"],
         )
         for observation, tool_call in zip(observations, tool_calls, strict=False)
     ]
@@ -1087,7 +1077,7 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
     """
     # Step 1: Configure the compression model
     configurable = Configuration.from_runnable_config(config)
-    api_key = await get_api_key_for_model(configurable.research_model, config)
+    api_key = await utils.get_api_key_for_model(configurable.research_model, config)
     synthesizer_model = configurable_model.with_config(
         {
             "model": configurable.compression_model,
@@ -1097,7 +1087,7 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
         }
     )
 
-    agent_mode = get_agent_mode(config)
+    agent_mode = utils.get_agent_mode(config)
 
     # Step 2: Prepare messages for compression
     researcher_messages = state.get("researcher_messages", [])
@@ -1121,12 +1111,15 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
                 else compress_research_system_prompt_online
             )
             compression_prompt = compression_prompt_template.format(
-                date=get_today_str()
+                date=utils.get_today_str()
             )
             messages = [SystemMessage(content=compression_prompt)] + researcher_messages
 
             # Execute compression
-            response = await synthesizer_model.ainvoke(messages)
+            secured = utils.apply_security_to_model_messages(messages, config)
+            response = await synthesizer_model.ainvoke(secured)
+            if isinstance(response, AIMessage):
+                response = utils.apply_security_to_model_output(response, config)
 
             # Extract raw notes from all tool and AI messages
             raw_notes_content = "\n".join(
@@ -1148,8 +1141,10 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             synthesis_attempts += 1
 
             # Handle token limit exceeded by removing older messages
-            if is_token_limit_exceeded(e, configurable.research_model):
-                researcher_messages = remove_up_to_last_ai_message(researcher_messages)
+            if utils.is_token_limit_exceeded(e, configurable.research_model):
+                researcher_messages = utils.remove_up_to_last_ai_message(
+                    researcher_messages
+                )
                 continue
 
             # For other errors, continue retrying
@@ -1214,14 +1209,14 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
 
     # Step 2: Configure the final report generation model
     configurable = Configuration.from_runnable_config(config)
-    api_key = await get_api_key_for_model(configurable.research_model, config)
+    api_key = await utils.get_api_key_for_model(configurable.research_model, config)
     writer_model_config = {
         "model": configurable.final_report_model,
         "max_tokens": configurable.final_report_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
     }
-    agent_mode = get_agent_mode(config)
+    agent_mode = utils.get_agent_mode(config)
 
     # Step 3: Attempt report generation with token limit retry logic
     max_retries = 3
@@ -1230,23 +1225,41 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
 
     while current_retry <= max_retries:
         try:
-            # Create comprehensive prompt with all research context
+            history_messages = state.get("messages", [])
+            sanitized_history_messages = utils.apply_security_to_model_messages(
+                history_messages, config
+            )
+            history_text = get_buffer_string(sanitized_history_messages)
+
+            safe_research_brief = utils.sanitize_text_block(
+                state.get("research_brief", ""), config
+            )
+            safe_findings = utils.sanitize_text_block(findings, config)
+
             final_report_prompt_template = (
                 final_report_generation_prompt_rag
                 if agent_mode == AgentMode.RAG
                 else final_report_generation_prompt_online
             )
             final_report_prompt = final_report_prompt_template.format(
-                research_brief=state.get("research_brief", ""),
-                messages=get_buffer_string(state.get("messages", [])),
-                findings=findings,
-                date=get_today_str(),
+                research_brief=safe_research_brief,
+                messages=history_text,
+                findings=safe_findings,
+                date=utils.get_today_str(),
             )
 
             # Generate the final report
+            secured = utils.apply_security_to_model_messages(
+                [HumanMessage(content=final_report_prompt)],
+                config,
+            )
             final_report = await configurable_model.with_config(
                 writer_model_config
-            ).ainvoke([HumanMessage(content=final_report_prompt)])
+            ).ainvoke(secured)
+            if isinstance(final_report, AIMessage):
+                final_report = utils.apply_security_to_model_output(
+                    final_report, config
+                )
 
             step_index = state.get("step_index", 0)
             configurable = Configuration.from_runnable_config(config)
@@ -1272,12 +1285,12 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
 
         except Exception as e:
             # Handle token limit exceeded errors with progressive truncation
-            if is_token_limit_exceeded(e, configurable.final_report_model):
+            if utils.is_token_limit_exceeded(e, configurable.final_report_model):
                 current_retry += 1
 
                 if current_retry == 1:
                     # First retry: determine initial truncation limit
-                    model_token_limit = get_model_token_limit(
+                    model_token_limit = utils.get_model_token_limit(
                         configurable.final_report_model
                     )
                     if not model_token_limit:
@@ -1325,6 +1338,7 @@ deep_researcher_builder = StateGraph(
     AgentState, input=AgentInputState, config_schema=Configuration
 )
 
+deep_researcher_builder.add_node("before_model_mw", utils.sanitize_input)
 deep_researcher_builder.add_node("provide_placeholders", provide_placeholders)
 deep_researcher_builder.add_node("prepare_step", prepare_step)
 deep_researcher_builder.add_node("run_sub_prompts", run_sub_prompts)
@@ -1344,7 +1358,8 @@ deep_researcher_builder.add_node(
     "final_report_generation", final_report_generation
 )  # Report generation phase
 
-deep_researcher_builder.add_edge(START, "provide_placeholders")
+deep_researcher_builder.add_edge(START, "before_model_mw")
+deep_researcher_builder.add_edge("before_model_mw", "provide_placeholders")
 deep_researcher_builder.add_conditional_edges(
     "fan_out_parallel",
     lambda state: state.get("parallel_sends", []) or [],
