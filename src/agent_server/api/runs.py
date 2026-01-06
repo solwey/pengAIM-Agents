@@ -419,18 +419,19 @@ async def get_run(
     session: AsyncSession = Depends(get_session),
 ) -> Run:
     """Get run by ID (persisted)."""
-    stmt = select(RunORM).where(
-        RunORM.run_id == str(run_id),
-        RunORM.thread_id == thread_id,
-        RunORM.team_id == user.team_id,
-    )
-    if not user.is_superadmin:
-        stmt = stmt.where(
+    stmt = (
+        select(RunORM)
+        .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
+        .where(
+            RunORM.run_id == str(run_id),
+            RunORM.thread_id == thread_id,
+            RunORM.team_id == user.team_id,
             or_(
                 RunORM.user_id == user.id,
                 ThreadORM.is_shared.is_(True),
-            )
+            ),
         )
+    )
     logger.info(
         f"[get_run] querying DB run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
     )
@@ -474,13 +475,12 @@ async def list_runs(
     if status:
         stmt = stmt.where(RunORM.status == status)
 
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                RunORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
+    stmt = stmt.where(
+        or_(
+            RunORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
         )
+    )
 
     stmt = stmt.order_by(RunORM.created_at.desc()).limit(limit).offset(offset)
 
@@ -518,13 +518,12 @@ async def update_run(
         )
     )
 
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                RunORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
+    stmt = stmt.where(
+        or_(
+            RunORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
         )
+    )
     run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
@@ -588,13 +587,12 @@ async def join_run(
         )
     )
 
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                RunORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
+    stmt = stmt.where(
+        or_(
+            RunORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
         )
+    )
     run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
@@ -800,13 +798,12 @@ async def stream_run(
             RunORM.team_id == user.team_id,
         )
     )
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                RunORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
+    stmt = stmt.where(
+        or_(
+            RunORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
         )
+    )
     run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
@@ -889,13 +886,12 @@ async def cancel_run_endpoint(
             RunORM.team_id == user.team_id,
         )
     )
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                RunORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
+    stmt = stmt.where(
+        or_(
+            RunORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
         )
+    )
     run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")
@@ -1216,13 +1212,12 @@ async def delete_run(
             RunORM.team_id == user.team_id,
         )
     )
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                RunORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
+    stmt = stmt.where(
+        or_(
+            RunORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
         )
+    )
     run_orm = await session.scalar(stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found")

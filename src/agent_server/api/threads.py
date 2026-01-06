@@ -65,9 +65,9 @@ def _sanitize_thread_state_for_user(state: ThreadState, user: User) -> ThreadSta
 
 @router.post("/threads", response_model=Thread)
 async def create_thread(
-    request: ThreadCreate,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        request: ThreadCreate,
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """Create a new conversation thread"""
 
@@ -149,27 +149,25 @@ async def create_thread(
 
 @router.get("/threads", response_model=ThreadList)
 async def list_threads(
-    request: ThreadHistoryRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        request: ThreadHistoryRequest,
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """List user's threads"""
     # Fetch all threads for the current team
     metadata = request.metadata or {}
-    stmt = select(ThreadORM).where(ThreadORM.team_id == user.team_id)
+    stmt = select(ThreadORM).where(
+        ThreadORM.team_id == user.team_id,
+        or_(
+            ThreadORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
+        )
+    )
 
     assistant_id = metadata.get("assistant_id")
 
     if assistant_id:
         stmt = stmt.where(ThreadORM.assistant_id == assistant_id)
-
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                ThreadORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
-        )
 
     result = await session.scalars(stmt)
     rows = result.all()
@@ -188,22 +186,19 @@ async def list_threads(
 
 @router.get("/threads/{thread_id}", response_model=Thread)
 async def get_thread(
-    thread_id: str,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        thread_id: str,
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """Get thread by ID"""
     stmt = select(ThreadORM).where(
         ThreadORM.thread_id == thread_id,
         ThreadORM.team_id == user.team_id,
+        or_(
+            ThreadORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
+        ),
     )
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                ThreadORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
-        )
     thread = await session.scalar(stmt)
     if not thread:
         raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -218,27 +213,24 @@ async def get_thread(
 
 @router.get("/threads/{thread_id}/state", response_model=ThreadState)
 async def get_thread_state(
-    thread_id: str,
-    subgraphs: bool = Query(False, description="Include states from subgraphs"),
-    checkpoint_ns: str | None = Query(
-        None, description="Checkpoint namespace to scope lookup"
-    ),
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        thread_id: str,
+        subgraphs: bool = Query(False, description="Include states from subgraphs"),
+        checkpoint_ns: str | None = Query(
+            None, description="Checkpoint namespace to scope lookup"
+        ),
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """Get state for a thread (i.e. latest checkpoint)"""
     try:
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
             ThreadORM.team_id == user.team_id,
+            or_(
+                ThreadORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            ),
         )
-        if not user.is_superadmin:
-            stmt = stmt.where(
-                or_(
-                    ThreadORM.user_id == user.id,
-                    ThreadORM.is_shared.is_(True),
-                )
-            )
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -321,11 +313,11 @@ async def get_thread_state(
 
 @router.get("/threads/{thread_id}/state/{checkpoint_id}", response_model=ThreadState)
 async def get_thread_state_at_checkpoint(
-    thread_id: str,
-    checkpoint_id: str,
-    subgraphs: bool | None = Query(False, description="Include states from subgraphs"),
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        thread_id: str,
+        checkpoint_id: str,
+        subgraphs: bool | None = Query(False, description="Include states from subgraphs"),
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """Get thread state at a specific checkpoint"""
     try:
@@ -333,14 +325,11 @@ async def get_thread_state_at_checkpoint(
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
             ThreadORM.team_id == user.team_id,
+            or_(
+                ThreadORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            ),
         )
-        if not user.is_superadmin:
-            stmt = stmt.where(
-                or_(
-                    ThreadORM.user_id == user.id,
-                    ThreadORM.is_shared.is_(True),
-                )
-            )
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -414,10 +403,10 @@ async def get_thread_state_at_checkpoint(
 
 @router.post("/threads/{thread_id}/state/checkpoint", response_model=ThreadState)
 async def get_thread_state_at_checkpoint_post(
-    thread_id: str,
-    request: ThreadCheckpointPostRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        thread_id: str,
+        request: ThreadCheckpointPostRequest,
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """Get thread state at a specific checkpoint (POST method - for SDK compatibility)"""
     # Reuse GET logic by calling the function directly
@@ -431,10 +420,10 @@ async def get_thread_state_at_checkpoint_post(
 
 @router.post("/threads/{thread_id}/history", response_model=list[ThreadState])
 async def get_thread_history_post(
-    thread_id: str,
-    request: ThreadHistoryRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        thread_id: str,
+        request: ThreadHistoryRequest,
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """Get thread checkpoint history (POST method - for SDK compatibility)"""
 
@@ -477,14 +466,11 @@ async def get_thread_history_post(
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
             ThreadORM.team_id == user.team_id,
+            or_(
+                ThreadORM.user_id == user.id,
+                ThreadORM.is_shared.is_(True),
+            ),
         )
-        if not user.is_superadmin:
-            stmt = stmt.where(
-                or_(
-                    ThreadORM.user_id == user.id,
-                    ThreadORM.is_shared.is_(True),
-                )
-            )
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -536,7 +522,7 @@ async def get_thread_history_post(
         # Some LangGraph versions support subgraphs flag; pass if available
         try:
             async for snapshot in agent.aget_state_history(
-                config, subgraphs=subgraphs, **kwargs
+                    config, subgraphs=subgraphs, **kwargs
             ):
                 state_snapshots.append(snapshot)
         except TypeError:
@@ -569,17 +555,17 @@ async def get_thread_history_post(
 
 @router.get("/threads/{thread_id}/history", response_model=list[ThreadState])
 async def get_thread_history_get(
-    thread_id: str,
-    limit: int = Query(10, ge=1, le=1000, description="Number of states to return"),
-    before: str | None = Query(
-        None, description="Return states before this checkpoint ID"
-    ),
-    subgraphs: bool | None = Query(False, description="Include states from subgraphs"),
-    checkpoint_ns: str | None = Query(None, description="Checkpoint namespace"),
-    # Optional metadata filter for parity with POST (use JSON string to avoid FastAPI typing assertion on dict in query)
-    metadata: str | None = Query(None, description="JSON-encoded metadata filter"),
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        thread_id: str,
+        limit: int = Query(10, ge=1, le=1000, description="Number of states to return"),
+        before: str | None = Query(
+            None, description="Return states before this checkpoint ID"
+        ),
+        subgraphs: bool | None = Query(False, description="Include states from subgraphs"),
+        checkpoint_ns: str | None = Query(None, description="Checkpoint namespace"),
+        # Optional metadata filter for parity with POST (use JSON string to avoid FastAPI typing assertion on dict in query)
+        metadata: str | None = Query(None, description="JSON-encoded metadata filter"),
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """Get thread checkpoint history (GET method - SDK compatibility)"""
     # Reuse POST logic by constructing a ThreadHistoryRequest-like object
@@ -605,9 +591,9 @@ async def get_thread_history_get(
 
 @router.delete("/threads/{thread_id}")
 async def delete_thread(
-    thread_id: str,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        thread_id: str,
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """
     Delete thread by ID.
@@ -619,14 +605,8 @@ async def delete_thread(
     stmt = select(ThreadORM).where(
         ThreadORM.thread_id == thread_id,
         ThreadORM.team_id == user.team_id,
+        ThreadORM.user_id == user.id,
     )
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                ThreadORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
-        )
     thread = await session.scalar(stmt)
     if not thread:
         raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -676,13 +656,19 @@ async def delete_thread(
 
 @router.post("/threads/search", response_model=list[Thread])
 async def search_threads(
-    request: ThreadSearchRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+        request: ThreadSearchRequest,
+        user: User = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
 ):
     """Search threads with filters"""
 
-    stmt = select(ThreadORM).where(ThreadORM.team_id == user.team_id)
+    stmt = select(ThreadORM).where(
+        ThreadORM.team_id == user.team_id,
+        or_(
+            ThreadORM.user_id == user.id,
+            ThreadORM.is_shared.is_(True),
+        ),
+    )
 
     if request.status:
         stmt = stmt.where(ThreadORM.status == request.status)
@@ -691,14 +677,6 @@ async def search_threads(
         # For each key/value, filter JSONB field
         for key, value in request.metadata.items():
             stmt = stmt.where(ThreadORM.metadata_json[key].as_string() == str(value))
-
-    if not user.is_superadmin:
-        stmt = stmt.where(
-            or_(
-                ThreadORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            )
-        )
 
     offset = request.offset or 0
     limit = request.limit or 20
