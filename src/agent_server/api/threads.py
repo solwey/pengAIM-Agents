@@ -158,10 +158,11 @@ async def list_threads(
     metadata = request.metadata or {}
     stmt = select(ThreadORM).where(
         ThreadORM.team_id == user.team_id,
+        ThreadORM.deleted_at.is_(None),
         or_(
             ThreadORM.user_id == user.id,
             ThreadORM.is_shared.is_(True),
-        )
+        ),
     )
 
     assistant_id = metadata.get("assistant_id")
@@ -194,6 +195,7 @@ async def get_thread(
     stmt = select(ThreadORM).where(
         ThreadORM.thread_id == thread_id,
         ThreadORM.team_id == user.team_id,
+        ThreadORM.deleted_at.is_(None),
         or_(
             ThreadORM.user_id == user.id,
             ThreadORM.is_shared.is_(True),
@@ -226,6 +228,7 @@ async def get_thread_state(
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
             ThreadORM.team_id == user.team_id,
+            ThreadORM.deleted_at.is_(None),
             or_(
                 ThreadORM.user_id == user.id,
                 ThreadORM.is_shared.is_(True),
@@ -325,6 +328,7 @@ async def get_thread_state_at_checkpoint(
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
             ThreadORM.team_id == user.team_id,
+            ThreadORM.deleted_at.is_(None),
             or_(
                 ThreadORM.user_id == user.id,
                 ThreadORM.is_shared.is_(True),
@@ -466,6 +470,7 @@ async def get_thread_history_post(
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
             ThreadORM.team_id == user.team_id,
+            ThreadORM.deleted_at.is_(None),
             or_(
                 ThreadORM.user_id == user.id,
                 ThreadORM.is_shared.is_(True),
@@ -598,14 +603,14 @@ async def delete_thread(
     """
     Delete thread by ID.
 
-    Automatically cancels any active runs and deletes the thread.
-    CASCADE DELETE automatically removes all run records when thread is deleted.
+    Automatically cancels any active runs and soft-deletes the thread.
     """
     # Check if thread exists
     stmt = select(ThreadORM).where(
         ThreadORM.thread_id == thread_id,
         ThreadORM.team_id == user.team_id,
         ThreadORM.user_id == user.id,
+        ThreadORM.deleted_at.is_(None),
     )
     thread = await session.scalar(stmt)
     if not thread:
@@ -644,12 +649,12 @@ async def delete_thread(
                 except Exception as e:
                     logger.warning(f"Error waiting for task {run_id} to settle: {e}")
 
-    # Delete thread (CASCADE DELETE will automatically remove all runs)
-    await session.delete(thread)
+    # Soft-delete thread
+    thread.deleted_at = datetime.now(UTC)
     await session.commit()
 
     logger.info(
-        f"Deleted thread {thread_id} (cancelled {len(active_runs_list)} active runs)"
+        f"Soft-deleted thread {thread_id} (cancelled {len(active_runs_list)} active runs)"
     )
     return {"status": "deleted"}
 
@@ -664,6 +669,7 @@ async def search_threads(
 
     stmt = select(ThreadORM).where(
         ThreadORM.team_id == user.team_id,
+        ThreadORM.deleted_at.is_(None),
         or_(
             ThreadORM.user_id == user.id,
             ThreadORM.is_shared.is_(True),

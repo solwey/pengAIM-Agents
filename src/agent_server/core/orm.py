@@ -106,6 +106,9 @@ class Thread(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     # Indexes for performance
     __table_args__ = (
@@ -122,6 +125,7 @@ class Thread(Base):
             "assistant_id",
             "created_at",
         ),
+        Index("idx_thread_deleted_at", "deleted_at"),
     )
 
 
