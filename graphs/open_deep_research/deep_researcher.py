@@ -3,7 +3,16 @@
 import asyncio
 import inspect
 import json
+import logging
 from typing import Literal
+
+logger = logging.getLogger(__name__)
+
+
+def debug_print(msg: str):
+    """Debug print with colored output for better visibility."""
+    print(f"\n🔍 [PLACEHOLDERS] {msg}\n", flush=True)
+
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
@@ -122,6 +131,20 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
         return Command(goto="clarify_with_user", update={"step_index": -1})
 
     step_index = state.get("step_index", 0)
+    current_placeholders = state.get("placeholders", [])
+
+    # Extract field names for debugging
+    current_fields = [
+        p.get("field") if isinstance(p, dict) else (p.field if hasattr(p, "field") else "?")
+        for p in current_placeholders
+    ]
+
+    debug_print(
+        f"provide_placeholders ENTRY: step_index={step_index}, "
+        f"current_placeholders={len(current_placeholders)}, "
+        f"fields={current_fields}"
+    )
+
     if step_index >= len(steps):
         return Command(goto=END)
 
@@ -136,6 +159,11 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
         str(x).strip() for x in current_step.placeholders if str(x).strip()
     ]
     expected_placeholders = list(dict.fromkeys(expected_placeholders))
+
+    debug_print(
+        f"provide_placeholders: step={step_index}, "
+        f"expected_placeholders={expected_placeholders}"
+    )
 
     if not expected_placeholders:
         return Command(goto=goto)
@@ -158,18 +186,47 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
                     {"field": key, "value": value}
                     for key, value in step_placeholders_dict.items()
                 ]
+                normalized = normalize_placeholders(placeholders_list)
+                debug_print(
+                    f"provide_placeholders EXIT (inline): step={step_index}, "
+                    f"returning {len(normalized)} placeholders"
+                )
                 # Use the inline placeholders directly, no interrupt needed
                 return Command(
                     goto=goto,
                     update={
                         "placeholders": {
                             "type": "override",
-                            "value": normalize_placeholders(placeholders_list),
+                            "value": normalized,
                         },
                     },
                 )
 
+    # Check if current state already has all expected placeholders
+    current_placeholder_fields = {
+        p.get("field") if isinstance(p, dict) else (p.field if hasattr(p, "field") else None)
+        for p in current_placeholders
+    }
+    current_placeholder_fields.discard(None)
+
+    missing_placeholders = [
+        field for field in expected_placeholders
+        if field not in current_placeholder_fields
+    ]
+
+    if not missing_placeholders:
+        # All expected placeholders already present in state - no need to ask again
+        debug_print(
+            f"provide_placeholders EXIT (from state): step={step_index}, "
+            f"all {len(expected_placeholders)} expected placeholders already present"
+        )
+        return Command(goto=goto)
+
     # Fall back to interrupt if placeholders not provided inline
+    debug_print(
+        f"provide_placeholders: step={step_index}, "
+        f"missing placeholders: {missing_placeholders}"
+    )
     human_payload = interrupt(
         {
             "type": "placeholders_required",
@@ -179,6 +236,7 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
     )
 
     if isinstance(human_payload, dict) and human_payload.get("skip"):
+        debug_print(f"provide_placeholders EXIT (skip): step={step_index}")
         return Command(
             goto="provide_placeholders",
             update={
@@ -194,12 +252,17 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
             },
         )
 
+    normalized = normalize_placeholders(human_payload)
+    debug_print(
+        f"provide_placeholders EXIT (user input): step={step_index}, "
+        f"returning {len(normalized)} placeholders"
+    )
     return Command(
         goto=goto,
         update={
             "placeholders": {
                 "type": "override",
-                "value": normalize_placeholders(human_payload),
+                "value": normalized,
             },
         },
     )
@@ -277,6 +340,10 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
         name = item.get("name", "subprompt")
         text = item.get("text_template", "")
         merged_ph = list(user_placeholders) + synthetic_placeholders
+        debug_print(
+            f"run_sub_prompts SEQUENTIAL '{name}': "
+            f"user={len(user_placeholders)}, synthetic={len(synthetic_placeholders)}, merged={len(merged_ph)}"
+        )
         base_text = apply_placeholders(text, merged_ph)
         ctx_text = (
             ("\n\nContext from previous steps:\n" + "\n\n".join(context_chunks))
@@ -310,6 +377,11 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
     parallel_sends: list[Send] = []
 
     merged_for_parallel = user_placeholders + synthetic_placeholders
+    debug_print(
+        f"run_sub_prompts PARALLEL: "
+        f"user={len(user_placeholders)}, synthetic={len(synthetic_placeholders)}, "
+        f"merged={len(merged_for_parallel)}, parallel_count={len(par_meta)}"
+    )
     for item in par_meta:
         name = item.get("name", "")
         text = item.get("text_template", "")
@@ -359,6 +431,7 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
     if isinstance(placeholders, dict) and placeholders.get("type") == "override":
         placeholders = placeholders.get("value", [])
 
+    debug_print(f"parallel_subprompt '{nm}': placeholders={len(placeholders)}")
     sub_text = apply_placeholders(tmpl, placeholders)
 
     try:
@@ -417,6 +490,11 @@ async def collect_parallel(state: AgentState, config: RunnableConfig):
     merged_placeholders = user_placeholders + [
         sp for sp in synthetic_placeholders if sp.get("field") not in existing
     ]
+    debug_print(
+        f"collect_parallel MERGE: "
+        f"user={len(user_placeholders)}, synthetic={len(synthetic_placeholders)}, "
+        f"merged={len(merged_placeholders)}, keys={list(result_map.keys())}"
+    )
 
     return Command(
         goto="prepare_step",
@@ -445,14 +523,20 @@ async def prepare_step(state: AgentState, config: RunnableConfig):
         return Command(goto=END)
 
     step = steps[step_index]
-    prompt_text = apply_placeholders(step.text, state.get("placeholders", []))
+    current_placeholders = state.get("placeholders", [])
+    prompt_text = apply_placeholders(step.text, current_placeholders)
+    debug_print(
+        f"prepare_step: step={step_index}, "
+        f"placeholders={len(current_placeholders)}, "
+        f"text_len={len(step.text)} → {len(prompt_text)}"
+    )
 
     return Command(
         goto="clarify_with_user",
         update={
             "messages": [HumanMessage(content=prompt_text)],
             "step_index": step_index,
-            "placeholders": {"type": "override", "value": []},
+            # Placeholders preserved - no override to maintain context across steps
         },
     )
 
@@ -1207,10 +1291,42 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     Returns:
         Dictionary containing the final report and cleared state
     """
-    # Step 1: Extract research findings and prepare state cleanup
+    # Step 1: Extract research findings from ALL sources and prepare state cleanup
     notes = state.get("notes", [])
-    cleared_state = {"notes": {"type": "override", "value": []}}
-    findings = "\n".join(notes)
+    sequential_context = state.get("sequential_context", []) or []
+    subprompt_results = state.get("subprompt_results", {}) or {}
+
+    debug_print(
+        f"final_report_generation: notes={len(notes)}, "
+        f"sequential_context={len(sequential_context)}, "
+        f"subprompt_results={len(subprompt_results)}"
+    )
+
+    # Combine all findings with clear section headers
+    findings_parts = []
+
+    if notes:
+        findings_parts.append("# Research Notes from Supervisor\n\n" + "\n\n".join(notes))
+
+    if sequential_context:
+        findings_parts.append(
+            "# Sequential Sub-Prompt Results\n\n" +
+            "\n\n---\n\n".join(sequential_context)
+        )
+
+    if subprompt_results:
+        parallel_results = "\n\n".join([
+            f"## {name}\n\n{content}"
+            for name, content in subprompt_results.items()
+        ])
+        findings_parts.append("# Parallel Sub-Prompt Results\n\n" + parallel_results)
+
+    findings = "\n\n---\n\n".join(findings_parts) if findings_parts else "No research data available"
+
+    debug_print(
+        f"final_report_generation: assembled findings, "
+        f"total_length={len(findings)} chars"
+    )
 
     # Step 2: Configure the final report generation model
     configurable = Configuration.from_runnable_config(config)
@@ -1253,10 +1369,15 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             steps = configurable.steps or []
 
             if step_index + 1 < len(steps) and step_index != -1:
+                debug_print(
+                    f"final_report_generation: INTERMEDIATE REPORT for step {step_index}, "
+                    f"moving to next step {step_index + 1}/{len(steps)}"
+                )
+                # Don't clear sub-prompt data between steps - accumulate context
                 return Command(
                     goto="provide_placeholders",
                     update={
-                        **cleared_state,
+                        "notes": {"type": "override", "value": []},
                         "messages": [final_report],
                         "final_report": final_report.content,
                         "step_index": step_index + 1,
@@ -1264,10 +1385,17 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                 )
 
             # Return successful report generation
+            debug_print(
+                f"final_report_generation: FINAL REPORT for step {step_index}, "
+                f"total steps={len(steps)}, END of workflow"
+            )
+            # Clear everything on final report
             return {
                 "final_report": final_report.content,
                 "messages": [final_report],
-                **cleared_state,
+                "notes": {"type": "override", "value": []},
+                "sequential_context": {"type": "override", "value": []},
+                "subprompt_results": {"type": "override", "value": {}},
             }
 
         except Exception as e:
