@@ -316,14 +316,11 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
         if not name:
             continue
         parallel_sends.append(
-            Send(
-                "parallel_subprompt",
-                {
-                    "subprompt_name": name,
-                    "subprompt_template": text,
-                    "placeholders": {"type": "override", "value": merged_for_parallel},
-                },
-            )
+            {
+                "subprompt_name": name,
+                "subprompt_template": text,
+                "placeholders": {"type": "override", "value": merged_for_parallel},
+            }
         )
 
     ui_messages.append(
@@ -358,6 +355,9 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
     nm = state.get("subprompt_name", "subprompt")
     tmpl = state.get("subprompt_template", "")
     placeholders = state.get("placeholders", []) or []
+
+    if isinstance(placeholders, dict) and placeholders.get("type") == "override":
+        placeholders = placeholders.get("value", [])
 
     sub_text = apply_placeholders(tmpl, placeholders)
 
@@ -1347,7 +1347,7 @@ deep_researcher_builder.add_node(
 deep_researcher_builder.add_edge(START, "provide_placeholders")
 deep_researcher_builder.add_conditional_edges(
     "fan_out_parallel",
-    lambda state: state.get("parallel_sends", []) or [],
+    lambda state: [Send("parallel_subprompt", send_conf) for send_conf in (state.get("parallel_sends", []) or [])],
 )
 deep_researcher_builder.add_edge("fan_out_parallel", "collect_parallel")
 deep_researcher_builder.add_edge("parallel_subprompt", "collect_parallel")
