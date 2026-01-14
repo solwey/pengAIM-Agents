@@ -68,7 +68,11 @@ def override_reducer(current_value, new_value):
     """Reducer function that allows overriding values in state."""
     if isinstance(new_value, dict) and new_value.get("type") == "override":
         return new_value.get("value", new_value)
+    elif isinstance(current_value, dict) and isinstance(new_value, dict):
+        # Merge dictionaries
+        return {**current_value, **new_value}
     else:
+        # Fallback to addition (lists, strings, etc.)
         return operator.add(current_value, new_value)
 
 
@@ -94,14 +98,14 @@ class AgentState(MessagesState):
     sub_prompts_phase: str
     sequential_branches: list[BranchState] = []
     parallel_branches: list[BranchState] = []
-    sequential_context: list[str] = []
+    sequential_context: Annotated[list[str], override_reducer] = []
     parallel_sends: list[Send] = []
     subprompt_name: str
     subprompt_template: str
     synthetic_placeholders: list = []
     last_parallel_result: Annotated[list[dict], override_reducer] = []
     pending_parallel: int = 0
-    subprompt_results: dict = {}
+    subprompt_results: Annotated[dict, override_reducer] = {}
 
 
 class SupervisorState(TypedDict):
