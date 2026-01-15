@@ -4,50 +4,108 @@ import asyncio
 import inspect
 import json
 import logging
+import os
+from datetime import datetime
 from typing import Literal
 
+# ============================================================================
+# DEDICATED FILE LOGGER FOR DEEP RESEARCH DEBUG
+# Writes only our custom logs to /app/logs/deep_research.log (Docker mount)
+# ============================================================================
+
+LOG_DIR = "/app/logs"
+LOG_FILE = os.path.join(LOG_DIR, "deep_research.log")
+
+# Create dedicated logger (separate from root logger)
+deep_logger = logging.getLogger("deep_research_debug")
+deep_logger.setLevel(logging.DEBUG)
+deep_logger.propagate = False  # Don't send to root logger
+
+# Ensure log directory exists
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# File handler - writes to mounted volume
+file_handler = logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s | %(levelname)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+))
+deep_logger.addHandler(file_handler)
+
+# Also log to console for immediate visibility in docker logs
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter('🔍 %(message)s'))
+deep_logger.addHandler(console_handler)
+
+# Standard logger for compatibility
 logger = logging.getLogger(__name__)
 
 
-import datetime
-
 def debug_print(msg: str):
-    """Debug print with colored output for better visibility."""
-    ts = datetime.datetime.now().strftime("%H:%M:%S")
-    print(f"\n🔍 [SUPER_LOG] [{ts}] {msg}\n", flush=True)
+    """Debug log for general tracing - writes to file and console."""
+    deep_logger.info(f"[FLOW] {msg}")
 
-def summarize_data(data):
-    """Helper to summarize data structures for logging."""
-    if isinstance(data, str):
-        if len(data) > 500:
-            return f"{data[:500]}... [TRUNCATED, total len={len(data)}]"
-        return data
-    elif isinstance(data, list):
-        return f"List[{len(data)} items]"
-    elif isinstance(data, dict):
-        return f"Dict keys: {list(data.keys())}"
-    return str(data)
 
 def log_prompt(node_name: str, prompt_type: str, content: str):
-    """Log summarized prompt content."""
-    ts = datetime.datetime.now().strftime("%H:%M:%S")
-    summary = summarize_data(content)
-    header = f"🔍 [TRACE] [{ts}] [{node_name}] PROMPT ({prompt_type}):"
-    print(f"\n{header} {summary}\n", flush=True)
+    """Log prompt content to file (full) and console (truncated)."""
+    # Full content to file
+    deep_logger.debug(f"[{node_name}] PROMPT ({prompt_type}):\n{content}")
+    # Truncated to console
+    preview = content[:500] + "..." if len(content) > 500 else content
+    deep_logger.info(f"[{node_name}] PROMPT ({prompt_type}): {len(content)} chars")
+
 
 def log_response(node_name: str, response: str):
-    """Log summarized model response."""
-    ts = datetime.datetime.now().strftime("%H:%M:%S")
-    summary = summarize_data(response)
-    header = f"🔍 [TRACE] [{ts}] [{node_name}] RESPONSE:"
-    print(f"\n{header} {summary}\n", flush=True)
+    """Log model response to file (full) and console (truncated)."""
+    deep_logger.debug(f"[{node_name}] RESPONSE:\n{response}")
+    deep_logger.info(f"[{node_name}] RESPONSE: {len(response)} chars")
+
 
 def log_tool_output(node_name: str, tool_name: str, output: str):
-    """Log summarized tool output."""
-    ts = datetime.datetime.now().strftime("%H:%M:%S")
-    summary = summarize_data(output)
-    header = f"🔍 [TRACE] [{ts}] [{node_name}] TOOL_OUTPUT ({tool_name}):"
-    print(f"\n{header} {summary}\n", flush=True)
+    """Log tool output to file."""
+    deep_logger.debug(f"[{node_name}] TOOL ({tool_name}):\n{output}")
+    deep_logger.info(f"[{node_name}] TOOL ({tool_name}): {len(output)} chars")
+
+
+def log_state(node_name: str, state: dict):
+    """Log critical state variables for debugging data flow."""
+    step_index = state.get("step_index", "?")
+    phase = state.get("sub_prompts_phase", "?")
+    placeholders_count = len(state.get("placeholders", []) or [])
+    seq_branches = len(state.get("sequential_branches", []) or [])
+    par_branches = len(state.get("parallel_branches", []) or [])
+    seq_ctx = len(state.get("sequential_context", []) or [])
+    subprompt_results = len(state.get("subprompt_results", {}) or {})
+    synthetic_ph = len(state.get("synthetic_placeholders", []) or [])
+    
+    deep_logger.info(
+        f"[{node_name}] STATE: step={step_index}, phase={phase}, "
+        f"placeholders={placeholders_count}, seq_branches={seq_branches}, "
+        f"par_branches={par_branches}, seq_ctx={seq_ctx}, "
+        f"subprompt_results={subprompt_results}, synthetic_ph={synthetic_ph}"
+    )
+
+
+def log_messages_trace(node_name: str, messages: list):
+    """Log the state of the messages history to detect empty/malformed messages."""
+    summary_lines = []
+    for i, msg in enumerate(messages):
+        content = getattr(msg, "content", "")
+        tool_calls = getattr(msg, "tool_calls", [])
+        
+        warning = ""
+        if not content:
+            if tool_calls:
+                content = f"[Tool Calls: {len(tool_calls)}]"
+            else:
+                warning = " ⚠️ EMPTY"
+        
+        preview = str(content)[:100].replace('\n', ' ')
+        summary_lines.append(f"  [{i}] {type(msg).__name__}: {preview}{warning}")
+    
+    deep_logger.info(f"[{node_name}] MESSAGES ({len(messages)}):\n" + "\n".join(summary_lines))
 
 
 from langchain.chat_models import init_chat_model
@@ -79,6 +137,8 @@ from graphs.open_deep_research.prompts import (
     research_system_prompt_online,
     research_system_prompt_rag,
     transform_messages_into_research_topic_prompt,
+    compress_research_system_prompt_online_optimized,
+    final_report_generation_prompt_online_optimized,
 )
 from graphs.open_deep_research.state import (
     AgentInputState,
@@ -228,13 +288,11 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
                     f"returning {len(normalized)} placeholders"
                 )
                 # Use the inline placeholders directly, no interrupt needed
+                # Use standard append logic (no "override") to preserve history
                 return Command(
                     goto=goto,
                     update={
-                        "placeholders": {
-                            "type": "override",
-                            "value": normalized,
-                        },
+                        "placeholders": normalized,
                     },
                 )
 
@@ -283,7 +341,7 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
                         tool_call_id=f"placeholders:step:{step_index}:skip",
                     )
                 ],
-                "placeholders": {"type": "override", "value": []},
+                "placeholders": [], # Append nothing (preserve history)
                 "step_index": step_index + 1,
             },
         )
@@ -319,6 +377,10 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
 
     phase = state.get("sub_prompts_phase", "announce")
     user_placeholders = state.get("placeholders", []) or []
+
+    # LOG: Track state at entry for debugging
+    log_state("run_sub_prompts", state)
+    debug_print(f"run_sub_prompts ENTER: step={step_index}, phase={phase}")
 
     if phase == "announce":
         # Build deterministic metadata for both kinds of sub-prompts
@@ -359,7 +421,9 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
                 "sequential_branches": seq_meta,
                 "parallel_branches": par_meta,
                 "sequential_context": [],
-                "synthetic_placeholders": [],
+                # CRITICAL FIX: Do NOT reset synthetic_placeholders!
+                # They accumulate between steps for final assembly.
+                # Previous: "synthetic_placeholders": [],  # This was a bug!
             },
         )
 
@@ -398,6 +462,8 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
             )
             compressed = observation.get("compressed_research", "")
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             compressed = f"Error during sequential subprompt '{name}': {e}"
         context_chunks.append(compressed)
         ui_messages.append(
@@ -458,6 +524,24 @@ async def fan_out_parallel(state: AgentState, config: RunnableConfig):
     return {}
 
 
+def route_parallel_execution(state: AgentState) -> list[Send]:
+    """Route to parallel subprompts based on state."""
+    try:
+        parallel_sends = state.get("parallel_sends", []) or []
+        debug_print(f"route_parallel_execution: sends={len(parallel_sends)}")
+        
+        sends = []
+        for send_conf in parallel_sends:
+            sends.append(Send("parallel_subprompt", send_conf))
+            
+        return sends
+    except Exception as e:
+        logger.error(f"Error in route_parallel_execution: {e}")
+        # Return empty list on error to avoid crash, though this might stall the graph
+        return []
+
+
+
 async def parallel_subprompt(state: AgentState, config: RunnableConfig):
     """Worker for a single parallel subprompt (one subprompt per node call)."""
     nm = state.get("subprompt_name", "subprompt")
@@ -470,6 +554,7 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
     debug_print(f"parallel_subprompt '{nm}': placeholders={len(placeholders)}")
     sub_text = apply_placeholders(tmpl, placeholders)
 
+    comp = ""
     try:
         observation = await researcher_subgraph.ainvoke(
             {
@@ -480,7 +565,23 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
         )
         comp = observation.get("compressed_research", "")
     except Exception as e:
-        comp = f"Error during parallel subprompt '{nm}': {e}"
+        # Handle token limit exceeded by truncating content and retrying
+        if is_token_limit_exceeded(e):
+            try:
+                # Truncate to ~30k tokens (approx 120k chars) to be safe
+                truncated_text = truncate_result(sub_text, 120000)
+                observation = await researcher_subgraph.ainvoke(
+                    {
+                        "researcher_messages": [HumanMessage(content=truncated_text)],
+                        "research_topic": truncated_text,
+                    },
+                    config,
+                )
+                comp = observation.get("compressed_research", "")
+            except Exception as e2:
+                comp = f"Error: Parallel sub-prompt failed due to context limit (retried). {e2}"
+        else:
+            comp = f"Error during parallel subprompt '{nm}': {e}"
 
     ui_msg = ToolMessage(
         content=f"Completed: {nm}\nShort result:\n{truncate_result(comp)}",
@@ -541,7 +642,9 @@ async def collect_parallel(state: AgentState, config: RunnableConfig):
             "parallel_sends": None,
             "pending_parallel": 0,
             "last_parallel_result": [],
-            "synthetic_placeholders": [],
+            # CRITICAL FIX: Do NOT clear synthetic_placeholders - they must accumulate
+            # between steps for final assembly to use step results as placeholders
+            "synthetic_placeholders": synthetic_placeholders,
         },
     )
 
@@ -561,6 +664,8 @@ async def prepare_step(state: AgentState, config: RunnableConfig):
     step = steps[step_index]
     current_placeholders = state.get("placeholders", [])
     prompt_text = apply_placeholders(step.text, current_placeholders)
+    
+    log_state("prepare_step", state)
     debug_print(
         f"prepare_step: step={step_index}, "
         f"placeholders={len(current_placeholders)}, "
@@ -573,27 +678,49 @@ async def prepare_step(state: AgentState, config: RunnableConfig):
     has_sub_prompts = bool(step.sequential_sub_prompts or step.parallel_sub_prompts)
     is_large_context_step = len(prompt_text) > 500  # Heuristic: >500 chars usually means data injection
     
-    debug_print(f"prepare_step: has_sub_prompts={has_sub_prompts}, is_large_context_step={is_large_context_step}")
+    # Check if we're returning AFTER sub-prompts have completed
+    # If sequential_context has data, it means sub-prompts ran and we should go to report generation
+    sequential_context = state.get("sequential_context", []) or []
+    subprompt_results = state.get("subprompt_results", {}) or {}
+    has_completed_subprompts = bool(sequential_context) or bool(subprompt_results)
+    
+    debug_print(f"prepare_step: has_sub_prompts={has_sub_prompts}, is_large_context_step={is_large_context_step}, has_completed_subprompts={has_completed_subprompts}")
 
+    # CASE 1: Assembly step (no sub-prompts, large context)
     if not has_sub_prompts and is_large_context_step:
-        debug_print("prepare_step: Detecting Assembly Step -> Routing directly to final_report_generation")
+        debug_print(f"prepare_step: Detecting Assembly Step -> Routing directly to final_report_generation. Step Index: {step_index}")
         return Command(
             goto="final_report_generation",
             update={
                 "research_brief": {"type": "override", "value": prompt_text},
-                "step_index": step_index, 
-                # Ensure we don't accidentally carry over stale context if bypassing normal flow,
-                # largely redundant as command clearing handles this, but safe to update brief.
-                # clearing messages to ensure clean context for the report generator
-                # "messages": [] # REMOVED: Cannot string override messages channel causing ValueError
+                "step_index": step_index,
+                "notes": {"type": "override", "value": []},
+                "sequential_context": {"type": "override", "value": []},
+                "subprompt_results": {"type": "override", "value": {}},
             },
         )
 
+    # CASE 2: Sub-prompts completed - go directly to final_report_generation
+    # This prevents the supervisor from re-researching what sub-prompts already collected
+    if has_completed_subprompts:
+        debug_print(f"prepare_step: Sub-prompts completed -> Routing directly to final_report_generation. Step Index: {step_index}")
+        return Command(
+            goto="final_report_generation",
+            update={
+                "research_brief": {"type": "override", "value": prompt_text},
+                "step_index": step_index,
+                # Keep the collected data from sub-prompts
+            },
+        )
+
+    # CASE 3: Normal step - go to clarify_with_user -> write_research_brief -> supervisor
+    debug_print(f"prepare_step: Routing to clarify_with_user. Step Index: {step_index}")
     return Command(
         goto="clarify_with_user",
         update={
             "messages": [HumanMessage(content=prompt_text)],
             "step_index": step_index,
+            "research_brief": {"type": "override", "value": prompt_text},  # Save step.text for later
             # Placeholders preserved - no override to maintain context across steps
         },
     )
@@ -641,7 +768,11 @@ async def clarify_with_user(
     prompt_content = clarify_with_user_instructions.format(
         messages=get_buffer_string(messages), date=get_today_str()
     )
+    log_messages_trace("clarify_with_user", messages)
+    log_prompt("clarify_with_user", "PROMPT", prompt_content)
+
     response = await clarification_model.ainvoke([HumanMessage(content=prompt_content)])
+    log_response("clarify_with_user", str(response))
 
     # Step 4: Route based on clarification analysis
     if response.need_clarification:
@@ -694,7 +825,35 @@ async def write_research_brief(
     prompt_content = transform_messages_into_research_topic_prompt.format(
         messages=get_buffer_string(state.get("messages", [])), date=get_today_str()
     )
-    response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
+    log_prompt("write_research_brief", "PROMPT", prompt_content)
+
+    # CHECK: Did we receive a highly detailed "Gold Standard" prompt?
+    # If so, bypass the re-writing step to avoid diluting the instructions.
+    # CHECK: Did we receive a highly detailed "Gold Standard" prompt?
+    # If so, bypass the re-writing step to avoid diluting the instructions.
+    
+    # Find the last HumanMessage in the history
+    messages = state.get("messages", [])
+    last_human_msg = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
+
+    if last_human_msg and (
+        "Role:" in last_human_msg.content
+        or "Structure & Coverage:" in last_human_msg.content
+        or "# Role" in last_human_msg.content
+    ):
+        # BYPASS: Use the provided prompt directly as the research brief
+        debug_print("write_research_brief: Detailed prompt detected. Bypassing Rewrite.")
+        # Create a synthetic response object
+        response = ResearchQuestion(
+            research_brief=last_human_msg.content,  # Use raw content
+            question="", # Not needed
+            verification="Proceeding with detailed role-based instructions."
+        )
+        log_response("write_research_brief", "BYPASS: Using raw user prompt.")
+    else:
+        # NORMAL: Rewrite the prompt into a research brief
+        response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
+        log_response("write_research_brief", str(response))
 
     # Step 3: Initialize supervisor with research brief and instructions
     agent_mode = get_agent_mode(config)
@@ -773,6 +932,7 @@ async def supervisor(
     # Step 2: Generate supervisor response based on current context
     supervisor_messages = state.get("supervisor_messages", [])
     
+    log_messages_trace("supervisor", supervisor_messages)
     log_prompt("supervisor", "MESSAGES_CONTEXT", get_buffer_string(supervisor_messages))
     
     response = await research_model.ainvoke(supervisor_messages)
@@ -1103,6 +1263,7 @@ async def researcher(
         messages.append(SystemMessage(content=configurable.sales_context_prompt))
     messages += researcher_messages
 
+    log_messages_trace("researcher", messages)
     log_prompt("researcher", "FULL_PROMPT", get_buffer_string(messages))
 
     response = await research_model.ainvoke(messages)
@@ -1274,15 +1435,18 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             compression_prompt_template = (
                 compress_research_system_prompt_rag
                 if agent_mode == AgentMode.RAG
-                else compress_research_system_prompt_online
+                else compress_research_system_prompt_online_optimized
             )
             compression_prompt = compression_prompt_template.format(
                 date=get_today_str()
             )
             messages = [SystemMessage(content=compression_prompt)] + researcher_messages
 
+            log_prompt("compress_research", "PROMPT", get_buffer_string(messages))
+
             # Execute compression
             response = await synthesizer_model.ainvoke(messages)
+            log_response("compress_research", str(response.content))
 
             # Extract raw notes from all tool and AI messages
             raw_notes_content = "\n".join(
@@ -1368,6 +1532,9 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     sequential_context = state.get("sequential_context", []) or []
     subprompt_results = state.get("subprompt_results", {}) or {}
 
+    log_messages_trace("final_report_generation", state.get("messages", []))
+    log_state("final_report_generation", state)
+
     debug_print(
         f"final_report_generation: notes={len(notes)}, "
         f"sequential_context={len(sequential_context)}, "
@@ -1392,6 +1559,25 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             for name, content in subprompt_results.items()
         ])
         findings_parts.append("# Parallel Sub-Prompt Results\n\n" + parallel_results)
+
+    # CRITICAL FIX: Include synthetic_placeholders in findings for multi-step configs
+    # ONLY if research_brief doesn't already contain placeholder references (to avoid duplication)
+    synthetic_placeholders = state.get("synthetic_placeholders", []) or []
+    research_brief_val = state.get("research_brief", "")
+    if isinstance(research_brief_val, dict):
+        research_brief_val = research_brief_val.get("value", "")
+    
+    # Check if research_brief has Step_ placeholders that will be substituted
+    has_step_placeholders = "[Step_" in str(research_brief_val)
+    
+    if synthetic_placeholders and not has_step_placeholders:
+        step_results = "\n\n".join([
+            f"## {ph.get('field', 'Unknown Step')}\n\n{ph.get('value', '')}"
+            for ph in synthetic_placeholders
+            if ph.get('field', '').startswith('Step_')
+        ])
+        if step_results:
+            findings_parts.append("# Previous Step Results\n\n" + step_results)
 
     findings = "\n\n---\n\n".join(findings_parts) if findings_parts else "No research data available"
 
@@ -1428,10 +1614,30 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             final_report_prompt_template = (
                 final_report_generation_prompt_rag
                 if agent_mode == AgentMode.RAG
-                else final_report_generation_prompt_online
+                else final_report_generation_prompt_online_optimized
             )
+            # Extract research brief value cleanly (handling potential dict from reducer)
+            research_brief_val = state.get("research_brief", "")
+            if isinstance(research_brief_val, dict) and research_brief_val.get("type") == "override":
+                research_brief_val = research_brief_val.get("value", "")
+
+            # Apply placeholders to research_brief (for assembly steps)
+            # This substitutes [Step_1__Company_Intelligence] with actual research data
+            placeholders = state.get("placeholders", []) or []
+            synthetic_placeholders = state.get("synthetic_placeholders", []) or []
+            all_placeholders = list(placeholders) + synthetic_placeholders
+            
+            # Also add subprompt_results as placeholders
+            for name, content in subprompt_results.items():
+                all_placeholders.append({"field": name, "value": content})
+            
+            if all_placeholders:
+                research_brief_val = apply_placeholders(research_brief_val, all_placeholders)
+                debug_print(f"final_report_generation: Applied {len(all_placeholders)} placeholders to research_brief")
+
+
             final_report_prompt = final_report_prompt_template.format(
-                research_brief=state.get("research_brief", ""),
+                research_brief=research_brief_val,
                 messages=get_buffer_string(state.get("messages", [])),
                 findings=findings,
                 date=get_today_str(),
@@ -1457,8 +1663,33 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     f"moving to next step {step_index + 1}/{len(steps)}"
                 )
                 debug_print(f"final_report_generation: final_report type={type(final_report)}")
+                
+                # CRITICAL: Save this step's result as a synthetic placeholder for final assembly
+                # Generate placeholder name based on step index (Step_1__Company_Intelligence, etc.)
+                current_synthetic = state.get("synthetic_placeholders", []) or []
+                step_placeholder_name = f"Step_{step_index + 1}__Step_Result"
+                
+                # Try to get a better name from the step's sequential sub-prompts
+                current_step = steps[step_index] if step_index < len(steps) else None
+                if current_step:
+                    # Use getattr for StepConfig objects (Pydantic models), not .get()
+                    seq_prompts = getattr(current_step, "sequential_sub_prompts", []) or []
+                    if seq_prompts and len(seq_prompts) > 0:
+                        # Use first sub-prompt name pattern: Step_1__Company_Intelligence
+                        first_name = getattr(seq_prompts[0], "name", "") or ""
+                        if first_name:
+                            step_placeholder_name = f"Step_{step_index + 1}__{first_name.replace('Research_', '')}"
+
+                
+                # Add the step result as a synthetic placeholder
+                current_synthetic.append({
+                    "field": step_placeholder_name,
+                    "value": final_report.content
+                })
+                debug_print(f"final_report_generation: Saved step {step_index} result as placeholder '{step_placeholder_name}'")
+                
                 # Clear sub-prompt data between steps to prevent duplication
-                # We explicitly use [final_report] to append the message
+                # CRITICAL: Reset sub_prompts_phase to "announce" for new step!
                 return Command(
                     goto="provide_placeholders",
                     update={
@@ -1468,6 +1699,12 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                         "step_index": step_index + 1,
                         "sequential_context": {"type": "override", "value": []},
                         "subprompt_results": {"type": "override", "value": {}},
+                        # CRITICAL FIX: Reset sub-prompt phase and branch data for new step
+                        "sub_prompts_phase": "announce",  # Reset to announce phase
+                        "sequential_branches": [],         # Clear sequential branch metadata
+                        "parallel_branches": [],           # Clear parallel branch metadata
+                        # CRITICAL: synthetic_placeholders accumulate - they contain step results!
+                        "synthetic_placeholders": current_synthetic,
                     },
                 )
 
@@ -1523,7 +1760,9 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     "messages": [
                         AIMessage(content="Report generation failed due to an error")
                     ],
-                    **cleared_state,
+                    "notes": {"type": "override", "value": []},
+                    "sequential_context": {"type": "override", "value": []},
+                    "subprompt_results": {"type": "override", "value": {}},
                 }
 
     # Step 4: Return failure result if all retries exhausted
@@ -1532,7 +1771,9 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         "messages": [
             AIMessage(content="Report generation failed after maximum retries")
         ],
-        **cleared_state,
+        "notes": {"type": "override", "value": []},
+        "sequential_context": {"type": "override", "value": []},
+        "subprompt_results": {"type": "override", "value": {}},
     }
 
 
@@ -1564,7 +1805,7 @@ deep_researcher_builder.add_node(
 deep_researcher_builder.add_edge(START, "provide_placeholders")
 deep_researcher_builder.add_conditional_edges(
     "fan_out_parallel",
-    lambda state: [Send("parallel_subprompt", send_conf) for send_conf in (state.get("parallel_sends", []) or [])],
+    route_parallel_execution,
 )
 deep_researcher_builder.add_edge("fan_out_parallel", "collect_parallel")
 deep_researcher_builder.add_edge("parallel_subprompt", "collect_parallel")
