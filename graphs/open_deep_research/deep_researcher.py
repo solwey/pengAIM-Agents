@@ -9,9 +9,45 @@ from typing import Literal
 logger = logging.getLogger(__name__)
 
 
+import datetime
+
 def debug_print(msg: str):
     """Debug print with colored output for better visibility."""
-    print(f"\n🔍 [PLACEHOLDERS] {msg}\n", flush=True)
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    print(f"\n🔍 [SUPER_LOG] [{ts}] {msg}\n", flush=True)
+
+def summarize_data(data):
+    """Helper to summarize data structures for logging."""
+    if isinstance(data, str):
+        if len(data) > 500:
+            return f"{data[:500]}... [TRUNCATED, total len={len(data)}]"
+        return data
+    elif isinstance(data, list):
+        return f"List[{len(data)} items]"
+    elif isinstance(data, dict):
+        return f"Dict keys: {list(data.keys())}"
+    return str(data)
+
+def log_prompt(node_name: str, prompt_type: str, content: str):
+    """Log summarized prompt content."""
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    summary = summarize_data(content)
+    header = f"🔍 [TRACE] [{ts}] [{node_name}] PROMPT ({prompt_type}):"
+    print(f"\n{header} {summary}\n", flush=True)
+
+def log_response(node_name: str, response: str):
+    """Log summarized model response."""
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    summary = summarize_data(response)
+    header = f"🔍 [TRACE] [{ts}] [{node_name}] RESPONSE:"
+    print(f"\n{header} {summary}\n", flush=True)
+
+def log_tool_output(node_name: str, tool_name: str, output: str):
+    """Log summarized tool output."""
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    summary = summarize_data(output)
+    header = f"🔍 [TRACE] [{ts}] [{node_name}] TOOL_OUTPUT ({tool_name}):"
+    print(f"\n{header} {summary}\n", flush=True)
 
 
 from langchain.chat_models import init_chat_model
@@ -531,6 +567,28 @@ async def prepare_step(state: AgentState, config: RunnableConfig):
         f"text_len={len(step.text)} → {len(prompt_text)}"
     )
 
+    # Logic to detect "Assembly" steps (steps with no sub-prompts that are populated with findings)
+    # If the prompt is large (likely containing findings) and has no sub-prompts, 
+    # we skip the supervisor/researcher loop and go straight to report generation.
+    has_sub_prompts = bool(step.sequential_sub_prompts or step.parallel_sub_prompts)
+    is_large_context_step = len(prompt_text) > 500  # Heuristic: >500 chars usually means data injection
+    
+    debug_print(f"prepare_step: has_sub_prompts={has_sub_prompts}, is_large_context_step={is_large_context_step}")
+
+    if not has_sub_prompts and is_large_context_step:
+        debug_print("prepare_step: Detecting Assembly Step -> Routing directly to final_report_generation")
+        return Command(
+            goto="final_report_generation",
+            update={
+                "research_brief": {"type": "override", "value": prompt_text},
+                "step_index": step_index, 
+                # Ensure we don't accidentally carry over stale context if bypassing normal flow,
+                # largely redundant as command clearing handles this, but safe to update brief.
+                # clearing messages to ensure clean context for the report generator
+                # "messages": [] # REMOVED: Cannot string override messages channel causing ValueError
+            },
+        )
+
     return Command(
         goto="clarify_with_user",
         update={
@@ -714,7 +772,12 @@ async def supervisor(
 
     # Step 2: Generate supervisor response based on current context
     supervisor_messages = state.get("supervisor_messages", [])
+    
+    log_prompt("supervisor", "MESSAGES_CONTEXT", get_buffer_string(supervisor_messages))
+    
     response = await research_model.ainvoke(supervisor_messages)
+    
+    log_response("supervisor", str(response))
 
     # Step 3: Update state and proceed to tool execution
     return Command(
@@ -831,6 +894,7 @@ async def supervisor_tools(
                 args = tc.get("args") or {}
 
                 tool_content = result
+                log_tool_output("supervisor", name, str(tool_content))
 
                 if name == "rag_search":
                     tool_content = json.dumps(
@@ -1039,7 +1103,11 @@ async def researcher(
         messages.append(SystemMessage(content=configurable.sales_context_prompt))
     messages += researcher_messages
 
+    log_prompt("researcher", "FULL_PROMPT", get_buffer_string(messages))
+
     response = await research_model.ainvoke(messages)
+
+    log_response("researcher", str(response))
 
     # Step 4: Update state and proceed to tool execution
     return Command(
@@ -1127,6 +1195,10 @@ async def researcher_tools(
         for tool_call in tool_calls
     ]
     observations = await asyncio.gather(*tool_execution_tasks)
+
+    # Log raw observations for hyper-logging
+    for obs, tc in zip(observations, tool_calls, strict=False):
+        log_tool_output("researcher", tc["name"], str(obs))
 
     # Create tool messages from execution results
     tool_outputs = [
@@ -1327,6 +1399,8 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         f"final_report_generation: assembled findings, "
         f"total_length={len(findings)} chars"
     )
+    
+    log_prompt("final_report_generation", "FINDINGS_BUFFER", findings)
 
     # Step 2: Configure the final report generation model
     configurable = Configuration.from_runnable_config(config)
@@ -1344,6 +1418,10 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     current_retry = 0
     findings_token_limit = None
 
+    # Define cleared state consistent with success path for error handling
+    findings_token_limit = None
+
+
     while current_retry <= max_retries:
         try:
             # Create comprehensive prompt with all research context
@@ -1359,10 +1437,15 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                 date=get_today_str(),
             )
 
+            log_prompt("final_report_generation", "FINAL_PROMPT", final_report_prompt)
+
             # Generate the final report
             final_report = await configurable_model.with_config(
                 writer_model_config
             ).ainvoke([HumanMessage(content=final_report_prompt)])
+
+            # LOGGING: Capture the final generated report
+            log_response("final_report_generation", final_report.content)
 
             step_index = state.get("step_index", 0)
             configurable = Configuration.from_runnable_config(config)
@@ -1373,7 +1456,9 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     f"final_report_generation: INTERMEDIATE REPORT for step {step_index}, "
                     f"moving to next step {step_index + 1}/{len(steps)}"
                 )
-                # Don't clear sub-prompt data between steps - accumulate context
+                debug_print(f"final_report_generation: final_report type={type(final_report)}")
+                # Clear sub-prompt data between steps to prevent duplication
+                # We explicitly use [final_report] to append the message
                 return Command(
                     goto="provide_placeholders",
                     update={
@@ -1381,6 +1466,8 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                         "messages": [final_report],
                         "final_report": final_report.content,
                         "step_index": step_index + 1,
+                        "sequential_context": {"type": "override", "value": []},
+                        "subprompt_results": {"type": "override", "value": {}},
                     },
                 )
 
@@ -1410,13 +1497,15 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     )
                     if not model_token_limit:
                         return {
-                            "final_report": f"Error generating final report: Token limit exceeded, however, we could not determine the model's maximum context length. Please update the model map in deep_researcher/utils.py with this information. {e}",
+                            "final_report": f"Error generating final report: Token limit exceeded and model limit unknown. {e}",
                             "messages": [
                                 AIMessage(
                                     content="Report generation failed due to token limits"
                                 )
                             ],
-                            **cleared_state,
+                            "notes": {"type": "override", "value": []},
+                            "sequential_context": {"type": "override", "value": []},
+                            "subprompt_results": {"type": "override", "value": {}},
                         }
                     # Use 4x token limit as character approximation for truncation
                     findings_token_limit = model_token_limit * 4

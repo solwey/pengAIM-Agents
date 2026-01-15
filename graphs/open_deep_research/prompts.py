@@ -301,6 +301,7 @@ For more context, here is all of the messages so far. Focus on the research brie
 <Messages>
 {messages}
 </Messages>
+
 CRITICAL: Make sure the answer is written in the same language as the human messages!
 For example, if the user's messages are in English, then MAKE SURE you write your response in English. If the user's messages are in Chinese, then MAKE SURE you write your entire response in Chinese.
 This is critical. The user will only understand the answer if it is written in the same language as their input message.
@@ -372,6 +373,11 @@ Format the report in clear markdown with proper structure and include source ref
   [2] Source Title: URL
 - Citations are extremely important. Make sure to include these, and pay a lot of attention to getting these right. Users will often use these citations to look into more information.
 </Citation Rules>
+
+CRITICAL INSTRUCTION:
+Check the <Research Brief> and <Messages> for any specific structural requirements (e.g., "Use EXACT section structure," "3-section structure," or specific headers).
+IF THE USER PROVIDED A STRUCTURE, YOU MUST FOLLOW IT EXACTLY. DO NOT DEVIATE.
+Ignore the generic structure examples above if they conflict with the user's specific instructions.
 """
 
 final_report_generation_prompt_rag = """Based on all the research conducted, create a comprehensive, well-structured answer to the overall research brief using ONLY the internal findings and references (document name, section, page). Do NOT use or invent URLs.
@@ -383,6 +389,7 @@ For more context, here is all of the messages so far. Focus on the research brie
 <Messages>
 {messages}
 </Messages>
+
 CRITICAL: Make sure the answer is written in the same language as the human messages!
 For example, if the user's messages are in English, then MAKE SURE you write your response in English. If the user's messages are in Chinese, then MAKE SURE you write your entire response in Chinese.
 This is critical. The user will only understand the answer if it is written in the same language as their input message.
@@ -454,6 +461,11 @@ Format the report in clear markdown with proper structure and include source ref
   [2] Project-Spec-v1.pdf — Requirements — p. 12
 - Do NOT include URLs
 </Citation Rules>
+
+CRITICAL INSTRUCTION:
+Check the <Research Brief> and <Messages> for any specific structural requirements (e.g., "Use EXACT section structure," "3-section structure," or specific headers).
+IF THE USER PROVIDED A STRUCTURE, YOU MUST FOLLOW IT EXACTLY. DO NOT DEVIATE.
+Ignore the generic structure examples above if they conflict with the user's specific instructions.
 """
 
 summarize_webpage_prompt = """You are tasked with summarizing the raw content of a webpage retrieved from a web search. Your goal is to create a summary that preserves the most important information from the original web page. This summary will be used by a downstream research agent, so it's crucial to maintain the key details without losing essential information.
