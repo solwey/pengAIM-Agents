@@ -8,104 +8,19 @@ import os
 from datetime import datetime
 from typing import Literal
 
-# ============================================================================
-# DEDICATED FILE LOGGER FOR DEEP RESEARCH DEBUG
-# Writes only our custom logs to /app/logs/deep_research.log (Docker mount)
-# ============================================================================
-
-LOG_DIR = "/app/logs"
-LOG_FILE = os.path.join(LOG_DIR, "deep_research.log")
-
-# Create dedicated logger (separate from root logger)
-deep_logger = logging.getLogger("deep_research_debug")
-deep_logger.setLevel(logging.DEBUG)
-deep_logger.propagate = False  # Don't send to root logger
-
-# Ensure log directory exists
-os.makedirs(LOG_DIR, exist_ok=True)
-
-# File handler - writes to mounted volume
-file_handler = logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter(
-    '%(asctime)s | %(levelname)s | %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-))
-deep_logger.addHandler(file_handler)
-
-# Also log to console for immediate visibility in docker logs
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter('🔍 %(message)s'))
-deep_logger.addHandler(console_handler)
-
-# Standard logger for compatibility
 logger = logging.getLogger(__name__)
 
-
-def debug_print(msg: str):
-    """Debug log for general tracing - writes to file and console."""
-    deep_logger.info(f"[FLOW] {msg}")
-
-
-def log_prompt(node_name: str, prompt_type: str, content: str):
-    """Log prompt content to file (full) and console (truncated)."""
-    # Full content to file
-    deep_logger.debug(f"[{node_name}] PROMPT ({prompt_type}):\n{content}")
-    # Truncated to console
-    preview = content[:500] + "..." if len(content) > 500 else content
-    deep_logger.info(f"[{node_name}] PROMPT ({prompt_type}): {len(content)} chars")
-
-
-def log_response(node_name: str, response: str):
-    """Log model response to file (full) and console (truncated)."""
-    deep_logger.debug(f"[{node_name}] RESPONSE:\n{response}")
-    deep_logger.info(f"[{node_name}] RESPONSE: {len(response)} chars")
-
-
-def log_tool_output(node_name: str, tool_name: str, output: str):
-    """Log tool output to file."""
-    deep_logger.debug(f"[{node_name}] TOOL ({tool_name}):\n{output}")
-    deep_logger.info(f"[{node_name}] TOOL ({tool_name}): {len(output)} chars")
-
-
-def log_state(node_name: str, state: dict):
-    """Log critical state variables for debugging data flow."""
-    step_index = state.get("step_index", "?")
-    phase = state.get("sub_prompts_phase", "?")
-    placeholders_count = len(state.get("placeholders", []) or [])
-    seq_branches = len(state.get("sequential_branches", []) or [])
-    par_branches = len(state.get("parallel_branches", []) or [])
-    seq_ctx = len(state.get("sequential_context", []) or [])
-    subprompt_results = len(state.get("subprompt_results", {}) or {})
-    synthetic_ph = len(state.get("synthetic_placeholders", []) or [])
-    
-    deep_logger.info(
-        f"[{node_name}] STATE: step={step_index}, phase={phase}, "
-        f"placeholders={placeholders_count}, seq_branches={seq_branches}, "
-        f"par_branches={par_branches}, seq_ctx={seq_ctx}, "
-        f"subprompt_results={subprompt_results}, synthetic_ph={synthetic_ph}"
-    )
-
-
-def log_messages_trace(node_name: str, messages: list):
-    """Log the state of the messages history to detect empty/malformed messages."""
-    summary_lines = []
-    for i, msg in enumerate(messages):
-        content = getattr(msg, "content", "")
-        tool_calls = getattr(msg, "tool_calls", [])
-        
-        warning = ""
-        if not content:
-            if tool_calls:
-                content = f"[Tool Calls: {len(tool_calls)}]"
-            else:
-                warning = " ⚠️ EMPTY"
-        
-        preview = str(content)[:100].replace('\n', ' ')
-        summary_lines.append(f"  [{i}] {type(msg).__name__}: {preview}{warning}")
-    
-    deep_logger.info(f"[{node_name}] MESSAGES ({len(messages)}):\n" + "\n".join(summary_lines))
+def debug_print(*args, **kwargs): pass
+def log_step_transition(*args, **kwargs): pass
+def log_placeholder_verification(*args, **kwargs): return True
+def log_synthetic_placeholders(*args, **kwargs): pass
+def log_data_sizes(*args, **kwargs): pass
+def log_subprompt_complete(*args, **kwargs): pass
+def log_prompt(*args, **kwargs): pass
+def log_response(*args, **kwargs): pass
+def log_tool_output(*args, **kwargs): pass
+def log_state(*args, **kwargs): pass
+def log_messages_trace(*args, **kwargs): pass
 
 
 from langchain.chat_models import init_chat_model
@@ -421,9 +336,6 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
                 "sequential_branches": seq_meta,
                 "parallel_branches": par_meta,
                 "sequential_context": [],
-                # CRITICAL FIX: Do NOT reset synthetic_placeholders!
-                # They accumulate between steps for final assembly.
-                # Previous: "synthetic_placeholders": [],  # This was a bug!
             },
         )
 
@@ -474,6 +386,10 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
             )
         )
         synthetic_placeholders.append({"field": name, "value": compressed})
+        log_subprompt_complete(name, len(compressed))
+    
+    # Log accumulated synthetic placeholders after sequential execution
+    log_synthetic_placeholders(synthetic_placeholders, "after_sequential")
 
     # 2) Execute parallel
     parallel_sends: list[Send] = []
@@ -612,7 +528,7 @@ async def collect_parallel(state: AgentState, config: RunnableConfig):
         return {
             "subprompt_results": result_map,
             "pending_parallel": pending,
-            "last_parallel_result": [],
+            "last_parallel_result": {"type": "override", "value": []},
         }
 
     synthetic_placeholders: list = state.get("synthetic_placeholders", []) or []
@@ -627,21 +543,19 @@ async def collect_parallel(state: AgentState, config: RunnableConfig):
     merged_placeholders = user_placeholders + [
         sp for sp in synthetic_placeholders if sp.get("field") not in existing
     ]
-    debug_print(
-        f"collect_parallel MERGE: "
-        f"user={len(user_placeholders)}, synthetic={len(synthetic_placeholders)}, "
-        f"merged={len(merged_placeholders)}, keys={list(result_map.keys())}"
-    )
+    
+    # Log the merge result
+    debug_print(f"collect_parallel: merged {len(result_map)} parallel results")
+    log_synthetic_placeholders(synthetic_placeholders, "after_parallel_merge")
 
     return Command(
         goto="prepare_step",
         update={
             "subprompt_results": result_map,
             "placeholders": {"type": "override", "value": merged_placeholders},
-            "sequential_context": state.get("sequential_context", []) or [],
             "parallel_sends": None,
             "pending_parallel": 0,
-            "last_parallel_result": [],
+            "last_parallel_result": {"type": "override", "value": []},
             # CRITICAL FIX: Do NOT clear synthetic_placeholders - they must accumulate
             # between steps for final assembly to use step results as placeholders
             "synthetic_placeholders": synthetic_placeholders,
@@ -1527,66 +1441,41 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     Returns:
         Dictionary containing the final report and cleared state
     """
-    # Step 1: Extract research findings from ALL sources and prepare state cleanup
+    # Step 1: Extract research findings
     notes = state.get("notes", [])
     sequential_context = state.get("sequential_context", []) or []
     subprompt_results = state.get("subprompt_results", {}) or {}
+    synthetic_placeholders = state.get("synthetic_placeholders", []) or []
 
-    log_messages_trace("final_report_generation", state.get("messages", []))
-    log_state("final_report_generation", state)
+    # Check if this is an assembly step (has [Step_...] placeholders in research_brief)
+    research_brief_raw = state.get("research_brief", "")
+    if isinstance(research_brief_raw, dict):
+        research_brief_raw = research_brief_raw.get("value", "")
+    is_assembly_step = "[Step_" in str(research_brief_raw)
 
-    debug_print(
-        f"final_report_generation: notes={len(notes)}, "
-        f"sequential_context={len(sequential_context)}, "
-        f"subprompt_results={len(subprompt_results)}"
-    )
-
-    # Combine all findings with clear section headers
+    # Build findings based on step type
     findings_parts = []
-
+    
     if notes:
         findings_parts.append("# Research Notes from Supervisor\n\n" + "\n\n".join(notes))
 
-    if sequential_context:
-        findings_parts.append(
-            "# Sequential Sub-Prompt Results\n\n" +
-            "\n\n---\n\n".join(sequential_context)
-        )
+    # For assembly step: data goes via placeholder substitution, not findings
+    # For regular step: add sequential and parallel results to findings
+    if not is_assembly_step:
+        if sequential_context:
+            findings_parts.append(
+                "# Sequential Sub-Prompt Results\n\n" +
+                "\n\n---\n\n".join(sequential_context)
+            )
 
-    if subprompt_results:
-        parallel_results = "\n\n".join([
-            f"## {name}\n\n{content}"
-            for name, content in subprompt_results.items()
-        ])
-        findings_parts.append("# Parallel Sub-Prompt Results\n\n" + parallel_results)
+        if subprompt_results:
+            parallel_results = "\n\n".join([
+                f"## {name}\n\n{content}"
+                for name, content in subprompt_results.items()
+            ])
+            findings_parts.append("# Parallel Sub-Prompt Results\n\n" + parallel_results)
 
-    # CRITICAL FIX: Include synthetic_placeholders in findings for multi-step configs
-    # ONLY if research_brief doesn't already contain placeholder references (to avoid duplication)
-    synthetic_placeholders = state.get("synthetic_placeholders", []) or []
-    research_brief_val = state.get("research_brief", "")
-    if isinstance(research_brief_val, dict):
-        research_brief_val = research_brief_val.get("value", "")
-    
-    # Check if research_brief has Step_ placeholders that will be substituted
-    has_step_placeholders = "[Step_" in str(research_brief_val)
-    
-    if synthetic_placeholders and not has_step_placeholders:
-        step_results = "\n\n".join([
-            f"## {ph.get('field', 'Unknown Step')}\n\n{ph.get('value', '')}"
-            for ph in synthetic_placeholders
-            if ph.get('field', '').startswith('Step_')
-        ])
-        if step_results:
-            findings_parts.append("# Previous Step Results\n\n" + step_results)
-
-    findings = "\n\n---\n\n".join(findings_parts) if findings_parts else "No research data available"
-
-    debug_print(
-        f"final_report_generation: assembled findings, "
-        f"total_length={len(findings)} chars"
-    )
-    
-    log_prompt("final_report_generation", "FINDINGS_BUFFER", findings)
+    findings = "\n\n---\n\n".join(findings_parts) if findings_parts else ""
 
     # Step 2: Configure the final report generation model
     configurable = Configuration.from_runnable_config(config)
@@ -1604,10 +1493,6 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     current_retry = 0
     findings_token_limit = None
 
-    # Define cleared state consistent with success path for error handling
-    findings_token_limit = None
-
-
     while current_retry <= max_retries:
         try:
             # Create comprehensive prompt with all research context
@@ -1624,17 +1509,26 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             # Apply placeholders to research_brief (for assembly steps)
             # This substitutes [Step_1__Company_Intelligence] with actual research data
             placeholders = state.get("placeholders", []) or []
-            synthetic_placeholders = state.get("synthetic_placeholders", []) or []
-            all_placeholders = list(placeholders) + synthetic_placeholders
             
-            # Also add subprompt_results as placeholders
+            # Build all_placeholders avoiding duplicates
+            all_placeholders = list(placeholders)
+            existing_fields = {p.get("field") for p in all_placeholders if isinstance(p, dict) and p.get("field")}
+            
+            # Add synthetic_placeholders (contains sequential + merged parallel from previous steps)
+            for sp in synthetic_placeholders:
+                field = sp.get("field") if isinstance(sp, dict) else None
+                if field and field not in existing_fields:
+                    all_placeholders.append(sp)
+                    existing_fields.add(field)
+            
+            # Add current step's subprompt_results
             for name, content in subprompt_results.items():
-                all_placeholders.append({"field": name, "value": content})
+                if name not in existing_fields:
+                    all_placeholders.append({"field": name, "value": content})
+                    existing_fields.add(name)
             
             if all_placeholders:
                 research_brief_val = apply_placeholders(research_brief_val, all_placeholders)
-                debug_print(f"final_report_generation: Applied {len(all_placeholders)} placeholders to research_brief")
-
 
             final_report_prompt = final_report_prompt_template.format(
                 research_brief=research_brief_val,
@@ -1643,53 +1537,33 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                 date=get_today_str(),
             )
 
-            log_prompt("final_report_generation", "FINAL_PROMPT", final_report_prompt)
-
             # Generate the final report
             final_report = await configurable_model.with_config(
                 writer_model_config
             ).ainvoke([HumanMessage(content=final_report_prompt)])
-
-            # LOGGING: Capture the final generated report
-            log_response("final_report_generation", final_report.content)
 
             step_index = state.get("step_index", 0)
             configurable = Configuration.from_runnable_config(config)
             steps = configurable.steps or []
 
             if step_index + 1 < len(steps) and step_index != -1:
-                debug_print(
-                    f"final_report_generation: INTERMEDIATE REPORT for step {step_index}, "
-                    f"moving to next step {step_index + 1}/{len(steps)}"
-                )
-                debug_print(f"final_report_generation: final_report type={type(final_report)}")
+                # Transitioning to next step
                 
-                # CRITICAL: Save this step's result as a synthetic placeholder for final assembly
-                # Generate placeholder name based on step index (Step_1__Company_Intelligence, etc.)
-                current_synthetic = state.get("synthetic_placeholders", []) or []
-                step_placeholder_name = f"Step_{step_index + 1}__Step_Result"
+                # CRITICAL FIX: Preserve ALL subprompt results for assembly step
+                # synthetic_placeholders already contains sequential results (Step_1__, Step_2__, Step_3__)
+                # subprompt_results contains parallel results (Step_4__, Step_5__, etc.)
+                # We need to merge them for the assembly step to have access to all data
                 
-                # Try to get a better name from the step's sequential sub-prompts
-                current_step = steps[step_index] if step_index < len(steps) else None
-                if current_step:
-                    # Use getattr for StepConfig objects (Pydantic models), not .get()
-                    seq_prompts = getattr(current_step, "sequential_sub_prompts", []) or []
-                    if seq_prompts and len(seq_prompts) > 0:
-                        # Use first sub-prompt name pattern: Step_1__Company_Intelligence
-                        first_name = getattr(seq_prompts[0], "name", "") or ""
-                        if first_name:
-                            step_placeholder_name = f"Step_{step_index + 1}__{first_name.replace('Research_', '')}"
-
+                current_synthetic = list(state.get("synthetic_placeholders", []) or [])
+                current_subprompt_results = state.get("subprompt_results", {}) or {}
                 
-                # Add the step result as a synthetic placeholder
-                current_synthetic.append({
-                    "field": step_placeholder_name,
-                    "value": final_report.content
-                })
-                debug_print(f"final_report_generation: Saved step {step_index} result as placeholder '{step_placeholder_name}'")
+                # Add parallel results to synthetic_placeholders if not already there
+                existing_fields = {p.get("field") for p in current_synthetic if isinstance(p, dict)}
+                for name, content in current_subprompt_results.items():
+                    if name not in existing_fields:
+                        current_synthetic.append({"field": name, "value": content})
                 
-                # Clear sub-prompt data between steps to prevent duplication
-                # CRITICAL: Reset sub_prompts_phase to "announce" for new step!
+                # Clear sub-prompt execution state but KEEP the accumulated results
                 return Command(
                     goto="provide_placeholders",
                     update={
@@ -1698,22 +1572,16 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                         "final_report": final_report.content,
                         "step_index": step_index + 1,
                         "sequential_context": {"type": "override", "value": []},
-                        "subprompt_results": {"type": "override", "value": {}},
-                        # CRITICAL FIX: Reset sub-prompt phase and branch data for new step
-                        "sub_prompts_phase": "announce",  # Reset to announce phase
-                        "sequential_branches": [],         # Clear sequential branch metadata
-                        "parallel_branches": [],           # Clear parallel branch metadata
-                        # CRITICAL: synthetic_placeholders accumulate - they contain step results!
+                        # CRITICAL: Keep subprompt_results for assembly step placeholder substitution
+                        # Don't clear them! Assembly step needs [Step_4__Firmographics] etc.
+                        "sub_prompts_phase": "announce",
+                        "sequential_branches": [],
+                        "parallel_branches": [],
                         "synthetic_placeholders": current_synthetic,
                     },
                 )
 
-            # Return successful report generation
-            debug_print(
-                f"final_report_generation: FINAL REPORT for step {step_index}, "
-                f"total steps={len(steps)}, END of workflow"
-            )
-            # Clear everything on final report
+            # Final step complete
             return {
                 "final_report": final_report.content,
                 "messages": [final_report],

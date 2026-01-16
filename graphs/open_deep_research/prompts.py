@@ -624,6 +624,15 @@ PRESERVE ALL:
 - Source URLs for citations
 </Task>
 
+<Data Cleaning Rules>
+Fix any malformed text from sources:
+- Fix broken number formatting (e.g., "100millionand500" → "$100 million to $500 million")
+- Fix split words across lines (e.g., "m i l l i o n" → "million")
+- Remove duplicate text passages
+- Clean up garbled characters or encoding issues
+- Standardize currency formats (e.g., "$100M" or "$100 million")
+</Data Cleaning Rules>
+
 <CRITICAL OUTPUT RULES>
 ❌ DO NOT write "List of Queries and Tool Calls Made"
 ❌ DO NOT list your search queries
