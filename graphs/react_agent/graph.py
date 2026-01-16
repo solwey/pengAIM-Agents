@@ -26,7 +26,7 @@ from graphs.react_agent.rag_models import (
     RagToolResponse,
     SourceDocument,
 )
-from graphs.react_agent.utils import _build_tools, get_api_key_for_model, get_today_str
+from graphs.react_agent.utils import build_tools, get_api_key_for_model, get_today_str, prune_tool_messages
 
 
 async def call_model(
@@ -35,7 +35,7 @@ async def call_model(
     cfg = Context(**config.get("configurable", {}))
 
     # Prepare tools (pass config for MCP authorization)
-    tools_by_name = await _build_tools(cfg, config)
+    tools_by_name = await build_tools(cfg, config)
     tools = list(tools_by_name.values())
 
     # Resolve API key for the selected model
@@ -61,8 +61,9 @@ async def call_model(
     )
 
     system_message = SystemMessage(content=final_system_prompt)
+    messages_for_model = [system_message, *prune_tool_messages(state["messages"])]
 
-    response = await model.ainvoke([system_message, *state["messages"]])
+    response = await model.ainvoke(messages_for_model)
     if not isinstance(response, AIMessage):
         raise TypeError(f"Expected AIMessage from model, got {type(response)}")
 
@@ -80,7 +81,7 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         return {"messages": []}
 
     cfg = Context(**config.get("configurable", {}))
-    tools_by_name = await _build_tools(cfg, config)
+    tools_by_name = await build_tools(cfg, config)
 
     tool_messages: list[ToolMessage] = []
     extracted_sources: list[SourceDocument] = []

@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 
 import aiohttp
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 
@@ -75,7 +76,7 @@ def _extract_authorization(config: RunnableConfig | None) -> str | None:
     return None
 
 
-async def _build_tools(
+async def build_tools(
     cfg: Context,
     config: RunnableConfig | None = None,
 ) -> dict[str, BaseTool]:
@@ -108,3 +109,50 @@ async def _build_tools(
         tools.extend(mcp_tools)
 
     return {t.name: t for t in tools}
+
+def prune_tool_messages(messages: list) -> list:
+    last_tool_ai_idx: int | None = None
+    last_required_tool_call_ids: set[str] = set()
+
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        tool_calls = getattr(m, "tool_calls", None)
+        if isinstance(m, AIMessage) and tool_calls:
+            last_tool_ai_idx = i
+            last_required_tool_call_ids = {
+                (tc.get("id") or "")
+                for tc in (m.tool_calls or [])
+                if (tc.get("id") or "")
+            }
+            break
+
+    if last_tool_ai_idx is None:
+        return [m for m in messages if not isinstance(m, ToolMessage)]
+
+    earlier_required_ids: set[str] = set()
+    for i, m in enumerate(messages):
+        tool_calls = getattr(m, "tool_calls", None)
+        if isinstance(m, AIMessage) and tool_calls and i < last_tool_ai_idx:
+            for tc in (m.tool_calls or []):
+                tc_id = tc.get("id") or ""
+                if tc_id:
+                    earlier_required_ids.add(tc_id)
+
+    pruned: list = []
+    for idx, m in enumerate(messages):
+        tool_calls = getattr(m, "tool_calls", None)
+
+        if isinstance(m, AIMessage) and tool_calls and idx < last_tool_ai_idx:
+            continue
+
+        if isinstance(m, ToolMessage):
+            if m.tool_call_id in earlier_required_ids:
+                continue
+
+            if idx > last_tool_ai_idx and m.tool_call_id in last_required_tool_call_ids:
+                pruned.append(m)
+            continue
+
+        pruned.append(m)
+
+    return pruned
