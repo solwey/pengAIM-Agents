@@ -8,21 +8,6 @@ import os
 from datetime import datetime
 from typing import Literal
 
-logger = logging.getLogger(__name__)
-
-def debug_print(*args, **kwargs): pass
-def log_step_transition(*args, **kwargs): pass
-def log_placeholder_verification(*args, **kwargs): return True
-def log_synthetic_placeholders(*args, **kwargs): pass
-def log_data_sizes(*args, **kwargs): pass
-def log_subprompt_complete(*args, **kwargs): pass
-def log_prompt(*args, **kwargs): pass
-def log_response(*args, **kwargs): pass
-def log_tool_output(*args, **kwargs): pass
-def log_state(*args, **kwargs): pass
-def log_messages_trace(*args, **kwargs): pass
-
-
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
     AIMessage,
@@ -83,6 +68,72 @@ from graphs.open_deep_research.utils import (
     think_tool,
     truncate_result,
 )
+
+logger = logging.getLogger(__name__)
+
+def debug_print(*args, **kwargs):
+    pass
+
+def log_step_transition(from_step: str, to_step: str, reason: str = ""):
+    pass
+
+def log_placeholder_verification(step: str, expected: list, actual: list) -> bool:
+    return True
+
+def log_subprompt_complete(name: str, result_len: int):
+    pass
+
+def log_state(node_name: str, state: dict):
+    pass
+
+def log_separator(title: str):
+    pass
+
+def log_step_entry(step_name: str, state: dict):
+    pass
+
+def log_step_exit(step_name: str, goto: str, updates: dict = None):
+    pass
+
+def log_prompt(node_name: str, prompt_type: str, content: str):
+    pass
+
+def log_response(node_name: str, content: str):
+    pass
+
+def log_tool_output(node_name: str, tool_name: str, output: str):
+    pass
+
+def log_subprompt_execution(name: str, subprompt_type: str, input_text: str, result: str, result_len: int):
+    pass
+
+def log_placeholder_substitution(step_name: str, template: str, placeholders: list, result: str):
+    pass
+
+def log_synthetic_placeholders(placeholders: list, phase: str):
+    pass
+
+def log_parallel_merge(step_name: str, result_map: dict, before: list, after: list):
+    pass
+
+def log_data_sizes(step_name: str, data_dict: dict):
+    pass
+
+def log_messages_trace(node_name: str, messages: list):
+    pass
+
+def log_state_full(node_name: str, state: dict):
+    pass
+
+def log_final_report_assembly(brief_raw: str, brief_after: str, findings: str, placeholders: dict):
+    pass
+
+def log_error(node_name: str, error: Exception):
+    pass
+
+
+
+
 
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
@@ -356,13 +407,20 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
             f"run_sub_prompts SEQUENTIAL '{name}': "
             f"user={len(user_placeholders)}, synthetic={len(synthetic_placeholders)}, merged={len(merged_ph)}"
         )
+        
+        # Log placeholder substitution for sequential subprompt
         base_text = apply_placeholders(text, merged_ph)
+        log_placeholder_substitution(f"SEQUENTIAL:{name}", text, merged_ph, base_text)
+        
         ctx_text = (
             ("\n\nContext from previous steps:\n" + "\n\n".join(context_chunks))
             if context_chunks
             else ""
         )
         final_text = base_text + ctx_text
+        
+        # Log the complete input to researcher
+        log_subprompt_execution(name, "sequential", final_text, "[EXECUTING...]", len(final_text))
 
         try:
             observation = await researcher_subgraph.ainvoke(
@@ -373,10 +431,14 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
                 config,
             )
             compressed = observation.get("compressed_research", "")
+            # Log successful result
+            log_subprompt_execution(name, "sequential", final_text, compressed, len(compressed))
         except Exception as e:
             import traceback
             traceback.print_exc()
+            log_error(f"SEQUENTIAL:{name}", e)
             compressed = f"Error during sequential subprompt '{name}': {e}"
+        
         context_chunks.append(compressed)
         ui_messages.append(
             ToolMessage(
@@ -387,9 +449,12 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
         )
         synthetic_placeholders.append({"field": name, "value": compressed})
         log_subprompt_complete(name, len(compressed))
+        
+        # Log synthetic placeholder state after each sequential step
+        log_synthetic_placeholders(synthetic_placeholders, f"after_sequential_{name}")
     
     # Log accumulated synthetic placeholders after sequential execution
-    log_synthetic_placeholders(synthetic_placeholders, "after_sequential")
+    log_synthetic_placeholders(synthetic_placeholders, "after_all_sequential")
 
     # 2) Execute parallel
     parallel_sends: list[Send] = []
@@ -468,7 +533,13 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
         placeholders = placeholders.get("value", [])
 
     debug_print(f"parallel_subprompt '{nm}': placeholders={len(placeholders)}")
+    
+    # Log placeholder substitution for parallel subprompt
     sub_text = apply_placeholders(tmpl, placeholders)
+    log_placeholder_substitution(f"PARALLEL:{nm}", tmpl, placeholders, sub_text)
+    
+    # Log the input before execution
+    log_subprompt_execution(nm, "parallel", sub_text, "[EXECUTING...]", len(sub_text))
 
     comp = ""
     try:
@@ -480,10 +551,14 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
             config,
         )
         comp = observation.get("compressed_research", "")
+        # Log successful result
+        log_subprompt_execution(nm, "parallel", sub_text, comp, len(comp))
     except Exception as e:
         # Handle token limit exceeded by truncating content and retrying
+        log_error(f"PARALLEL:{nm}", e)
         if is_token_limit_exceeded(e):
             try:
+                debug_print(f"parallel_subprompt '{nm}': Token limit exceeded, retrying with truncation")
                 # Truncate to ~30k tokens (approx 120k chars) to be safe
                 truncated_text = truncate_result(sub_text, 120000)
                 observation = await researcher_subgraph.ainvoke(
@@ -494,11 +569,15 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
                     config,
                 )
                 comp = observation.get("compressed_research", "")
+                log_subprompt_execution(nm, "parallel", truncated_text, comp, len(comp))
             except Exception as e2:
+                log_error(f"PARALLEL:{nm}:RETRY", e2)
                 comp = f"Error: Parallel sub-prompt failed due to context limit (retried). {e2}"
         else:
             comp = f"Error during parallel subprompt '{nm}': {e}"
 
+    log_subprompt_complete(nm, len(comp))
+    
     ui_msg = ToolMessage(
         content=f"Completed: {nm}\nShort result:\n{truncate_result(comp)}",
         name="ParallelSubprompt",
@@ -513,29 +592,39 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
 
 async def collect_parallel(state: AgentState, config: RunnableConfig):
     """Accumulate results from parallel_subprompt workers; continue when all done."""
+    log_separator("COLLECT_PARALLEL")
+    
     result_map: dict = state.get("subprompt_results", {}) or {}
     pending: int = state.get("pending_parallel", 0) or 0
 
     batch: list = state.get("last_parallel_result", []) or []
+    debug_print(f"collect_parallel ENTRY: pending={pending}, batch_size={len(batch)}, result_map_keys={list(result_map.keys())}")
+    
     for item in batch:
         nm = item.get("name")
         comp = item.get("compressed")
         if nm is not None:
+            debug_print(f"collect_parallel: Adding result for '{nm}' ({len(comp) if comp else 0} chars)")
             result_map[nm] = comp
             pending = max(0, pending - 1)
 
     if pending > 0:
+        debug_print(f"collect_parallel: Still waiting for {pending} parallel results")
         return {
             "subprompt_results": result_map,
             "pending_parallel": pending,
             "last_parallel_result": {"type": "override", "value": []},
         }
 
+    debug_print(f"collect_parallel: All parallel results collected, proceeding to merge")
+    
+    synthetic_placeholders_before: list = list(state.get("synthetic_placeholders", []) or [])
     synthetic_placeholders: list = state.get("synthetic_placeholders", []) or []
     user_placeholders: list = state.get("placeholders", []) or []
     existing = {
         p["field"] for p in user_placeholders if isinstance(p, dict) and "field" in p
     }
+    
     for k, v in result_map.items():
         if k not in existing:
             synthetic_placeholders.append({"field": k, "value": v})
@@ -544,9 +633,18 @@ async def collect_parallel(state: AgentState, config: RunnableConfig):
         sp for sp in synthetic_placeholders if sp.get("field") not in existing
     ]
     
-    # Log the merge result
+    # Log the merge result with detailed tracking
     debug_print(f"collect_parallel: merged {len(result_map)} parallel results")
+    log_parallel_merge("collect_parallel", result_map, synthetic_placeholders_before, synthetic_placeholders)
     log_synthetic_placeholders(synthetic_placeholders, "after_parallel_merge")
+    
+    # Log data sizes for monitoring
+    log_data_sizes("collect_parallel", {
+        "result_map": result_map,
+        "user_placeholders": user_placeholders,
+        "synthetic_placeholders": synthetic_placeholders,
+        "merged_placeholders": merged_placeholders,
+    })
 
     return Command(
         goto="prepare_step",
@@ -1441,17 +1539,42 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     Returns:
         Dictionary containing the final report and cleared state
     """
+    log_separator("FINAL_REPORT_GENERATION")
+    log_step_entry("final_report_generation", dict(state))
+    
     # Step 1: Extract research findings
     notes = state.get("notes", [])
     sequential_context = state.get("sequential_context", []) or []
     subprompt_results = state.get("subprompt_results", {}) or {}
     synthetic_placeholders = state.get("synthetic_placeholders", []) or []
 
-    # Check if this is an assembly step (has [Step_...] placeholders in research_brief)
-    research_brief_raw = state.get("research_brief", "")
-    if isinstance(research_brief_raw, dict):
-        research_brief_raw = research_brief_raw.get("value", "")
-    is_assembly_step = "[Step_" in str(research_brief_raw)
+    debug_print(
+        f"final_report_generation ENTRY: notes={len(notes)}, "
+        f"sequential_context={len(sequential_context)}, "
+        f"subprompt_results={len(subprompt_results)}, "
+        f"synthetic_placeholders={len(synthetic_placeholders)}"
+    )
+    
+    # Log all synthetic placeholders in detail
+    log_synthetic_placeholders(synthetic_placeholders, "final_report_entry")
+
+    configurable = Configuration.from_runnable_config(config)
+    steps = configurable.steps or []
+    step_index = state.get("step_index", 0)
+    current_step = steps[step_index] if step_index < len(steps) else None
+    
+    synthetic_placeholder_names = {
+        sp.get("field") for sp in synthetic_placeholders if isinstance(sp, dict)
+    }
+    
+    is_assembly_step = False
+    if current_step and current_step.placeholders and synthetic_placeholder_names:
+        is_assembly_step = bool(
+            set(current_step.placeholders) & synthetic_placeholder_names
+        )
+    
+    debug_print(f"final_report_generation: is_assembly_step={is_assembly_step} (step {step_index}: expecting {current_step.placeholders if current_step else []}, have synthetic: {list(synthetic_placeholder_names)})")
+
 
     # Build findings based on step type
     findings_parts = []
@@ -1527,8 +1650,22 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     all_placeholders.append({"field": name, "value": content})
                     existing_fields.add(name)
             
+            # CRITICAL: Log all placeholders before substitution
+            debug_print(f"final_report_generation: all_placeholders count = {len(all_placeholders)}")
+            debug_print(f"final_report_generation: placeholder fields = {list(existing_fields)}")
+            
+            research_brief_before = research_brief_val
+            
             if all_placeholders:
                 research_brief_val = apply_placeholders(research_brief_val, all_placeholders)
+            
+            # Log the complete placeholder substitution details
+            log_final_report_assembly(
+                research_brief_before,
+                research_brief_val,
+                findings,
+                all_placeholders
+            )
 
             final_report_prompt = final_report_prompt_template.format(
                 research_brief=research_brief_val,
@@ -1536,11 +1673,17 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                 findings=findings,
                 date=get_today_str(),
             )
+            
+            # Log the prompt being sent to LLM
+            log_prompt("final_report_generation", "FINAL_REPORT_PROMPT", final_report_prompt)
 
             # Generate the final report
             final_report = await configurable_model.with_config(
                 writer_model_config
             ).ainvoke([HumanMessage(content=final_report_prompt)])
+            
+            # Log the LLM response
+            log_response("final_report_generation", str(final_report.content))
 
             step_index = state.get("step_index", 0)
             configurable = Configuration.from_runnable_config(config)
