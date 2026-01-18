@@ -121,15 +121,7 @@ async def firecrawl_search(
     """Perform web searches using Firecrawl and summarize results."""
     if not queries:
         return "No valid search results found."
-    
     api_key = await get_api_key(config, "api_key", "firecrawl", "root")
-    # Fallback to env var if not found in platform config
-    if not api_key:
-        api_key = os.getenv("FIRECRAWL_API_KEY")
-
-        if not api_key:
-            return "Error executing tool: No API key provided for Firecrawl"
-
     app = AsyncFirecrawlApp(api_key=api_key)
     logging.info("firecrawl_search: queries=%d", len(queries or []))
 
@@ -854,17 +846,6 @@ async def get_api_key_for_model(model_name: str, config: RunnableConfig):
     if not key_name:
         return None
 
-    # Fallback to environment variables for local development
-    env_key_map = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-    }
-    env_var = env_key_map.get(key_name)
-    if env_var and os.getenv(env_var):
-        return os.getenv(env_var)
-
     key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
     key = await get_api_key(config, key_data.get("keyId"))
     return key
@@ -877,15 +858,12 @@ async def get_api_key(
     name: str | None = None,
 ):
     """Get API key from environment or config by key name."""
-    try:
-        authorization = (
-            config.get("configurable", {})
-            .get("langgraph_auth_user", {})
-            .get("permissions")[0]
-            .replace("authz:", "")
-        )
-    except (AttributeError, IndexError, TypeError):
-        authorization = None
+    authorization = (
+        config.get("configurable", {})
+        .get("langgraph_auth_user", {})
+        .get("permissions")[0]
+        .replace("authz:", "")
+    )
     if not authorization or not key_id:
         return None
 
