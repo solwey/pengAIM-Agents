@@ -34,43 +34,48 @@ class DoubleEncodedJSONMiddleware:
                 if message["type"] == "http.request":
                     body_parts.append(message.get("body", b""))
 
-                    if not message.get("more_body", False):
-                        body = b"".join(body_parts)
+                    # Keep collecting until we have all chunks
+                    if message.get("more_body", False):
+                        # Return empty body while collecting, signal more to come
+                        return {"type": "http.request", "body": b"", "more_body": True}
 
-                        if body:
-                            try:
-                                decoded = body.decode("utf-8")
-                                parsed = json.loads(decoded)
+                    # All chunks collected, process the complete body
+                    body = b"".join(body_parts)
 
-                                if isinstance(parsed, str):
-                                    parsed = json.loads(parsed)
+                    if body:
+                        try:
+                            decoded = body.decode("utf-8")
+                            parsed = json.loads(decoded)
 
-                                new_body = json.dumps(parsed).encode("utf-8")
+                            if isinstance(parsed, str):
+                                parsed = json.loads(parsed)
 
-                                if (
-                                    b"content-type" in headers
-                                    and content_type != "application/json"
-                                ):
-                                    new_headers = []
-                                    for name, value in scope.get("headers", []):
-                                        if name != b"content-type":
-                                            new_headers.append((name, value))
-                                    new_headers.append(
-                                        (b"content-type", b"application/json")
-                                    )
-                                    scope["headers"] = new_headers
+                            new_body = json.dumps(parsed).encode("utf-8")
 
-                                return {
-                                    "type": "http.request",
-                                    "body": new_body,
-                                    "more_body": False,
-                                }
-                            except (
-                                json.JSONDecodeError,
-                                ValueError,
-                                UnicodeDecodeError,
+                            if (
+                                b"content-type" in headers
+                                and content_type != "application/json"
                             ):
-                                pass
+                                new_headers = []
+                                for name, value in scope.get("headers", []):
+                                    if name != b"content-type":
+                                        new_headers.append((name, value))
+                                new_headers.append(
+                                    (b"content-type", b"application/json")
+                                )
+                                scope["headers"] = new_headers
+
+                            return {
+                                "type": "http.request",
+                                "body": new_body,
+                                "more_body": False,
+                            }
+                        except (
+                            json.JSONDecodeError,
+                            ValueError,
+                            UnicodeDecodeError,
+                        ):
+                            pass
 
                 return message
 
