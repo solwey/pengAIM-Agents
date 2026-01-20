@@ -125,16 +125,7 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
             )
             result = json.dumps(error.model_dump(), ensure_ascii=False)
 
-        # Don't re-encode! The tool already returns a JSON string
-        # For RAG tool: result is already JSON with {context_text, sources, retrieval_metadata, document_collections}
-        # For other tools: preserve their native return format
-        tool_messages.append(
-            ToolMessage(
-                content=result,  # Use result directly without wrapping
-                tool_call_id=tool_call.get("id", ""),
-                name=name or tool.name,
-            )
-        )
+        tool_content = result
 
         # Extract sources and document_collections from RAG tool responses
         if name == "rag_search":
@@ -146,9 +137,21 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
                     rag_response = RagToolResponse(**parsed_result)
                     extracted_sources.extend(rag_response.sources)
                     extracted_collections.extend(rag_response.document_collections)
+                    tool_content = rag_response.context_text
             except (json.JSONDecodeError, Exception):
                 # If parsing fails, skip extraction (could be error response or malformed)
                 pass
+
+        # Don't re-encode! The tool already returns a string
+        # For RAG tool: result is a string (context_text)
+        # For other tools: preserve their native return format
+        tool_messages.append(
+            ToolMessage(
+                content=tool_content,
+                tool_call_id=tool_call.get("id", ""),
+                name=name or tool.name,
+            )
+        )
 
     return {
         "messages": tool_messages,
