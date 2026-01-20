@@ -689,6 +689,7 @@ Today's date is {date}.
 
 3.  **CONTENT**:
     -   Use the specific facts, numbers, and details from <Findings>.
+    -   **SYNTHESIZE** the information. Do NOT just copy/paste the "Research Inputs" or "Findings" blocks.
     -   Do not halluncinate.
     -   Use [Title](URL) for citations.
 

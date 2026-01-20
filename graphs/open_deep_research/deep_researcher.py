@@ -45,6 +45,7 @@ from graphs.open_deep_research.state import (
     AgentState,
     ClarifyWithUser,
     ConductResearch,
+    PromptDetailCheck,
     ResearchComplete,
     ResearcherOutputState,
     ResearcherState,
@@ -71,65 +72,101 @@ from graphs.open_deep_research.utils import (
 
 logger = logging.getLogger(__name__)
 
+
 def debug_print(*args, **kwargs):
-    pass
+    """Debug print that uses logger.debug - visible in dev, silent in prod."""
+    message = " ".join(str(arg) for arg in args)
+    logger.debug(message)
+
 
 def log_step_transition(from_step: str, to_step: str, reason: str = ""):
-    pass
+    logger.debug(f"STEP TRANSITION: {from_step} -> {to_step} | Reason: {reason}")
+
 
 def log_placeholder_verification(step: str, expected: list, actual: list) -> bool:
+    logger.debug(f"PLACEHOLDER VERIFY [{step}]: expected={expected}, actual={actual}")
     return True
 
+
 def log_subprompt_complete(name: str, result_len: int):
-    pass
+    logger.debug(f"SUBPROMPT COMPLETE: {name} | result_len={result_len}")
+
 
 def log_state(node_name: str, state: dict):
-    pass
+    keys = list(state.keys()) if state else []
+    logger.debug(f"STATE [{node_name}]: keys={keys}")
+
 
 def log_separator(title: str):
-    pass
+    logger.debug(f"{'='*20} {title} {'='*20}")
+
 
 def log_step_entry(step_name: str, state: dict):
-    pass
+    step_index = state.get("step_index", "?")
+    logger.debug(f"STEP ENTRY [{step_name}]: step_index={step_index}")
+
 
 def log_step_exit(step_name: str, goto: str, updates: dict = None):
-    pass
+    update_keys = list(updates.keys()) if updates else []
+    logger.debug(f"STEP EXIT [{step_name}]: goto={goto}, updates={update_keys}")
+
 
 def log_prompt(node_name: str, prompt_type: str, content: str):
-    pass
+    # Truncate to avoid massive logs
+    preview = content[:200] + "..." if len(content) > 200 else content
+    logger.debug(f"PROMPT [{node_name}] ({prompt_type}): {preview}")
+
 
 def log_response(node_name: str, content: str):
-    pass
+    preview = content[:200] + "..." if len(content) > 200 else content
+    logger.debug(f"RESPONSE [{node_name}]: {preview}")
+
 
 def log_tool_output(node_name: str, tool_name: str, output: str):
-    pass
+    preview = output[:150] + "..." if len(output) > 150 else output
+    logger.debug(f"TOOL OUTPUT [{node_name}] ({tool_name}): {preview}")
+
 
 def log_subprompt_execution(name: str, subprompt_type: str, input_text: str, result: str, result_len: int):
-    pass
+    input_preview = input_text[:100] + "..." if len(input_text) > 100 else input_text
+    logger.debug(f"SUBPROMPT EXEC [{name}] ({subprompt_type}): input={input_preview}, result_len={result_len}")
+
 
 def log_placeholder_substitution(step_name: str, template: str, placeholders: list, result: str):
-    pass
+    placeholder_fields = [p.get("field", "?") if isinstance(p, dict) else "?" for p in placeholders]
+    logger.debug(f"PLACEHOLDER SUB [{step_name}]: fields={placeholder_fields}, template_len={len(template)}, result_len={len(result)}")
+
 
 def log_synthetic_placeholders(placeholders: list, phase: str):
-    pass
+    fields = [p.get("field", "?") if isinstance(p, dict) else "?" for p in placeholders]
+    logger.debug(f"SYNTHETIC PLACEHOLDERS [{phase}]: count={len(placeholders)}, fields={fields}")
+
 
 def log_parallel_merge(step_name: str, result_map: dict, before: list, after: list):
-    pass
+    logger.debug(f"PARALLEL MERGE [{step_name}]: result_keys={list(result_map.keys())}, before={len(before)}, after={len(after)}")
+
 
 def log_data_sizes(step_name: str, data_dict: dict):
-    pass
+    sizes = {k: len(v) if hasattr(v, "__len__") else "?" for k, v in data_dict.items()}
+    logger.debug(f"DATA SIZES [{step_name}]: {sizes}")
+
 
 def log_messages_trace(node_name: str, messages: list):
-    pass
+    types = [type(m).__name__ for m in messages] if messages else []
+    logger.debug(f"MESSAGES TRACE [{node_name}]: count={len(messages)}, types={types}")
+
 
 def log_state_full(node_name: str, state: dict):
-    pass
+    logger.debug(f"STATE FULL [{node_name}]: {state}")
+
 
 def log_final_report_assembly(brief_raw: str, brief_after: str, findings: str, placeholders: dict):
-    pass
+    placeholder_count = len(placeholders) if placeholders else 0
+    logger.debug(f"FINAL REPORT ASSEMBLY: brief_raw_len={len(brief_raw)}, brief_after_len={len(brief_after)}, findings_len={len(findings)}, placeholders={placeholder_count}")
+
 
 def log_error(node_name: str, error: Exception):
-    pass
+    logger.debug(f"ERROR [{node_name}]: {type(error).__name__}: {error}")
 
 
 
@@ -268,6 +305,14 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
         for p in current_placeholders
     }
     current_placeholder_fields.discard(None)
+
+    # Merge synthetic placeholders into the check
+    # These are results from previous steps (e.g. Step_1__Company_Intelligence)
+    # that act as valid placeholders for the current step
+    synthetic_placeholders = state.get("synthetic_placeholders", []) or []
+    for sp in synthetic_placeholders:
+        if isinstance(sp, dict) and sp.get("field"):
+            current_placeholder_fields.add(sp.get("field"))
 
     missing_placeholders = [
         field for field in expected_placeholders
@@ -556,23 +601,48 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
     except Exception as e:
         # Handle token limit exceeded by truncating content and retrying
         log_error(f"PARALLEL:{nm}", e)
-        if is_token_limit_exceeded(e):
-            try:
-                debug_print(f"parallel_subprompt '{nm}': Token limit exceeded, retrying with truncation")
-                # Truncate to ~30k tokens (approx 120k chars) to be safe
-                truncated_text = truncate_result(sub_text, 120000)
-                observation = await researcher_subgraph.ainvoke(
-                    {
-                        "researcher_messages": [HumanMessage(content=truncated_text)],
-                        "research_topic": truncated_text,
-                    },
-                    config,
-                )
-                comp = observation.get("compressed_research", "")
-                log_subprompt_execution(nm, "parallel", truncated_text, comp, len(comp))
-            except Exception as e2:
-                log_error(f"PARALLEL:{nm}:RETRY", e2)
-                comp = f"Error: Parallel sub-prompt failed due to context limit (retried). {e2}"
+        configurable = Configuration.from_runnable_config(config)
+        if is_token_limit_exceeded(e, configurable.research_model):
+            # Use dynamic token limit based on model, with 10% reduction on each retry
+            model_token_limit = get_model_token_limit(configurable.research_model)
+            if model_token_limit:
+                char_limit = model_token_limit * 4
+            else:
+                # Fallback to a conservative default if model not in lookup table
+                char_limit = 120000
+            
+            max_retries = 3
+            current_retry = 0
+            
+            while current_retry < max_retries:
+                try:
+                    debug_print(f"parallel_subprompt '{nm}': Token limit exceeded, retrying with char_limit={char_limit}")
+                    truncated_text = truncate_result(sub_text, char_limit)
+                    observation = await researcher_subgraph.ainvoke(
+                        {
+                            "researcher_messages": [HumanMessage(content=truncated_text)],
+                            "research_topic": truncated_text,
+                        },
+                        config,
+                    )
+                    comp = observation.get("compressed_research", "")
+                    log_subprompt_execution(nm, "parallel", truncated_text, comp, len(comp))
+                    break
+                except Exception as e2:
+                    current_retry += 1
+                    if is_token_limit_exceeded(e2, configurable.research_model):
+                        # Reduce by 10% and retry
+                        char_limit = int(char_limit * 0.9)
+                        debug_print(f"parallel_subprompt '{nm}': Still exceeding limit, reducing to {char_limit}")
+                        continue
+                    else:
+                        log_error(f"PARALLEL:{nm}:RETRY", e2)
+                        comp = f"Error: Parallel sub-prompt failed during retry. {e2}"
+                        break
+            else:
+                # All retries exhausted
+                log_error(f"PARALLEL:{nm}:MAX_RETRIES", e)
+                comp = f"Error: Parallel sub-prompt failed after {max_retries} retries due to context limit."
         else:
             comp = f"Error during parallel subprompt '{nm}': {e}"
 
@@ -675,7 +745,24 @@ async def prepare_step(state: AgentState, config: RunnableConfig):
 
     step = steps[step_index]
     current_placeholders = state.get("placeholders", [])
-    prompt_text = apply_placeholders(step.text, current_placeholders)
+    
+    # CRITICAL FIX: Merge synthetic placeholders for prompt application
+    # This ensures findings from previous steps are injected into the current prompt
+    synthetic_placeholders = state.get("synthetic_placeholders", []) or []
+    
+    merged_placeholders_map = {}
+    
+    for sp in synthetic_placeholders:
+        if isinstance(sp, dict) and sp.get("field"):
+            merged_placeholders_map[sp.get("field")] = sp
+            
+    for p in current_placeholders:
+        if isinstance(p, dict) and p.get("field"):
+            merged_placeholders_map[p.get("field")] = p
+            
+    all_placeholders = list(merged_placeholders_map.values())
+
+    prompt_text = apply_placeholders(step.text, all_placeholders)
     
     log_state("prepare_step", state)
     debug_print(
@@ -839,29 +926,53 @@ async def write_research_brief(
     )
     log_prompt("write_research_brief", "PROMPT", prompt_content)
 
-    # CHECK: Did we receive a highly detailed "Gold Standard" prompt?
-    # If so, bypass the re-writing step to avoid diluting the instructions.
-    # CHECK: Did we receive a highly detailed "Gold Standard" prompt?
-    # If so, bypass the re-writing step to avoid diluting the instructions.
-    
-    # Find the last HumanMessage in the history
+    # CHECK: Use LLM to determine if the prompt is detailed enough to use directly
+    # This replaces flaky keyword matching with intelligent analysis
     messages = state.get("messages", [])
     last_human_msg = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
 
-    if last_human_msg and (
-        "Role:" in last_human_msg.content
-        or "Structure & Coverage:" in last_human_msg.content
-        or "# Role" in last_human_msg.content
-    ):
+    use_raw_prompt = False
+    if last_human_msg and len(last_human_msg.content) > 200:  # Only check longer prompts
+        try:
+            # Configure model for prompt detail check
+            detail_check_model = (
+                configurable_model.with_structured_output(PromptDetailCheck)
+                .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+                .with_config(research_model_config)
+            )
+            
+            detail_check_prompt = f"""Analyze the following user prompt and determine if it is detailed enough to be used directly as a research brief without rewriting.
+
+A prompt is detailed enough if it contains:
+- Clear role definition or persona instructions
+- Specific research objectives or questions
+- Output structure or format requirements
+- Detailed context or background information
+
+A prompt is NOT detailed enough if it is:
+- A simple question or topic without context
+- Vague or lacking specific instructions
+- Missing structure or format guidance
+
+User Prompt:
+{last_human_msg.content}
+
+Determine if this prompt should be used directly as the research brief or needs to be transformed."""
+            
+            detail_check = await detail_check_model.ainvoke([HumanMessage(content=detail_check_prompt)])
+            use_raw_prompt = detail_check.is_detailed_enough
+            debug_print(f"write_research_brief: LLM detail check - is_detailed_enough={use_raw_prompt}, reasoning={detail_check.reasoning}")
+        except Exception as e:
+            debug_print(f"write_research_brief: Detail check failed, falling back to rewrite: {e}")
+            use_raw_prompt = False
+
+    if use_raw_prompt and last_human_msg:
         # BYPASS: Use the provided prompt directly as the research brief
-        debug_print("write_research_brief: Detailed prompt detected. Bypassing Rewrite.")
-        # Create a synthetic response object
+        debug_print("write_research_brief: Detailed prompt detected by LLM. Bypassing Rewrite.")
         response = ResearchQuestion(
-            research_brief=last_human_msg.content,  # Use raw content
-            question="", # Not needed
-            verification="Proceeding with detailed role-based instructions."
+            research_brief=last_human_msg.content,
         )
-        log_response("write_research_brief", "BYPASS: Using raw user prompt.")
+        log_response("write_research_brief", "BYPASS: Using raw user prompt (LLM confirmed detailed).")
     else:
         # NORMAL: Rewrite the prompt into a research brief
         response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
