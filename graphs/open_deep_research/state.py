@@ -59,6 +59,18 @@ class ResearchQuestion(BaseModel):
     )
 
 
+class PromptDetailCheck(BaseModel):
+    """Model for checking if a user prompt is detailed enough to use directly as a research brief."""
+
+    is_detailed_enough: bool = Field(
+        description="True if the prompt contains sufficient detail (role definition, specific instructions, output structure, etc.) to be used directly as a research brief without rewriting. False if the prompt is vague or needs to be transformed into a proper research brief.",
+    )
+    reasoning: str = Field(
+        description="Brief explanation of why the prompt is or is not detailed enough.",
+    )
+
+
+
 ###################
 # State Definitions
 ###################

@@ -75,6 +75,24 @@ Guidelines:
 - If the query is in a specific language, prioritize sources published in that language.
 """
 
+detail_check_prompt = """Analyze the following user prompt and determine if it is detailed enough to be used directly as a research brief without rewriting.
+
+A prompt is detailed enough if it contains:
+- Clear role definition or persona instructions
+- Specific research objectives or questions
+- Output structure or format requirements
+- Detailed context or background information
+
+A prompt is NOT detailed enough if it is:
+- A simple question or topic without context
+- Vague or lacking specific instructions
+- Missing structure or format guidance
+
+User Prompt:
+{user_prompt}
+
+Determine if this prompt should be used directly as the research brief or needs to be transformed."""
+
 lead_researcher_prompt_rag = """
 You are a research supervisor. For context, today's date is {date}.
 
@@ -567,42 +585,139 @@ You have access to tools:
 - No network usage is allowed; only internal retrieval.
 </Reminder>
 """
-compress_research_system_prompt_rag = """You are a research assistant that has conducted research on a topic by calling internal retrieval tools (RAG). Your job is now to clean up the findings, but preserve all of the relevant statements and information that the researcher has gathered. For context, today's date is {date}.
+compress_research_system_prompt_rag = """You are a research synthesis specialist. Your task is to extract and present the KEY FINDINGS from internal retrieval results. Today's date is {date}.
 
 <Task>
-You need to clean up information gathered from tool calls in the existing messages.
-All relevant information should be repeated and rewritten verbatim, but in a cleaner format.
-Only these fully comprehensive cleaned findings are going to be returned to the user, so it's crucial that you don't lose any information from the raw messages.
+Review ALL retrieved passages and tool outputs. Extract actual findings into a clean summary.
+
+PRESERVE ALL:
+- Specific facts, numbers, dates, names
+- Key information from documents
+- Source references (document name, section, page)
 </Task>
 
-<Guidelines>
-1. Your output findings should be fully comprehensive and include ALL of the information and sources that the researcher has gathered from tool calls. Repeat key information verbatim.
-2. This report can be as long as necessary to return ALL of the information that was gathered.
-3. In your report, return inline citations for each statement using the internal reference format.
-4. Include a "Sources" section at the end that lists all internal sources (document name, section, page) with corresponding citation markers used in the text.
-5. Make sure to include ALL of the sources gathered, and how they were used to answer the question.
-6. It's really important not to lose any sources.
-</Guidelines>
+<CRITICAL OUTPUT RULES>
+❌ DO NOT write "List of Queries and Tool Calls Made"
+❌ DO NOT list your retrieval queries
+❌ DO NOT include meta-commentary about research process
+
+✅ ONLY output the actual findings discovered
+✅ Write in flowing paragraphs
+✅ Include inline citations [1], [2] referencing documents
+</CRITICAL OUTPUT RULES>
 
 <Output Format>
-The report should be structured like this:
-**List of Queries and Tool Calls Made**
-**Fully Comprehensive Findings**
-**List of All Relevant Sources (with citations in the report)**
+### Key Findings
+[Actual content discovered from documents]
+
+### Sources
+[1] Document Name — Section — Page
+[2] Document Name — Section — Page
 </Output Format>
 
 <Citation Rules>
-- Use bracketed numeric citations like [1], [2], [3] inline in the text.
-- In the final **Sources** section, list each source with its number and the internal reference fields:
-  - Document name (required)
-  - Section (if available)
-  - Page (if available)
-- Example format:
-  [1] Text-Document-2025-08-27-09:32:39.txt — Abstract — p. 2
-  [2] Project-Spec-v1.pdf — Requirements — p. 12
-- If multiple sections/pages from the same document appear, list them separately with distinct citation numbers.
-- Do NOT invent URLs.
+- Use bracketed numeric citations [1], [2] inline
+- In Sources section, list document name, section, page
+- Do NOT invent references
 </Citation Rules>
 
-Critical Reminder: It is extremely important that any information that is even remotely relevant to the user's research topic is preserved verbatim.
+Begin synthesis now. Output ONLY findings, not your process."""
+
+# OPTIMIZED PROMPTS FOR GPT-4O-MINI
+# These prompts remove generic structure examples to force adherence to specific user structures
+# and simplify verifying instructions for smaller models.
+
+compress_research_system_prompt_online_optimized = """You are a research synthesis specialist. Your task is to extract and present the KEY FINDINGS from tool call results.
+
+Today's date is {date}.
+
+<Task>
+Review ALL search results and tool outputs in this conversation. Extract the actual findings into a clean summary.
+
+PRESERVE ALL:
+- Specific facts, numbers, dates, names
+- Company details, product information
+- Leadership names and titles
+- Financial data, employee counts
+- Source URLs for citations
+</Task>
+
+<Data Cleaning Rules>
+Fix any malformed text from sources:
+- Fix broken number formatting (e.g., "100millionand500" → "$100 million to $500 million")
+- Fix split words across lines (e.g., "m i l l i o n" → "million")
+- Remove duplicate text passages
+- Clean up garbled characters or encoding issues
+- Standardize currency formats (e.g., "$100M" or "$100 million")
+</Data Cleaning Rules>
+
+<CRITICAL OUTPUT RULES>
+❌ DO NOT write "List of Queries and Tool Calls Made"
+❌ DO NOT list your search queries
+❌ DO NOT include meta-commentary about research process
+❌ DO NOT write "I searched for..." or "My queries were..."
+
+✅ ONLY output the actual findings and facts discovered
+✅ Write in flowing paragraphs
+✅ Include inline citations: [Source Name](URL)
+</CRITICAL OUTPUT RULES>
+
+<Output Format>
+Write your findings as a comprehensive summary with these sections:
+
+### Key Findings
+[Actual content discovered - facts, details, specifics]
+
+### Sources
+[1] Source Name: URL
+[2] Source Name: URL
+</Output Format>
+
+<Citation Rules>
+- Use inline citations: [Source Name](https://actual-url.com)
+- ONLY cite URLs that appeared in your search results
+- If no URL available, write: (Source: description)
+- NEVER fabricate URLs
+</Citation Rules>
+
+Begin your synthesis now. Output ONLY the findings, not your research process."""
+
+final_report_generation_prompt_online_optimized = """Based on the research findings, create a comprehensive report answering the research brief.
+
+<Research Brief>
+{research_brief}
+</Research Brief>
+
+<Messages>
+{messages}
+</Messages>
+
+<Findings>
+{findings}
+</Findings>
+
+Today's date is {date}.
+
+<CRITICAL INSTRUCTIONS>
+1.  **FOLLOW THE RESEARCH BRIEF STRUCTURE EXACTLY**:
+    -   If the brief specifies sections (e.g., "Step 1: ...", "Step 2: ..."), you MUST use those exact headers.
+    -   Do NOT invent your own structure. Do NOT use generic "Discussion" or "Conclusion" sections unless requested.
+
+2.  **LANGUAGE**: Write in the SAME language as the <Messages>.
+
+3.  **CONTENT**:
+    -   Use the specific facts, numbers, and details from <Findings>.
+    -   **SYNTHESIZE** the information. Do NOT just copy/paste the "Research Inputs" or "Findings" blocks.
+    -   Do not halluncinate.
+    -   Use [Title](URL) for citations.
+
+4.  **FORMAT**:
+    -   Markdown.
+    -   ## for main sections.
+    -   Standard paragraph form (unless bullet points are requested).
+    -   End with a "Sources" section listing all links.
+
+5.  **NO META-COMMENTARY**: Do not start with "Here is the report..." or "I have structured this...". Just write the report.
+
+</CRITICAL INSTRUCTIONS>
 """
