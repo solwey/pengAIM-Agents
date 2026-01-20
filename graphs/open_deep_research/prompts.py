@@ -75,6 +75,24 @@ Guidelines:
 - If the query is in a specific language, prioritize sources published in that language.
 """
 
+detail_check_prompt = """Analyze the following user prompt and determine if it is detailed enough to be used directly as a research brief without rewriting.
+
+A prompt is detailed enough if it contains:
+- Clear role definition or persona instructions
+- Specific research objectives or questions
+- Output structure or format requirements
+- Detailed context or background information
+
+A prompt is NOT detailed enough if it is:
+- A simple question or topic without context
+- Vague or lacking specific instructions
+- Missing structure or format guidance
+
+User Prompt:
+{user_prompt}
+
+Determine if this prompt should be used directly as the research brief or needs to be transformed."""
+
 lead_researcher_prompt_rag = """
 You are a research supervisor. For context, today's date is {date}.
 

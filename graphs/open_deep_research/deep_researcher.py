@@ -39,6 +39,7 @@ from graphs.open_deep_research.prompts import (
     transform_messages_into_research_topic_prompt,
     compress_research_system_prompt_online_optimized,
     final_report_generation_prompt_online_optimized,
+    detail_check_prompt,
 )
 from graphs.open_deep_research.state import (
     AgentInputState,
@@ -941,25 +942,11 @@ async def write_research_brief(
                 .with_config(research_model_config)
             )
             
-            detail_check_prompt = f"""Analyze the following user prompt and determine if it is detailed enough to be used directly as a research brief without rewriting.
-
-A prompt is detailed enough if it contains:
-- Clear role definition or persona instructions
-- Specific research objectives or questions
-- Output structure or format requirements
-- Detailed context or background information
-
-A prompt is NOT detailed enough if it is:
-- A simple question or topic without context
-- Vague or lacking specific instructions
-- Missing structure or format guidance
-
-User Prompt:
-{last_human_msg.content}
-
-Determine if this prompt should be used directly as the research brief or needs to be transformed."""
+            debug_print(f"write_research_brief: Checking detail of prompt: {last_human_msg.content[:50]}...")
             
-            detail_check = await detail_check_model.ainvoke([HumanMessage(content=detail_check_prompt)])
+            formatted_check_prompt = detail_check_prompt.format(user_prompt=last_human_msg.content)
+            
+            detail_check = await detail_check_model.ainvoke([HumanMessage(content=formatted_check_prompt)])
             use_raw_prompt = detail_check.is_detailed_enough
             debug_print(f"write_research_brief: LLM detail check - is_detailed_enough={use_raw_prompt}, reasoning={detail_check.reasoning}")
         except Exception as e:
