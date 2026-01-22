@@ -1,4 +1,6 @@
 import json
+import os
+import re
 from typing import Any, Literal
 
 from langchain.chat_models import init_chat_model
@@ -28,6 +30,7 @@ from graphs.react_agent.rag_models import (
 )
 from graphs.react_agent.utils import _build_tools, get_api_key_for_model, get_today_str
 
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 
 async def call_model(
         state: AgentState, config: RunnableConfig
@@ -41,8 +44,12 @@ async def call_model(
     # Resolve API key for the selected model
     api_key = await get_api_key_for_model(config)
 
+    model_name = cfg.model_name
+    if AZURE_OPENAI_ENDPOINT:
+        model_name = re.sub(r"^openai:", "azure_openai:", model_name)
+
     model = init_chat_model(
-        cfg.model_name,
+        model_name,
         temperature=cfg.temperature,
         max_tokens=cfg.max_tokens,
         api_key=api_key or "No token found",
