@@ -24,6 +24,10 @@ class SourceDocument(BaseModel):
         None,
         description="Additional metadata (entity type, relationship type, etc.)"
     )
+    last_human_message_id: Optional[str] = Field(
+        None,
+        description="ID of the last human message when this source was retrieved"
+    )
 
 
 class DocumentCollectionInfo(BaseModel):
@@ -36,6 +40,11 @@ class DocumentCollectionInfo(BaseModel):
     document_id: str = Field(..., description="Document UUID")
     collection_id: str = Field(..., description="Collection ID the document belongs to")
     document_title: Optional[str] = Field(None, description="Document title (file name)")
+    relevance_score: float | None = None
+    last_human_message_id: Optional[str] = Field(
+        None,
+        description="ID of the last human message when this collection was retrieved"
+    )
 
 
 class RagToolResponse(BaseModel):

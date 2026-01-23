@@ -6,6 +6,7 @@ from typing import Any, Literal
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
     AIMessage,
+    HumanMessage,
     SystemMessage,
     ToolMessage,
 )
@@ -86,6 +87,13 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     if not last_ai or not last_ai.tool_calls:
         return {"messages": []}
 
+    # Find the last human message ID for source/collection tracking
+    last_human_message_id: str | None = None
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, HumanMessage):
+            last_human_message_id = getattr(msg, "id", None)
+            break
+
     cfg = Context(**config.get("configurable", {}))
     tools_by_name = await _build_tools(cfg, config)
 
@@ -142,6 +150,11 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
                 if "context_text" in parsed_result and "sources" in parsed_result:
                     # Parse the response as RagToolResponse
                     rag_response = RagToolResponse(**parsed_result)
+                    # Set last_human_message_id on each source and collection
+                    for source in rag_response.sources:
+                        source.last_human_message_id = last_human_message_id
+                    for collection in rag_response.document_collections:
+                        collection.last_human_message_id = last_human_message_id
                     extracted_sources.extend(rag_response.sources)
                     extracted_collections.extend(rag_response.document_collections)
                     tool_content = rag_response.context_text

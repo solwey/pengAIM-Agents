@@ -1,4 +1,3 @@
-import operator
 from enum import Enum
 from typing import Annotated, TypedDict
 
@@ -18,6 +17,82 @@ from graphs.shared import (
     RetrievalMode,
     ToolCallsVisibility,
 )
+
+
+def merge_sources(
+    existing: list[SourceDocument], incoming: list[SourceDocument]
+) -> list[SourceDocument]:
+    """Merge source documents, keeping only those with matching last_human_message_id.
+
+    Filters out existing sources whose last_human_message_id differs from the
+    incoming sources' last_human_message_id, then combines the remaining.
+    """
+    if not incoming:
+        return existing
+
+    # Get the last_human_message_id from incoming sources
+    incoming_message_ids = {
+        src.last_human_message_id for src in incoming if src.last_human_message_id
+    }
+
+    # If no incoming sources have a message ID, just append
+    if not incoming_message_ids:
+        return existing + incoming
+
+    # Filter existing sources to keep only those with matching message IDs
+    filtered_existing = [
+        src
+        for src in existing
+        if src.last_human_message_id in incoming_message_ids
+        or src.last_human_message_id is None
+    ]
+
+    return filtered_existing + incoming
+
+
+def merge_document_collections(
+    existing: list[DocumentCollectionInfo], incoming: list[DocumentCollectionInfo]
+) -> list[DocumentCollectionInfo]:
+    """Merge document collections, keeping only those with matching last_human_message_id.
+
+    Filters out existing collections whose last_human_message_id differs from the
+    incoming collections' last_human_message_id, then combines the remaining.
+    Deduplicates by document_id, keeping the entry with the highest relevance_score.
+    """
+    if not incoming:
+        return existing
+
+    # Get the last_human_message_id from incoming collections
+    incoming_message_ids = {
+        col.last_human_message_id for col in incoming if col.last_human_message_id
+    }
+
+    # If no incoming collections have a message ID, just append
+    if not incoming_message_ids:
+        combined = existing + incoming
+    else:
+        # Filter existing collections to keep only those with matching message IDs
+        filtered_existing = [
+            col
+            for col in existing
+            if col.last_human_message_id in incoming_message_ids
+            or col.last_human_message_id is None
+        ]
+        combined = filtered_existing + incoming
+
+    # Deduplicate by document_id, keeping the entry with the highest relevance_score
+    seen: dict[str, DocumentCollectionInfo] = {}
+    for col in combined:
+        doc_id = col.document_id
+        if doc_id not in seen:
+            seen[doc_id] = col
+        else:
+            existing_score = seen[doc_id].relevance_score or 0.0
+            new_score = col.relevance_score or 0.0
+            if new_score > existing_score:
+                seen[doc_id] = col
+
+    return list(seen.values())
 
 
 class McpServerConfig(BaseModel):
@@ -44,8 +119,8 @@ class AgentInputState(TypedDict):
 
 class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
-    sources: Annotated[list[SourceDocument], operator.add]
-    document_collections: Annotated[list[DocumentCollectionInfo], operator.add]
+    sources: Annotated[list[SourceDocument], merge_sources]
+    document_collections: Annotated[list[DocumentCollectionInfo], merge_document_collections]
 
 
 class AgentOutputState(TypedDict):
