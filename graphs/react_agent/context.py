@@ -3,7 +3,7 @@ from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -179,18 +179,17 @@ class Context(BaseModel):
             }
         },
     )
-    agent_google_api_key: dict[str, str] | None = Field(
-        default=None,
+    agent_google_api_key: dict[str, str] = Field(
+        default={},
         metadata={
             "x_oap_ui_config": {
                 "type": "password",
-                "required": False,
+                "required": True,
                 "placeholder": "Enter your Google API key for Gemini models...",
                 "description": (
-                    "Provide a Google API key to be used when selecting Gemini models. "
-                    "Required only if you plan to use Gemini models for this agent."
+                    "Provide a Google API key to be used when selecting Gemini models."
                 ),
-                "default": "",
+                "default": {},
             }
         },
     )
@@ -468,3 +467,18 @@ class Context(BaseModel):
         if not v:
             return DEFAULT_QUESTION_CATEGORIES
         return v
+
+    @model_validator(mode="after")
+    def validate_google_api_key_for_gemini(self):
+        """Ensure Google API key is provided when using Gemini models."""
+        model_name = self.model_name or ""
+        is_gemini_model = "google" in model_name.lower() or "gemini" in model_name.lower()
+
+        if is_gemini_model:
+            google_key = self.agent_google_api_key
+            if not google_key or not google_key.get("keyId"):
+                raise ValueError(
+                    "Google API key is required when using Gemini models. "
+                    "Please provide agent_google_api_key with a valid keyId."
+                )
+        return self

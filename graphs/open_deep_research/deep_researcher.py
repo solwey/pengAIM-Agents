@@ -1032,6 +1032,16 @@ async def supervisor(
     dynamic_tools = await get_all_tools(config)
     lead_researcher_tools = base_tools + dynamic_tools
 
+    # Deduplicate tools by name (required for Gemini API compatibility)
+    seen_names: set[str] = set()
+    unique_tools = []
+    for t in lead_researcher_tools:
+        name = getattr(t, "name", None) or getattr(t, "__name__", None) or str(t)
+        if name not in seen_names:
+            seen_names.add(name)
+            unique_tools.append(t)
+    lead_researcher_tools = unique_tools
+
     # Configure model with tools, retry logic, and model settings
     research_model = (
         configurable_model.bind_tools(lead_researcher_tools)

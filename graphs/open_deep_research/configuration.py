@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from graphs.shared import (
     DEFAULT_QUESTION_CATEGORIES,
@@ -94,18 +94,17 @@ class Configuration(BaseModel):
         },
     )
 
-    agent_google_api_key: dict[str, str] | None = Field(
-        default=None,
+    agent_google_api_key: dict[str, str] = Field(
+        default={},
         metadata={
             "x_oap_ui_config": {
                 "type": "password",
-                "required": False,
+                "required": True,
                 "placeholder": "Enter your Google API key for Gemini models...",
                 "description": (
-                    "Provide a Google API key to be used when selecting Gemini models. "
-                    "Required only if you plan to use Gemini models for this agent."
+                    "Provide a Google API key to be used when selecting Gemini models."
                 ),
-                "default": "",
+                "default": {},
             }
         },
     )
@@ -635,6 +634,29 @@ class Configuration(BaseModel):
                     raise TypeError("Each item in 'steps' must be StepConfig or dict")
             return out
         return v
+
+    @model_validator(mode="after")
+    def validate_google_api_key_for_gemini(self):
+        """Ensure Google API key is provided when using Gemini models."""
+        model_fields = [
+            self.summarization_model,
+            self.research_model,
+            self.compression_model,
+            self.final_report_model,
+        ]
+
+        for model_name in model_fields:
+            if not model_name:
+                continue
+            is_gemini = "google" in model_name.lower() or "gemini" in model_name.lower()
+            if is_gemini:
+                google_key = self.agent_google_api_key
+                if not google_key or not google_key.get("keyId"):
+                    raise ValueError(
+                        f"Google API key is required when using Gemini model '{model_name}'. "
+                        "Please provide agent_google_api_key with a valid keyId."
+                    )
+        return self
 
     @classmethod
     def from_runnable_config(
