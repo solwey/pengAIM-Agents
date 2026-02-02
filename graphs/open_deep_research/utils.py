@@ -838,15 +838,23 @@ def _non_empty(v: str | None) -> str | None:
 
 
 async def get_api_key_for_model(model_name: str, config: RunnableConfig):
-    model_name = model_name.lower()
+    model_name_lower = model_name.lower()
     model_prefixes = ["openai", "anthropic", "google"]
-    key_name = next(
-        (prefix for prefix in model_prefixes if model_name.startswith(prefix)), None
+    provider = next(
+        (prefix for prefix in model_prefixes if model_name_lower.startswith(prefix)), None
     )
-    if not key_name:
+    if not provider:
         return None
 
-    key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
+    # Select the appropriate API key based on provider
+    if provider == "google":
+        key_data = config.get("configurable", {}).get("agent_google_api_key", {})
+    else:
+        key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
+
+    if not key_data:
+        return None
+
     key = await get_api_key(config, key_data.get("keyId"))
     return key
 

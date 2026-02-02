@@ -179,6 +179,21 @@ class Context(BaseModel):
             }
         },
     )
+    agent_google_api_key: dict[str, str] | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": False,
+                "placeholder": "Enter your Google API key for Gemini models...",
+                "description": (
+                    "Provide a Google API key to be used when selecting Gemini models. "
+                    "Required only if you plan to use Gemini models for this agent."
+                ),
+                "default": "",
+            }
+        },
+    )
 
     model_name: str | None = Field(
         default="openai:gpt-4o-mini",
@@ -196,6 +211,9 @@ class Context(BaseModel):
                     {"label": "GPT 5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT 5 mini", "value": "openai:gpt-5-mini"},
                     {"label": "GPT 5.2", "value": "openai:gpt-5.2"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
             }
         },

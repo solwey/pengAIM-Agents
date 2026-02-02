@@ -94,6 +94,22 @@ class Configuration(BaseModel):
         },
     )
 
+    agent_google_api_key: dict[str, str] | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": False,
+                "placeholder": "Enter your Google API key for Gemini models...",
+                "description": (
+                    "Provide a Google API key to be used when selecting Gemini models. "
+                    "Required only if you plan to use Gemini models for this agent."
+                ),
+                "default": "",
+            }
+        },
+    )
+
     # General Configuration
     max_structured_output_retries: int = Field(
         default=3,
@@ -261,6 +277,9 @@ class Configuration(BaseModel):
                     {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
                     {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
                 "description": "Model for summarizing research results from Tavily search results",
             }
@@ -300,6 +319,9 @@ class Configuration(BaseModel):
                     {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
                     {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
                 "description": "Model for conducting research. NOTE: Make sure your Researcher Model supports the selected search API.",
             }
@@ -327,6 +349,9 @@ class Configuration(BaseModel):
                     {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
                     {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
                 "description": "Model for compressing research findings from sub-agents. NOTE: Make sure your Compression Model supports the selected search API.",
             }
@@ -354,6 +379,9 @@ class Configuration(BaseModel):
                     {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
                     {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
                 "description": "Model for writing the final report from all research findings",
             }

@@ -25,14 +25,50 @@ def get_today_str() -> str:
     return f"{now:%a %b} {now.day}, {now:%Y}"
 
 
+def get_provider_from_model(model_name: str | None) -> str:
+    """Extract provider from model name string.
+
+    Args:
+        model_name: Model name in format "provider:model" (e.g., "openai:gpt-4o", "google_genai:gemini-2.5-pro")
+
+    Returns:
+        Provider name: "openai", "google", or "openai" as default
+    """
+    if not model_name:
+        return "openai"
+
+    if model_name.startswith("google_genai:") or model_name.startswith("google:"):
+        return "google"
+
+    # Default to openai for openai:, azure_openai:, or any other prefix
+    return "openai"
+
+
 async def get_api_key_for_model(config: RunnableConfig) -> str | None:
+    """Get the appropriate API key based on the selected model provider.
+
+    Args:
+        config: The runnable config containing model and key information
+
+    Returns:
+        The decrypted API key or None if not found
+    """
     authorization = (
         config.get("configurable", {})
         .get("langgraph_auth_user", {})
         .get("permissions")[0]
         .replace("authz:", "")
     )
-    key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
+
+    # Determine which API key to use based on model provider
+    model_name = config.get("configurable", {}).get("model_name")
+    provider = get_provider_from_model(model_name)
+
+    # Select the appropriate key field based on provider
+    if provider == "google":
+        key_data = config.get("configurable", {}).get("agent_google_api_key", {})
+    else:
+        key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
 
     if not authorization or not key_data:
         return None
