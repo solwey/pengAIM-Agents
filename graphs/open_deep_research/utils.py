@@ -73,7 +73,12 @@ async def rag_search(
     )
     system_prompt = config.get("configurable", {}).get("rag_system_prompt") or None
     retrieval_mode = config.get("configurable", {}).get("rag_retrieval_mode") or None
-    key_data = config.get("configurable", {}).get("rag_openai_api_key", {})
+
+    llm_provider = config.get("configurable", {}).get("llm_provider", "openai")
+    if llm_provider == "google":
+        key_data = config.get("configurable", {}).get("rag_google_api_key", {})
+    else:
+        key_data = config.get("configurable", {}).get("rag_openai_api_key", {})
 
     search_endpoint = f"{RAG_URL}/query"
     body = {

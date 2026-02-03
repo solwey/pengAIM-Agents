@@ -21,6 +21,13 @@ class AgentMode(Enum):
     ONLINE = "online"
 
 
+class LLMProvider(Enum):
+    """Enumeration of available LLM providers."""
+
+    OPENAI = "openai"
+    GOOGLE = "google"
+
+
 class SearchAPI(Enum):
     """Enumeration of available search API providers."""
 
@@ -58,6 +65,21 @@ class Configuration(BaseModel):
                 "options": [
                     {"label": "Rag only", "value": AgentMode.RAG.value},
                     {"label": "Online only", "value": AgentMode.ONLINE.value},
+                ],
+            }
+        },
+    )
+
+    llm_provider: LLMProvider = Field(
+        default=LLMProvider.OPENAI,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": LLMProvider.OPENAI.value,
+                "description": "Select the LLM Provider. This determines which API key will be used.",
+                "options": [
+                    {"label": "OpenAI", "value": LLMProvider.OPENAI.value},
+                    {"label": "Google Gemini", "value": LLMProvider.GOOGLE.value},
                 ],
             }
         },
@@ -103,6 +125,22 @@ class Configuration(BaseModel):
                 "placeholder": "Enter your Google API key for Gemini models...",
                 "description": (
                     "Provide a Google API key to be used when selecting Gemini models."
+                ),
+                "default": {},
+            }
+        },
+    )
+
+    rag_google_api_key: dict[str, str] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your Google API key for RAG operations...",
+                "description": (
+                    "Specify a separate Google API key to be used for RAG tasks "
+                    "such as document search, summarization, or contextual QA."
                 ),
                 "default": {},
             }
@@ -590,6 +628,13 @@ class Configuration(BaseModel):
             return AgentMode.RAG
         return v
 
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _validate_llm_provider(cls, v):
+        if v is None or v == "":
+            return LLMProvider.OPENAI
+        return v
+
     @field_validator("rag_retrieval_mode", mode="before")
     @classmethod
     def _validate_rag_retrieval_mode(cls, v):
@@ -637,26 +682,34 @@ class Configuration(BaseModel):
 
     @model_validator(mode="after")
     def validate_google_api_key_for_gemini(self):
-        """Ensure Google API key is provided when using Gemini models."""
-        model_fields = [
-            self.summarization_model,
-            self.research_model,
-            self.compression_model,
-            self.final_report_model,
-        ]
+        """Ensure Google API key is provided when using Google provider."""
+        if self.agent_openai_api_key == {} and self.agent_google_api_key == {}:
+            return self
 
-        for model_name in model_fields:
-            if not model_name:
-                continue
-            is_gemini = "google" in model_name.lower() or "gemini" in model_name.lower()
-            if is_gemini:
-                google_key = self.agent_google_api_key
-                if not google_key or not google_key.get("keyId"):
-                    raise ValueError(
-                        f"Google API key is required when using Gemini model '{model_name}'. "
-                        "Please provide agent_google_api_key with a valid keyId."
-                    )
+        if self.llm_provider == LLMProvider.GOOGLE:
+            google_key = self.agent_google_api_key
+            if not google_key or not google_key.get("keyId"):
+                raise ValueError(
+                    "Google API key is required when using Google Gemini provider. "
+                    "Please provide agent_google_api_key with a valid keyId."
+                )
         return self
+
+    @model_validator(mode="after")
+    def validate_openai_api_key(self):
+        """Ensure OpenAI API key is provided when using OpenAI provider."""
+        if self.agent_openai_api_key == {} and self.agent_google_api_key == {}:
+            return self
+
+        if self.llm_provider == LLMProvider.OPENAI:
+            openai_key = self.agent_openai_api_key
+            if not openai_key or not openai_key.get("keyId"):
+                raise ValueError(
+                    "OpenAI API key is required when using OpenAI provider. "
+                    "Please provide agent_openai_api_key with a valid keyId."
+                )
+        return self
+
 
     @classmethod
     def from_runnable_config(

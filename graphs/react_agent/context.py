@@ -194,6 +194,22 @@ class Context(BaseModel):
         },
     )
 
+    rag_google_api_key: dict[str, str] | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your Google API key for RAG operations...",
+                "description": (
+                    "Specify a separate Google API key to be used for RAG tasks "
+                    "if using Gemini models."
+                ),
+                "default": {},
+            }
+        },
+    )
+
     model_name: str | None = Field(
         default="openai:gpt-4o-mini",
         metadata={
@@ -472,7 +488,9 @@ class Context(BaseModel):
     def validate_google_api_key_for_gemini(self):
         """Ensure Google API key is provided when using Gemini models."""
         model_name = self.model_name or ""
-        is_gemini_model = "google" in model_name.lower() or "gemini" in model_name.lower()
+        is_gemini_model = model_name.lower().startswith(
+            "google"
+        ) or model_name.lower().startswith("gemini")
 
         if is_gemini_model:
             google_key = self.agent_google_api_key
@@ -480,5 +498,20 @@ class Context(BaseModel):
                 raise ValueError(
                     "Google API key is required when using Gemini models. "
                     "Please provide agent_google_api_key with a valid keyId."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_openai_api_key(self):
+        """Ensure OpenAI API key is provided when using OpenAI models."""
+        model_name = self.model_name or ""
+        # "check for model name starting with openai"
+        is_openai = model_name.lower().startswith("openai")
+        if is_openai:
+            openai_key = self.agent_openai_api_key
+            if not openai_key or not openai_key.get("keyId"):
+                raise ValueError(
+                    "OpenAI API key is required when using OpenAI models. "
+                    "Please provide agent_openai_api_key with a valid keyId."
                 )
         return self

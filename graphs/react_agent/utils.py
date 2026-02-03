@@ -25,30 +25,50 @@ def get_today_str() -> str:
     return f"{now:%a %b} {now.day}, {now:%Y}"
 
 
-def get_provider_from_model(model_name: str | None) -> str:
-    """Extract provider from model name string.
+async def get_api_key_for_model(model_name: str, config: RunnableConfig) -> str | None:
+    """Get the appropriate API key based on the model provider.
 
     Args:
-        model_name: Model name in format "provider:model" (e.g., "openai:gpt-4o", "google_genai:gemini-2.5-pro")
+        model_name: Model name in format "provider:model" (e.g., "openai:gpt-4o")
+        config: The runnable config containing key information
 
     Returns:
-        Provider name: "openai", "google", or "openai" as default
+        The decrypted API key or None if not found
     """
-    if not model_name:
-        return "openai"
+    model_name_lower = model_name.lower()
+    model_prefixes = ["openai", "anthropic", "google"]
+    provider = next(
+        (prefix for prefix in model_prefixes if model_name_lower.startswith(prefix)), None
+    )
+    if not provider:
+        return None
 
-    if model_name.startswith("google_genai:") or model_name.startswith("google:"):
-        return "google"
+    # Select the appropriate API key based on provider
+    if provider == "google":
+        key_data = config.get("configurable", {}).get("agent_google_api_key", {})
+    else:
+        key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
 
-    # Default to openai for openai:, azure_openai:, or any other prefix
-    return "openai"
+    if not key_data:
+        return None
+
+    key = await get_api_key(config, key_data.get("keyId"))
+    return key
 
 
-async def get_api_key_for_model(config: RunnableConfig) -> str | None:
-    """Get the appropriate API key based on the selected model provider.
+async def get_api_key(
+    config: RunnableConfig,
+    key_id: str,
+    provider: str | None = None,
+    name: str | None = None,
+) -> str | None:
+    """Get API key from environment or config by key name.
 
     Args:
-        config: The runnable config containing model and key information
+        config: The runnable config containing auth information
+        key_id: The ID of the key to reveal
+        provider: Optional provider name for query params
+        name: Optional name for query params
 
     Returns:
         The decrypted API key or None if not found
@@ -59,28 +79,23 @@ async def get_api_key_for_model(config: RunnableConfig) -> str | None:
         .get("permissions")[0]
         .replace("authz:", "")
     )
-
-    # Determine which API key to use based on model provider
-    model_name = config.get("configurable", {}).get("model_name")
-    provider = get_provider_from_model(model_name)
-
-    # Select the appropriate key field based on provider
-    if provider == "google":
-        key_data = config.get("configurable", {}).get("agent_google_api_key", {})
-    else:
-        key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
-
-    if not authorization or not key_data:
+    if not authorization or not key_id:
         return None
 
-    search_endpoint = f"{RAG_URL}/keys/{key_data.get('keyId')}/reveal"
+    search_params = f"provider={provider}&name={name}" if provider and name else ""
+    search_endpoint = (
+        f"{RAG_URL}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
+    )
     headers = {"authorization": authorization, "Accept": "text/plain"}
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(search_endpoint, headers=headers) as search_response:
-                search_response.raise_for_status()
-                key = await search_response.text()
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(search_endpoint, headers=headers) as search_response,
+        ):
+            search_response.raise_for_status()
+            key = await search_response.text()
+
         return key
     except Exception as e:
         print("Key exception", e)

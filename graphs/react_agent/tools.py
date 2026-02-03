@@ -56,7 +56,17 @@ async def create_rag_tool(rag_url: str):
                     # Extract optional parameters
                     system_prompt = configurable.get("rag_system_prompt")
                     retrieval_mode = configurable.get("rag_retrieval_mode")
-                    key_data = configurable.get("rag_openai_api_key", {})
+
+                    # Select appropriate RAG API key based on model provider
+                    model_name = configurable.get("model_name", "")
+                    is_google_model = model_name.lower().startswith(
+                        "google"
+                    ) or model_name.lower().startswith("gemini")
+
+                    if is_google_model:
+                        key_data = configurable.get("rag_google_api_key", {})
+                    else:
+                        key_data = configurable.get("rag_openai_api_key", {})
 
                 except (KeyError, IndexError, AttributeError) as e:
                     error = RagToolError(
