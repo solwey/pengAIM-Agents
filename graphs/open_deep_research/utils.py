@@ -73,7 +73,12 @@ async def rag_search(
     )
     system_prompt = config.get("configurable", {}).get("rag_system_prompt") or None
     retrieval_mode = config.get("configurable", {}).get("rag_retrieval_mode") or None
-    key_data = config.get("configurable", {}).get("rag_openai_api_key", {})
+
+    llm_provider = config.get("configurable", {}).get("llm_provider", "openai")
+    if llm_provider == "google":
+        key_data = config.get("configurable", {}).get("rag_google_api_key", {})
+    else:
+        key_data = config.get("configurable", {}).get("rag_openai_api_key", {})
 
     search_endpoint = f"{RAG_URL}/query"
     body = {
@@ -749,6 +754,9 @@ MODEL_TOKEN_LIMITS = {
     "google:gemini-1.5-pro": 2097152,
     "google:gemini-1.5-flash": 1048576,
     "google:gemini-pro": 32768,
+    "google_genai:gemini-2.5-pro": 1048576,
+    "google_genai:gemini-2.5-flash": 1048576,
+    "google_genai:gemini-2.5-flash-lite": 1048576,
     "cohere:command-r-plus": 128000,
     "cohere:command-r": 128000,
     "cohere:command-light": 4096,
@@ -838,15 +846,23 @@ def _non_empty(v: str | None) -> str | None:
 
 
 async def get_api_key_for_model(model_name: str, config: RunnableConfig):
-    model_name = model_name.lower()
+    model_name_lower = model_name.lower()
     model_prefixes = ["openai", "anthropic", "google"]
-    key_name = next(
-        (prefix for prefix in model_prefixes if model_name.startswith(prefix)), None
+    provider = next(
+        (prefix for prefix in model_prefixes if model_name_lower.startswith(prefix)), None
     )
-    if not key_name:
+    if not provider:
         return None
 
-    key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
+    # Select the appropriate API key based on provider
+    if provider == "google":
+        key_data = config.get("configurable", {}).get("agent_google_api_key", {})
+    else:
+        key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
+
+    if not key_data:
+        return None
+
     key = await get_api_key(config, key_data.get("keyId"))
     return key
 

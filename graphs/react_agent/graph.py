@@ -43,7 +43,7 @@ async def call_model(
     tools = list(tools_by_name.values())
 
     # Resolve API key for the selected model
-    api_key = await get_api_key_for_model(config)
+    api_key = await get_api_key_for_model(cfg.model_name or "", config)
 
     model_name = cfg.model_name
     if AZURE_OPENAI_ENDPOINT:

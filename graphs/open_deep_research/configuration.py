@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from graphs.shared import (
     DEFAULT_QUESTION_CATEGORIES,
@@ -19,6 +19,13 @@ from graphs.shared import (
 class AgentMode(Enum):
     RAG = "rag"
     ONLINE = "online"
+
+
+class LLMProvider(Enum):
+    """Enumeration of available LLM providers."""
+
+    OPENAI = "openai"
+    GOOGLE = "google"
 
 
 class SearchAPI(Enum):
@@ -63,6 +70,21 @@ class Configuration(BaseModel):
         },
     )
 
+    llm_provider: LLMProvider = Field(
+        default=LLMProvider.OPENAI,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": LLMProvider.OPENAI.value,
+                "description": "Select the LLM Provider. This determines which API key will be used.",
+                "options": [
+                    {"label": "OpenAI", "value": LLMProvider.OPENAI.value},
+                    {"label": "Google Gemini", "value": LLMProvider.GOOGLE.value},
+                ],
+            }
+        },
+    )
+
     agent_openai_api_key: dict[str, str] = Field(
         default={},
         metadata={
@@ -88,6 +110,37 @@ class Configuration(BaseModel):
                 "description": (
                     "Specify a separate OpenAI API key to be used for RAG tasks "
                     "such as document search, summarization, or contextual QA. "
+                ),
+                "default": {},
+            }
+        },
+    )
+
+    agent_google_api_key: dict[str, str] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your Google API key for Gemini models...",
+                "description": (
+                    "Provide a Google API key to be used when selecting Gemini models."
+                ),
+                "default": {},
+            }
+        },
+    )
+
+    rag_google_api_key: dict[str, str] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your Google API key for RAG operations...",
+                "description": (
+                    "Specify a separate Google API key to be used for RAG tasks "
+                    "such as document search, summarization, or contextual QA."
                 ),
                 "default": {},
             }
@@ -261,6 +314,9 @@ class Configuration(BaseModel):
                     {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
                     {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
                 "description": "Model for summarizing research results from Tavily search results",
             }
@@ -300,6 +356,9 @@ class Configuration(BaseModel):
                     {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
                     {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
                 "description": "Model for conducting research. NOTE: Make sure your Researcher Model supports the selected search API.",
             }
@@ -327,6 +386,9 @@ class Configuration(BaseModel):
                     {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
                     {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
                 "description": "Model for compressing research findings from sub-agents. NOTE: Make sure your Compression Model supports the selected search API.",
             }
@@ -354,6 +416,9 @@ class Configuration(BaseModel):
                     {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
                     {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
                     {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
                 ],
                 "description": "Model for writing the final report from all research findings",
             }
@@ -563,6 +628,13 @@ class Configuration(BaseModel):
             return AgentMode.RAG
         return v
 
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _validate_llm_provider(cls, v):
+        if v is None or v == "":
+            return LLMProvider.OPENAI
+        return v
+
     @field_validator("rag_retrieval_mode", mode="before")
     @classmethod
     def _validate_rag_retrieval_mode(cls, v):
@@ -607,6 +679,37 @@ class Configuration(BaseModel):
                     raise TypeError("Each item in 'steps' must be StepConfig or dict")
             return out
         return v
+
+    @model_validator(mode="after")
+    def validate_google_api_key_for_gemini(self):
+        """Ensure Google API key is provided when using Google provider."""
+        if self.agent_openai_api_key == {} and self.agent_google_api_key == {}:
+            return self
+
+        if self.llm_provider == LLMProvider.GOOGLE:
+            google_key = self.agent_google_api_key
+            if not google_key or not google_key.get("keyId"):
+                raise ValueError(
+                    "Google API key is required when using Google Gemini provider. "
+                    "Please provide agent_google_api_key with a valid keyId."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_openai_api_key(self):
+        """Ensure OpenAI API key is provided when using OpenAI provider."""
+        if self.agent_openai_api_key == {} and self.agent_google_api_key == {}:
+            return self
+
+        if self.llm_provider == LLMProvider.OPENAI:
+            openai_key = self.agent_openai_api_key
+            if not openai_key or not openai_key.get("keyId"):
+                raise ValueError(
+                    "OpenAI API key is required when using OpenAI provider. "
+                    "Please provide agent_openai_api_key with a valid keyId."
+                )
+        return self
+
 
     @classmethod
     def from_runnable_config(
