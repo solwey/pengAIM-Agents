@@ -99,7 +99,11 @@ class AssistantSearchRequest(BaseModel):
         False,
         description="If true, include soft-deleted assistants in results.",
     )
-    limit: int | None = Field(20, le=100, ge=1, description="Maximum results")
+    status: str | None = Field(
+        None,
+        description="Filter by status: 'active' (not deleted), 'deleted' (soft-deleted), or None for all.",
+    )
+    limit: int | None = Field(20, le=1000, ge=1, description="Maximum results")
     offset: int | None = Field(0, ge=0, description="Results offset")
     metadata: dict[str, Any] | None = Field(
         {}, description="Metadata to use for searching and filtering assistants."
