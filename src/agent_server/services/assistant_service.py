@@ -278,13 +278,18 @@ class AssistantService:
         """Search assistants with filters"""
         metadata = request.metadata or {}
         req_team_id = metadata.pop("team_id", None)
-        include_deleted = metadata.pop("include_deleted", "false") == "true"
+        # Support both request field and legacy metadata for include_deleted
+        include_deleted = request.include_deleted or metadata.pop("include_deleted", "false") == "true"
 
         team_id = req_team_id if req_team_id and user.is_superadmin else user.team_id
 
         stmt = select(AssistantORM).where(AssistantORM.team_id.in_([team_id, "system"]))
 
-        if not include_deleted:
+        if request.status == "active":
+            stmt = stmt.where(AssistantORM.deleted_at.is_(None))
+        elif request.status == "deleted":
+            stmt = stmt.where(AssistantORM.deleted_at.is_not(None))
+        elif not include_deleted:
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
 
         # Apply filters
@@ -321,10 +326,16 @@ class AssistantService:
     ) -> int:
         """Count assistants with filters"""
         metadata = request.metadata or {}
-        include_deleted = metadata.pop("include_deleted", "false") == "true"
+        # Support both request field and legacy metadata for include_deleted
+        include_deleted = request.include_deleted or metadata.pop("include_deleted", "false") == "true"
 
         stmt = select(func.count()).where(AssistantORM.team_id == user.team_id)
-        if not include_deleted:
+
+        if request.status == "active":
+            stmt = stmt.where(AssistantORM.deleted_at.is_(None))
+        elif request.status == "deleted":
+            stmt = stmt.where(AssistantORM.deleted_at.is_not(None))
+        elif not include_deleted:
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
 
         if request.name:
