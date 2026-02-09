@@ -60,7 +60,13 @@ async def call_model(
         model = model.bind_tools(tools)
 
     if cfg.mode == AgentMode.WEB_SEARCH:
-        model = model.bind_tools([{"type": "web_search"}])
+        model_name_lower = (cfg.model_name or "").lower()
+        is_google_model = model_name_lower.startswith("google") or model_name_lower.startswith("gemini")
+
+        if is_google_model:
+            model = model.bind_tools([{"google_search": {}}])
+        else:
+            model = model.bind_tools([{"type": "web_search"}])
 
     final_system_prompt = (
             (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
