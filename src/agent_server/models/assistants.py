@@ -49,6 +49,9 @@ class Assistant(BaseModel):
         default=None,
         description="Soft-delete timestamp; when set, the assistant is considered deleted",
     )
+    enabled: bool = Field(
+        default=True, description="Whether the assistant is enabled and can be used"
+    )
     type: str | None = Field(
         default=None,
         description="Assistant type for filtering (e.g., account, library)"

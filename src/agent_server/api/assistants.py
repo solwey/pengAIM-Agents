@@ -109,6 +109,21 @@ async def delete_assistant(
     return await service.delete_assistant(assistant_id, user)
 
 
+@router.patch(
+    "/assistants/{assistant_id}/enabled",
+    response_model=Assistant,
+    response_model_by_alias=False,
+)
+async def toggle_assistant_enabled(
+    assistant_id: str,
+    enabled: bool = Body(..., embed=True, description="Enable or disable the assistant"),
+    user: User = Depends(get_current_user),
+    service: AssistantService = Depends(get_assistant_service),
+):
+    """Enable or disable an assistant"""
+    return await service.toggle_assistant_enabled(assistant_id, enabled, user)
+
+
 @router.post(
     "/assistants/{assistant_id}/latest",
     response_model=Assistant,

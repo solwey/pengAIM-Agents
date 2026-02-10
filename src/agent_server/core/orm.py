@@ -52,6 +52,9 @@ class Assistant(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
     type: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Indexes for performance
@@ -59,6 +62,7 @@ class Assistant(Base):
         Index("idx_assistant_user", "team_id"),
         Index("idx_assistant_user_assistant", "team_id", "assistant_id", unique=True),
         Index("idx_assistant_deleted_at", "deleted_at"),
+        Index("idx_assistant_enabled", "enabled"),
         Index("idx_assistant_type", "type"),
     )
 

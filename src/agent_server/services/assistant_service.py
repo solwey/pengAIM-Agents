@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+import structlog
 from fastapi import Depends, HTTPException
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,8 @@ from ..core.orm import AssistantVersion as AssistantVersionORM
 from ..core.orm import get_session
 from ..models import Assistant, AssistantCreate, AssistantUpdate, User
 from ..services.langgraph_service import LangGraphService, get_langgraph_service
+
+logger = structlog.get_logger(__name__)
 
 
 def to_pydantic(row: AssistantORM) -> Assistant:
@@ -385,6 +388,7 @@ class AssistantService:
 
         req_team_id = metadata.pop("team_id", None)
         restore = str(metadata.pop("restore", False)).lower() == "true"
+        enabled = metadata.pop("enabled", None)
 
         # Keep config and context up to date with one another
         if config.get("configurable"):
@@ -433,23 +437,30 @@ class AssistantService:
         self.session.add(assistant_version_orm)
         await self.session.commit()
 
+        # Prepare update values
+        update_values = {
+            "name": new_version_details["name"],
+            "description": new_version_details["description"],
+            "graph_id": new_version_details["graph_id"],
+            "config": new_version_details["config"],
+            "context": new_version_details["context"],
+            "version": new_version,
+            "updated_at": now,
+            "metadata_dict": merged_metadata,
+            "type": request.type if request.type is not None else assistant.type,
+        }
+
+        # Add enabled if provided in metadata
+        if enabled is not None:
+            update_values["enabled"] = bool(enabled)
+
         assistant_update = (
             update(AssistantORM)
             .where(
                 AssistantORM.assistant_id == assistant_id,
                 AssistantORM.team_id == team_id,
             )
-            .values(
-                name=new_version_details["name"],
-                description=new_version_details["description"],
-                graph_id=new_version_details["graph_id"],
-                config=new_version_details["config"],
-                context=new_version_details["context"],
-                version=new_version,
-                updated_at=now,
-                metadata_dict=merged_metadata,
-                type=request.type if request.type is not None else assistant.type,
-            )
+            .values(**update_values)
         )
         await self.session.execute(assistant_update)
         await self.session.commit()
@@ -472,6 +483,36 @@ class AssistantService:
         await self.session.commit()
 
         return {"status": "deleted"}
+
+    async def toggle_assistant_enabled(
+        self, assistant_id: str, enabled: bool, user: User
+    ) -> Assistant:
+        """Enable or disable an assistant"""
+        stmt = select(AssistantORM).where(
+            AssistantORM.assistant_id == assistant_id,
+            AssistantORM.team_id == user.team_id,
+            AssistantORM.deleted_at.is_(None),
+        )
+        assistant = await self.session.scalar(stmt)
+
+        if not assistant:
+            raise HTTPException(404, f"Assistant '{assistant_id}' not found")
+
+        assistant.enabled = enabled
+        assistant.updated_at = datetime.now(UTC)
+        await self.session.commit()
+        await self.session.refresh(assistant)
+
+        logger.info(
+            f"Assistant {'enabled' if enabled else 'disabled'}",
+            assistant_id=assistant_id,
+            assistant_name=assistant.name,
+            user_id=user.id,
+            team_id=user.team_id,
+            enabled=enabled,
+        )
+
+        return self._to_pydantic_for_user(assistant, user)
 
     async def set_assistant_latest(
         self, assistant_id: str, version: int, user: User
