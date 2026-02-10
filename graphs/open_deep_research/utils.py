@@ -171,13 +171,14 @@ async def firecrawl_search(
                 or "No description"
             )
             raw_md = getattr(item, "markdown", "")
+            content_for_analysis = raw_md if raw_md else summary_text
 
             search_results.append(
                 {
                     "title": title,
                     "content": summary_text,
                     "url": url,
-                    "raw_content": raw_md,
+                    "raw_content": content_for_analysis,
                     "query": query,
                 }
             )
@@ -500,6 +501,8 @@ async def get_search_tool(search_api: SearchAPI):
             "name": "web_search",
         }
         return [search_tool]
+    elif search_api == SearchAPI.GOOGLE:
+        return [{"google_search": {}}]
     elif search_api == SearchAPI.NONE:
         # No search functionality configured
         return []
@@ -515,8 +518,9 @@ async def get_all_tools(config: RunnableConfig):
       - RAG: Core only (ResearchComplete, think_tool). No web search
       - ONLINE: Core + Web search (per SearchAPI).
 
-    Note: RAG/vector tools should be mounted by the calling code in RAG mode.
-    This function intentionally avoids adding *any* network-capable tools when use rag mode.
+    Native search API specs (Google, OpenAI, Anthropic) are only included when
+    the research_model provider matches the search_api provider. This prevents
+    sending provider-specific dicts to incompatible model APIs.
     """
     tools: list[Any] = [tool(ResearchComplete), think_tool]
 
@@ -530,8 +534,67 @@ async def get_all_tools(config: RunnableConfig):
     # ONLINE mode: include Web search
     configurable = Configuration.from_runnable_config(config)
     search_api = SearchAPI(get_config_value(configurable.search_api))
-    search_tools = await get_search_tool(search_api)
-    tools.extend(search_tools)
+    model_provider = get_provider_from_model_name(configurable.research_model)
+
+    if search_api in (SearchAPI.TAVILY, SearchAPI.FIRECRAWL):
+        # Regular BaseTool instances — always safe regardless of model provider
+        search_tools = await get_search_tool(search_api)
+        tools.extend(search_tools)
+        logging.info(
+            "ODR get_all_tools: Added %s search tool(s). model=%s",
+            search_api.value, configurable.research_model,
+        )
+
+    elif search_api == SearchAPI.GOOGLE:
+        if model_provider == "google":
+            tools.append({"google_search": {}})
+            logging.info(
+                "ODR get_all_tools: Added Google native search. model=%s",
+                configurable.research_model,
+            )
+        else:
+            logging.warning(
+                "ODR get_all_tools: search_api=GOOGLE but model provider is '%s' (model=%s). "
+                "Skipping Google native search — use a Google model or switch search_api.",
+                model_provider, configurable.research_model,
+            )
+
+    elif search_api == SearchAPI.OPENAI:
+        if model_provider == "openai":
+            tools.append({"type": "web_search_preview"})
+            logging.info(
+                "ODR get_all_tools: Added OpenAI native search. model=%s",
+                configurable.research_model,
+            )
+        else:
+            logging.warning(
+                "ODR get_all_tools: search_api=OPENAI but model provider is '%s' (model=%s). "
+                "Skipping OpenAI native search — use an OpenAI model or switch search_api.",
+                model_provider, configurable.research_model,
+            )
+
+    elif search_api == SearchAPI.ANTHROPIC:
+        if model_provider == "anthropic":
+            tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
+            logging.info(
+                "ODR get_all_tools: Added Anthropic native search. model=%s",
+                configurable.research_model,
+            )
+        else:
+            logging.warning(
+                "ODR get_all_tools: search_api=ANTHROPIC but model provider is '%s' (model=%s). "
+                "Skipping Anthropic native search — use an Anthropic model or switch search_api.",
+                model_provider, configurable.research_model,
+            )
+
+    elif search_api == SearchAPI.NONE:
+        logging.debug("ODR get_all_tools: search_api=NONE, no search tools added.")
+
+    logging.debug(
+        "ODR get_all_tools: Returning %d tools. types=%s",
+        len(tools),
+        [getattr(t, "name", None) or str(t) for t in tools],
+    )
 
     return tools
 
@@ -601,6 +664,40 @@ def openai_websearch_called(response):
             return True
 
     return False
+
+
+def gemini_websearch_called(response):
+    """Detect if Gemini's native Google Search grounding was used in the response.
+
+    When google_search is configured as a grounding tool, Gemini places search
+    results in response_metadata.grounding_metadata rather than generating
+    explicit tool_calls. This function checks for the presence of that metadata.
+
+    Args:
+        response: The AIMessage response object from Gemini's API
+
+    Returns:
+        True if Google Search grounding was used, False otherwise
+    """
+    try:
+        grounding_metadata = response.response_metadata.get("grounding_metadata")
+        if not grounding_metadata:
+            return False
+
+        grounding_chunks = grounding_metadata.get("grounding_chunks")
+        if grounding_chunks:
+            return True
+
+        web_search_queries = grounding_metadata.get("web_search_queries")
+        if web_search_queries:
+            return True
+
+        # grounding_metadata exists but has no chunks/queries — still counts
+        # as the tool was invoked even if no results were returned
+        return True
+
+    except (AttributeError, TypeError):
+        return False
 
 
 ##########################
@@ -837,6 +934,28 @@ def get_config_value(value):
         return value
     else:
         return value.value
+
+
+def get_provider_from_model_name(model_name: str) -> str | None:
+    """Extract the normalized provider prefix from a model name string.
+
+    Args:
+        model_name: Model name in format "provider:model"
+            (e.g., "openai:gpt-4o", "google_genai:gemini-2.5-pro")
+
+    Returns:
+        "openai", "google", "anthropic", or None if unrecognized.
+    """
+    if not model_name:
+        return None
+    lower = model_name.lower()
+    if lower.startswith("openai:") or lower.startswith("azure_openai:"):
+        return "openai"
+    if lower.startswith("google_genai:") or lower.startswith("google:"):
+        return "google"
+    if lower.startswith("anthropic:"):
+        return "anthropic"
+    return None
 
 
 def _non_empty(v: str | None) -> str | None:

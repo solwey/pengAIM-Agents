@@ -56,6 +56,7 @@ from graphs.open_deep_research.state import (
 from graphs.open_deep_research.utils import (
     anthropic_websearch_called,
     apply_placeholders,
+    gemini_websearch_called,
     get_agent_mode,
     get_all_tools,
     get_api_key_for_model,
@@ -1030,9 +1031,9 @@ async def supervisor(
         base_tools = [ConductResearch, ResearchComplete, think_tool]
 
     dynamic_tools = await get_all_tools(config)
-    lead_researcher_tools = base_tools + dynamic_tools
+    supervisor_dynamic = [t for t in dynamic_tools if not isinstance(t, dict)]
+    lead_researcher_tools = base_tools + supervisor_dynamic
 
-    # Deduplicate tools by name (required for Gemini API compatibility)
     seen_names: set[str] = set()
     unique_tools = []
     for t in lead_researcher_tools:
@@ -1041,6 +1042,16 @@ async def supervisor(
             seen_names.add(name)
             unique_tools.append(t)
     lead_researcher_tools = unique_tools
+
+    native_search_filtered = len(dynamic_tools) - len(supervisor_dynamic)
+    logger.debug(
+        "supervisor: Binding %d tools (base=%d, dynamic=%d, native_search_filtered=%d). "
+        "search_api=%s, model=%s, tool_names=%s",
+        len(lead_researcher_tools), len(base_tools), len(supervisor_dynamic),
+        native_search_filtered,
+        configurable.search_api.value, configurable.research_model,
+        [getattr(t, "name", None) or str(t) for t in lead_researcher_tools],
+    )
 
     # Configure model with tools, retry logic, and model settings
     research_model = (
@@ -1370,6 +1381,12 @@ async def researcher(
         search_tool=configurable.search_api.value,
     )
 
+    logger.debug(
+        "researcher: Binding %d tools. search_api=%s, model=%s, tool_names=%s",
+        len(tools), configurable.search_api.value, configurable.research_model,
+        [getattr(t, "name", None) or str(t) for t in tools],
+    )
+
     # Configure model with tools, retry logic, and settings
     research_model = (
         configurable_model.bind_tools(tools)
@@ -1442,9 +1459,11 @@ async def researcher_tools(
 
     # Early exit if no tool calls were made (including native web search)
     has_tool_calls = bool(most_recent_message.tool_calls)
-    has_native_search = openai_websearch_called(
-        most_recent_message
-    ) or anthropic_websearch_called(most_recent_message)
+    has_native_search = (
+        openai_websearch_called(most_recent_message)
+        or anthropic_websearch_called(most_recent_message)
+        or gemini_websearch_called(most_recent_message)
+    )
 
     agent_mode = get_agent_mode(config)
 
@@ -1461,6 +1480,20 @@ async def researcher_tools(
 
     if not has_tool_calls and not has_native_search:
         return Command(goto="compress_research")
+
+    if has_native_search and not has_tool_calls:
+        logger.debug(
+            "researcher_tools: Native search detected without tool_calls. "
+            "Results are in model response. iteration=%d/%d",
+            state.get("tool_call_iterations", 0),
+            configurable.max_react_tool_calls,
+        )
+        exceeded_iterations = (
+            state.get("tool_call_iterations", 0) >= configurable.max_react_tool_calls
+        )
+        if exceeded_iterations:
+            return Command(goto="compress_research")
+        return Command(goto="researcher")
 
     # Step 2: Handle other tool calls
     tools = await get_all_tools(config)
