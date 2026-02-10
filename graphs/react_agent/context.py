@@ -113,6 +113,14 @@ class AgentMode(Enum):
     MODEL = "model"
 
 
+class SearchAPI(Enum):
+    """Enumeration of available search API providers for web search mode."""
+
+    OPENAI = "openai"
+    GOOGLE = "google"
+    NONE = "none"
+
+
 class AgentInputState(TypedDict):
     messages: list[AnyMessage]
 
@@ -145,6 +153,31 @@ class Context(BaseModel):
                     {"label": "Rag only", "value": AgentMode.RAG.value},
                     {"label": "Online only", "value": AgentMode.WEB_SEARCH.value},
                     {"label": "Model knowledge only", "value": AgentMode.MODEL.value},
+                ],
+            }
+        },
+    )
+
+    search_api: SearchAPI = Field(
+        default=SearchAPI.OPENAI,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": SearchAPI.OPENAI.value,
+                "description": (
+                    "Search API to use for web search mode. "
+                    "Make sure the selected search API is compatible with your model."
+                ),
+                "options": [
+                    {
+                        "label": "OpenAI Native Web Search",
+                        "value": SearchAPI.OPENAI.value,
+                    },
+                    {
+                        "label": "Google Native Web Search",
+                        "value": SearchAPI.GOOGLE.value,
+                    },
+                    {"label": "None", "value": SearchAPI.NONE.value},
                 ],
             }
         },
@@ -420,6 +453,13 @@ class Context(BaseModel):
     def validate_mode(cls, v):
         if v is None or v == "":
             return AgentMode.RAG
+        return v
+
+    @field_validator("search_api", mode="before")
+    @classmethod
+    def validate_search_api(cls, v):
+        if v is None or v == "":
+            return SearchAPI.OPENAI
         return v
 
     @field_validator("model_name", mode="before")

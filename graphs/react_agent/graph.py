@@ -17,7 +17,7 @@ from graphs.react_agent.context import (
     AgentInputState,
     AgentOutputState,
     AgentState,
-    Context, AgentMode,
+    Context, AgentMode, SearchAPI,
 )
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -59,13 +59,10 @@ async def call_model(
     if tools:
         model = model.bind_tools(tools)
 
-    if cfg.mode == AgentMode.WEB_SEARCH:
-        model_name_lower = (cfg.model_name or "").lower()
-        is_google_model = model_name_lower.startswith("google") or model_name_lower.startswith("gemini")
-
-        if is_google_model:
+    if cfg.mode == AgentMode.WEB_SEARCH and cfg.search_api != SearchAPI.NONE:
+        if cfg.search_api == SearchAPI.GOOGLE:
             model = model.bind_tools([{"google_search": {}}])
-        else:
+        elif cfg.search_api == SearchAPI.OPENAI:
             model = model.bind_tools([{"type": "web_search"}])
 
     final_system_prompt = (
