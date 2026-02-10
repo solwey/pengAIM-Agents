@@ -118,6 +118,8 @@ class SearchAPI(Enum):
 
     OPENAI = "openai"
     GOOGLE = "google"
+    TAVILY = "tavily"
+    FIRECRAWL = "firecrawl"
     NONE = "none"
 
 
@@ -176,6 +178,14 @@ class Context(BaseModel):
                     {
                         "label": "Google Native Web Search",
                         "value": SearchAPI.GOOGLE.value,
+                    },
+                    {
+                        "label": "Tavily",
+                        "value": SearchAPI.TAVILY.value,
+                    },
+                    {
+                        "label": "FireCrawl",
+                        "value": SearchAPI.FIRECRAWL.value,
                     },
                     {"label": "None", "value": SearchAPI.NONE.value},
                 ],

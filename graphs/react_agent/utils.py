@@ -1,13 +1,20 @@
+import json
+import logging
 import os
 from datetime import datetime
+from typing import Annotated
 
 import aiohttp
+from firecrawl import AsyncFirecrawlApp
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool, tool
+from tavily import AsyncTavilyClient
 
-from graphs.react_agent.context import AgentMode, Context
+from graphs.react_agent.context import AgentMode, Context, SearchAPI
 from graphs.react_agent.mcp_tools import load_mcp_tools
 from graphs.react_agent.tools import create_rag_tool
+
+logger = logging.getLogger(__name__)
 
 RAG_URL = os.getenv("RAG_API_URL", "")
 
@@ -23,6 +30,28 @@ def get_today_str() -> str:
     """
     now = datetime.now()
     return f"{now:%a %b} {now.day}, {now:%Y}"
+
+
+def get_provider_from_model_name(model_name: str) -> str | None:
+    """Extract the normalized provider prefix from a model name string.
+
+    Args:
+        model_name: Model name in format "provider:model"
+            (e.g., "openai:gpt-4o", "google_genai:gemini-2.5-pro")
+
+    Returns:
+        "openai", "google", "anthropic", or None if unrecognized.
+    """
+    if not model_name:
+        return None
+    lower = model_name.lower()
+    if lower.startswith("openai:") or lower.startswith("azure_openai:"):
+        return "openai"
+    if lower.startswith("google_genai:") or lower.startswith("google:"):
+        return "google"
+    if lower.startswith("anthropic:"):
+        return "anthropic"
+    return None
 
 
 async def get_api_key_for_model(model_name: str, config: RunnableConfig) -> str | None:
@@ -126,6 +155,99 @@ def _extract_authorization(config: RunnableConfig | None) -> str | None:
     return None
 
 
+def _create_tavily_search_tool():
+    """Create a Tavily web search tool for the React agent."""
+
+    @tool(
+        name_or_callable="web_search",
+        description=(
+            "Search the web for current information using Tavily. "
+            "Useful for answering questions about current events, "
+            "recent data, or facts that require up-to-date information."
+        ),
+    )
+    async def tavily_search(
+        query: Annotated[str, "The search query to find relevant information"],
+        config: RunnableConfig = None,
+    ) -> str:
+        api_key = await get_api_key(config, "key_id", "tavily", "root")
+        if not api_key:
+            return json.dumps({"error": "Tavily API key not configured"})
+
+        client = AsyncTavilyClient(api_key=api_key)
+        results = await client.search(
+            query, max_results=5, include_raw_content=False
+        )
+
+        formatted = "Search results:\n\n"
+        for i, result in enumerate(results.get("results", [])):
+            formatted += f"--- SOURCE {i + 1}: {result.get('title', 'No title')} ---\n"
+            formatted += f"URL: {result.get('url', '')}\n"
+            formatted += f"Content: {result.get('content', 'No content')}\n\n"
+
+        return formatted if results.get("results") else "No search results found."
+
+    return tavily_search
+
+
+def _create_firecrawl_search_tool():
+    """Create a FireCrawl web search tool for the React agent."""
+
+    @tool(
+        name_or_callable="web_search",
+        description=(
+            "Search the web for current information using FireCrawl. "
+            "Useful for answering questions about current events, "
+            "recent data, or facts that require up-to-date information."
+        ),
+    )
+    async def firecrawl_search(
+        query: Annotated[str, "The search query to find relevant information"],
+        config: RunnableConfig = None,
+    ) -> str:
+        api_key = await get_api_key(config, "api_key", "firecrawl", "root")
+        if not api_key:
+            return json.dumps({"error": "FireCrawl API key not configured"})
+
+        app = AsyncFirecrawlApp(api_key=api_key)
+        response = await app.search(
+            query,
+            limit=5,
+            scrape_options={
+                "formats": ["markdown"],
+                "only_main_content": True,
+                "remove_base64_images": True,
+            },
+        )
+
+        formatted = "Search results:\n\n"
+        items = getattr(response, "web", []) or []
+        if not items:
+            return "No search results found."
+
+        for i, item in enumerate(items):
+            title = getattr(item, "title", "") or "No title"
+            url = getattr(item, "url", "") or ""
+            markdown = getattr(item, "markdown", "") or ""
+            description = getattr(item, "description", "") or ""
+            content = markdown if markdown else description
+
+            if not content:
+                content = "No content available"
+
+            max_content_length = 2000
+            if len(content) > max_content_length:
+                content = content[:max_content_length] + "... [truncated]"
+
+            formatted += f"--- SOURCE {i + 1}: {title} ---\n"
+            formatted += f"URL: {url}\n"
+            formatted += f"Content: {content}\n\n"
+
+        return formatted
+
+    return firecrawl_search
+
+
 async def _build_tools(
     cfg: Context,
     config: RunnableConfig | None = None,
@@ -151,6 +273,12 @@ async def _build_tools(
     if cfg.mode == AgentMode.RAG:
         rag_tool = await create_rag_tool(RAG_URL)
         tools.append(rag_tool)
+
+    if cfg.mode == AgentMode.WEB_SEARCH:
+        if cfg.search_api == SearchAPI.TAVILY:
+            tools.append(_create_tavily_search_tool())
+        elif cfg.search_api == SearchAPI.FIRECRAWL:
+            tools.append(_create_firecrawl_search_tool())
 
     # Load MCP tools if configured
     if cfg.mcp_servers:

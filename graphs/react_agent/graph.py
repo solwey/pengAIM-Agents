@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from typing import Any, Literal
@@ -29,7 +30,14 @@ from graphs.react_agent.rag_models import (
     RagToolResponse,
     SourceDocument,
 )
-from graphs.react_agent.utils import _build_tools, get_api_key_for_model, get_today_str
+from graphs.react_agent.utils import (
+    _build_tools,
+    get_api_key_for_model,
+    get_provider_from_model_name,
+    get_today_str,
+)
+
+logger = logging.getLogger(__name__)
 
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 
@@ -56,14 +64,57 @@ async def call_model(
         api_key=api_key or "No token found",
     )
 
-    if tools:
-        model = model.bind_tools(tools)
+    all_tool_specs: list = list(tools)
 
     if cfg.mode == AgentMode.WEB_SEARCH and cfg.search_api != SearchAPI.NONE:
+        model_provider = get_provider_from_model_name(model_name or "")
+
         if cfg.search_api == SearchAPI.GOOGLE:
-            model = model.bind_tools([{"google_search": {}}])
+            if model_provider == "google":
+                all_tool_specs.append({"google_search": {}})
+                logger.info(
+                    "React Agent: Binding Google native search. model=%s, search_api=%s",
+                    model_name, cfg.search_api.value,
+                )
+            else:
+                logger.warning(
+                    "React Agent: search_api=GOOGLE but model provider is '%s' (model=%s). "
+                    "Skipping Google native search — use a Google model or switch search_api.",
+                    model_provider, model_name,
+                )
+
         elif cfg.search_api == SearchAPI.OPENAI:
-            model = model.bind_tools([{"type": "web_search"}])
+            if model_provider == "openai":
+                all_tool_specs.append({"type": "web_search"})
+                logger.info(
+                    "React Agent: Binding OpenAI native search. model=%s, search_api=%s",
+                    model_name, cfg.search_api.value,
+                )
+            else:
+                logger.warning(
+                    "React Agent: search_api=OPENAI but model provider is '%s' (model=%s). "
+                    "Skipping OpenAI native search — use an OpenAI model or switch search_api.",
+                    model_provider, model_name,
+                )
+
+        elif cfg.search_api in (SearchAPI.TAVILY, SearchAPI.FIRECRAWL):
+            logger.info(
+                "React Agent: Using %s search tool. model=%s",
+                cfg.search_api.value, model_name,
+            )
+
+    if all_tool_specs:
+        model = model.bind_tools(all_tool_specs)
+        logger.debug(
+            "React Agent: Bound %d tool(s). specs=%s",
+            len(all_tool_specs),
+            [getattr(t, "name", None) or str(t) for t in all_tool_specs],
+        )
+    else:
+        logger.debug(
+            "React Agent: No tools to bind. model=%s, mode=%s",
+            model_name, cfg.mode.value,
+        )
 
     final_system_prompt = (
             (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)

@@ -33,6 +33,7 @@ class SearchAPI(Enum):
 
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
+    GOOGLE = "google"
     TAVILY = "tavily"
     FIRECRAWL = "firecrawl"
     NONE = "none"
@@ -269,6 +270,10 @@ class Configuration(BaseModel):
                     {
                         "label": "Anthropic Native Web Search",
                         "value": SearchAPI.ANTHROPIC.value,
+                    },
+                    {
+                        "label": "Google Native Web Search",
+                        "value": SearchAPI.GOOGLE.value,
                     },
                     {"label": "None", "value": SearchAPI.NONE.value},
                 ],
