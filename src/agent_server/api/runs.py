@@ -1099,6 +1099,16 @@ async def execute_run_async(
                 )
             await set_thread_status(session, thread_id, "interrupted")
 
+            # Signal interrupt completion to broker with explicit end event
+            event_counter += 1
+            end_event_id = f"{run_id}_event_{event_counter}"
+            await streaming_service.put_to_broker(
+                run_id, end_event_id, ("end", {"status": "interrupted"})
+            )
+            await streaming_service.store_event_from_raw(
+                run_id, end_event_id, ("end", {"status": "interrupted"})
+            )
+
         else:
             # Update with results
             await update_run_status(
@@ -1110,6 +1120,16 @@ async def execute_run_async(
                     f"No database session available to update thread {thread_id} status"
                 )
             await set_thread_status(session, thread_id, "idle")
+
+            # Signal successful completion to broker with explicit end event
+            event_counter += 1
+            end_event_id = f"{run_id}_event_{event_counter}"
+            await streaming_service.put_to_broker(
+                run_id, end_event_id, ("end", {"status": "completed"})
+            )
+            await streaming_service.store_event_from_raw(
+                run_id, end_event_id, ("end", {"status": "completed"})
+            )
 
     except asyncio.CancelledError:
         # Store empty output to avoid JSON serialization issues
