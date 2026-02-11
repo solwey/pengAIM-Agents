@@ -307,6 +307,9 @@ class AssistantService:
         if request.graph_id:
             stmt = stmt.where(AssistantORM.graph_id == request.graph_id)
 
+        if request.enabled is not None:
+            stmt = stmt.where(AssistantORM.enabled == request.enabled)
+
         if metadata:
             stmt = stmt.where(AssistantORM.metadata_dict.op("@>")(metadata))
 

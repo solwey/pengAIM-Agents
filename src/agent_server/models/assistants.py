@@ -106,6 +106,10 @@ class AssistantSearchRequest(BaseModel):
         None,
         description="Filter by status: 'active' (not deleted), 'deleted' (soft-deleted), or None for all.",
     )
+    enabled: bool | None = Field(
+        None,
+        description="Filter by enabled state: True (enabled only), False (disabled only), or None for all.",
+    )
     limit: int | None = Field(20, le=1000, ge=1, description="Maximum results")
     offset: int | None = Field(0, ge=0, description="Results offset")
     metadata: dict[str, Any] | None = Field(
