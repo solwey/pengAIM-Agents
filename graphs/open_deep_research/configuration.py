@@ -86,6 +86,30 @@ class Configuration(BaseModel):
         },
     )
 
+    model_name: str | None = Field(
+        default="openai:gpt-4o-mini",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": "openai:gpt-4o-mini",
+                "description": "The model to use in all generations",
+                "options": [
+                    {"label": "GPT 4o", "value": "openai:gpt-4o"},
+                    {"label": "GPT 4o mini", "value": "openai:gpt-4o-mini"},
+                    {"label": "GPT 4.1", "value": "openai:gpt-4.1"},
+                    {"label": "GPT 4.1 mini", "value": "openai:gpt-4.1-mini"},
+                    {"label": "GPT 5", "value": "openai:gpt-5"},
+                    {"label": "GPT 5.1", "value": "openai:gpt-5.1"},
+                    {"label": "GPT 5 mini", "value": "openai:gpt-5-mini"},
+                    {"label": "GPT 5.2", "value": "openai:gpt-5.2"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
+                ],
+            }
+        },
+    )
+
     agent_openai_api_key: dict[str, str] = Field(
         default={},
         metadata={
@@ -149,6 +173,33 @@ class Configuration(BaseModel):
     )
 
     # General Configuration
+    tool_calls_visibility: ToolCallsVisibility = Field(
+        default=ToolCallsVisibility.ALWAYS_OFF,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": ToolCallsVisibility.ALWAYS_OFF.value,
+                "description": (
+                    "Controls visibility and behavior of tool call toggles for this agent."
+                ),
+                "options": [
+                    {
+                        "label": "User preference",
+                        "value": ToolCallsVisibility.USER_PREFERENCE.value,
+                    },
+                    {
+                        "label": "Always ON (forced)",
+                        "value": ToolCallsVisibility.ALWAYS_ON.value,
+                    },
+                    {
+                        "label": "Always OFF (disabled)",
+                        "value": ToolCallsVisibility.ALWAYS_OFF.value,
+                    },
+                ],
+            }
+        },
+    )
+
     max_structured_output_retries: int = Field(
         default=3,
         metadata={
@@ -197,33 +248,6 @@ class Configuration(BaseModel):
                 "type": "switch",
                 "default": False,
                 "description": "Share new chats created with this agent with the entire team by default.",
-            }
-        },
-    )
-
-    tool_calls_visibility: ToolCallsVisibility = Field(
-        default=ToolCallsVisibility.ALWAYS_OFF,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "select",
-                "default": ToolCallsVisibility.ALWAYS_OFF.value,
-                "description": (
-                    "Controls visibility and behavior of tool call toggles for this agent."
-                ),
-                "options": [
-                    {
-                        "label": "User preference",
-                        "value": ToolCallsVisibility.USER_PREFERENCE.value,
-                    },
-                    {
-                        "label": "Always ON (forced)",
-                        "value": ToolCallsVisibility.ALWAYS_ON.value,
-                    },
-                    {
-                        "label": "Always OFF (disabled)",
-                        "value": ToolCallsVisibility.ALWAYS_OFF.value,
-                    },
-                ],
             }
         },
     )
@@ -588,6 +612,7 @@ class Configuration(BaseModel):
         "research_model",
         "compression_model",
         "final_report_model",
+        "model_name",
         mode="before",
     )
     @classmethod
