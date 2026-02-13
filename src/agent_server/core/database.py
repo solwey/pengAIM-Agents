@@ -1,5 +1,5 @@
 """Database manager with LangGraph integration"""
-
+import asyncio
 import os
 from typing import Any
 
@@ -7,6 +7,7 @@ import structlog
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.store.postgres.aio import AsyncPostgresStore
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy import text
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +24,8 @@ class DatabaseManager:
         self._database_url = os.getenv(
             "DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/aegra"
         )
+        self._langgraph_idle_ttl_seconds = int(os.getenv("LANGGRAPH_IDLE_TTL_SECONDS", "300"))
+        self._langgraph_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Initialize database connections and LangGraph components"""
@@ -30,6 +33,7 @@ class DatabaseManager:
         self.engine = create_async_engine(
             self._database_url,
             echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
+            pool_pre_ping=True,
         )
 
         # Convert asyncpg URL to psycopg format for LangGraph
@@ -38,12 +42,6 @@ class DatabaseManager:
 
         # Store connection string for creating LangGraph components on demand
         self._langgraph_dsn = dsn
-        self.checkpointer = None
-        self.store = None
-        # Note: LangGraph components will be created as context managers when needed
-
-        # Note: Database schema is now managed by Alembic migrations
-        # Run 'alembic upgrade head' to apply migrations
 
         logger.info("✅ Database and LangGraph components initialized")
 
@@ -64,6 +62,13 @@ class DatabaseManager:
             self._store = None
 
         logger.info("✅ Database connections closed")
+
+    async def _db_healthcheck(self) -> None:
+        if self.engine is None:
+            raise RuntimeError("Database not initialized")
+
+        async with self.engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
 
     async def reset_langgraph_components(self) -> None:
         """Reset LangGraph components (checkpointer + store) on connection errors."""
@@ -101,25 +106,86 @@ class DatabaseManager:
         """
         if not hasattr(self, "_langgraph_dsn"):
             raise RuntimeError("Database not initialized")
-        if self._checkpointer is None:
-            self._checkpointer_cm = AsyncPostgresSaver.from_conn_string(
-                self._langgraph_dsn
-            )
-            self._checkpointer = await self._checkpointer_cm.__aenter__()
-            # Ensure required tables exist (idempotent)
-            await self._checkpointer.setup()
-        return self._checkpointer
+        async with self._langgraph_lock:
+            for attempt in range(2):
+                if self._checkpointer is not None:
+                    try:
+                        await self._checkpointer.setup()
+                        return self._checkpointer
+                    except Exception as e:
+                        msg = str(e)
+                        if "closed" in msg.lower() or "connection" in msg.lower():
+                            logger.warning(
+                                "Checkpointer appears unhealthy; recycling LangGraph components",
+                                error=msg,
+                                attempt=attempt,
+                            )
+                            await self.reset_langgraph_components()
+                        else:
+                            raise
+
+                try:
+                    await self._db_healthcheck()
+                    self._checkpointer_cm = AsyncPostgresSaver.from_conn_string(
+                        self._langgraph_dsn
+                    )
+                    self._checkpointer = await self._checkpointer_cm.__aenter__()
+                    # Ensure required tables exist (idempotent)
+                    await self._checkpointer.setup()
+                    return self._checkpointer
+                except Exception as e:
+                    msg = str(e)
+                    await self.reset_langgraph_components()
+                    if attempt == 0 and ("closed" in msg.lower() or "connection" in msg.lower()):
+                        logger.warning(
+                            "Failed to create checkpointer due to connection issue; retrying once",
+                            error=msg,
+                        )
+                        continue
+                    raise
+
+            raise RuntimeError("Failed to create a healthy checkpointer")
 
     async def get_store(self) -> AsyncPostgresStore:
         """Return a live AsyncPostgresStore instance (vector + KV)."""
         if not hasattr(self, "_langgraph_dsn"):
             raise RuntimeError("Database not initialized")
-        if self._store is None:
-            self._store_cm = AsyncPostgresStore.from_conn_string(self._langgraph_dsn)
-            self._store = await self._store_cm.__aenter__()
-            # ensure schema
-            await self._store.setup()
-        return self._store
+        async with self._langgraph_lock:
+            for attempt in range(2):
+                if self._store is not None:
+                    try:
+                        await self._store.setup()
+                        return self._store
+                    except Exception as e:
+                        msg = str(e)
+                        if "closed" in msg.lower() or "connection" in msg.lower():
+                            logger.warning(
+                                "Store appears unhealthy; recycling LangGraph components",
+                                error=msg,
+                                attempt=attempt,
+                            )
+                            await self.reset_langgraph_components()
+                        else:
+                            raise
+
+                try:
+                    await self._db_healthcheck()
+                    self._store_cm = AsyncPostgresStore.from_conn_string(self._langgraph_dsn)
+                    self._store = await self._store_cm.__aenter__()
+                    await self._store.setup()
+                    return self._store
+                except Exception as e:
+                    msg = str(e)
+                    await self.reset_langgraph_components()
+                    if attempt == 0 and ("closed" in msg.lower() or "connection" in msg.lower()):
+                        logger.warning(
+                            "Failed to create store due to connection issue; retrying once",
+                            error=msg,
+                        )
+                        continue
+                    raise
+
+            raise RuntimeError("Failed to create a healthy store")
 
     def get_engine(self) -> AsyncEngine:
         """Get the SQLAlchemy engine for metadata tables"""
