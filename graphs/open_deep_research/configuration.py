@@ -86,6 +86,8 @@ class Configuration(BaseModel):
         },
     )
 
+
+
     agent_openai_api_key: dict[str, str] = Field(
         default={},
         metadata={
@@ -149,6 +151,33 @@ class Configuration(BaseModel):
     )
 
     # General Configuration
+    tool_calls_visibility: ToolCallsVisibility = Field(
+        default=ToolCallsVisibility.ALWAYS_OFF,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": ToolCallsVisibility.ALWAYS_OFF.value,
+                "description": (
+                    "Controls visibility and behavior of tool call toggles for this agent."
+                ),
+                "options": [
+                    {
+                        "label": "User preference",
+                        "value": ToolCallsVisibility.USER_PREFERENCE.value,
+                    },
+                    {
+                        "label": "Always ON (forced)",
+                        "value": ToolCallsVisibility.ALWAYS_ON.value,
+                    },
+                    {
+                        "label": "Always OFF (disabled)",
+                        "value": ToolCallsVisibility.ALWAYS_OFF.value,
+                    },
+                ],
+            }
+        },
+    )
+
     max_structured_output_retries: int = Field(
         default=3,
         metadata={
@@ -197,33 +226,6 @@ class Configuration(BaseModel):
                 "type": "switch",
                 "default": False,
                 "description": "Share new chats created with this agent with the entire team by default.",
-            }
-        },
-    )
-
-    tool_calls_visibility: ToolCallsVisibility = Field(
-        default=ToolCallsVisibility.ALWAYS_OFF,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "select",
-                "default": ToolCallsVisibility.ALWAYS_OFF.value,
-                "description": (
-                    "Controls visibility and behavior of tool call toggles for this agent."
-                ),
-                "options": [
-                    {
-                        "label": "User preference",
-                        "value": ToolCallsVisibility.USER_PREFERENCE.value,
-                    },
-                    {
-                        "label": "Always ON (forced)",
-                        "value": ToolCallsVisibility.ALWAYS_ON.value,
-                    },
-                    {
-                        "label": "Always OFF (disabled)",
-                        "value": ToolCallsVisibility.ALWAYS_OFF.value,
-                    },
-                ],
             }
         },
     )

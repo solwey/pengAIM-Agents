@@ -113,6 +113,13 @@ class AgentMode(Enum):
     MODEL = "model"
 
 
+class LLMProvider(Enum):
+    """Enumeration of available LLM providers."""
+
+    OPENAI = "openai"
+    GOOGLE = "google"
+
+
 class SearchAPI(Enum):
     """Enumeration of available search API providers for web search mode."""
 
@@ -146,6 +153,7 @@ class Context(BaseModel):
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
+                "required": True,
                 "default": AgentMode.RAG.value,
                 "description": (
                     "Select how the agent retrieves information: "
@@ -156,6 +164,107 @@ class Context(BaseModel):
                     {"label": "Online only", "value": AgentMode.WEB_SEARCH.value},
                     {"label": "Model knowledge only", "value": AgentMode.MODEL.value},
                 ],
+            }
+        },
+    )
+
+    llm_provider: LLMProvider = Field(
+        default=LLMProvider.OPENAI,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": LLMProvider.OPENAI.value,
+                "description": "Select the LLM Provider. This determines which API key will be used.",
+                "options": [
+                    {"label": "OpenAI", "value": LLMProvider.OPENAI.value},
+                    {"label": "Google Gemini", "value": LLMProvider.GOOGLE.value},
+                ],
+            }
+        },
+    )
+
+    model_name: str | None = Field(
+        default="openai:gpt-4o-mini",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": "openai:gpt-4o-mini",
+                "description": "The model to use in all generations",
+                "options": [
+                    {"label": "GPT 4o", "value": "openai:gpt-4o"},
+                    {"label": "GPT 4o mini", "value": "openai:gpt-4o-mini"},
+                    {"label": "GPT 4.1", "value": "openai:gpt-4.1"},
+                    {"label": "GPT 4.1 mini", "value": "openai:gpt-4.1-mini"},
+                    {"label": "GPT 5", "value": "openai:gpt-5"},
+                    {"label": "GPT 5.1", "value": "openai:gpt-5.1"},
+                    {"label": "GPT 5 mini", "value": "openai:gpt-5-mini"},
+                    {"label": "GPT 5.2", "value": "openai:gpt-5.2"},
+                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
+                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
+                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
+                ],
+            }
+        },
+    )
+
+    agent_openai_api_key: dict[str, str] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your custom OpenAI API key for this agent...",
+                "description": (
+                    "Provide a dedicated OpenAI API key to be used only by this agent. "
+                ),
+                "default": {},
+            }
+        },
+    )
+
+    rag_openai_api_key: dict[str, str] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your OpenAI API key for RAG operations...",
+                "description": (
+                    "Specify a separate OpenAI API key to be used for RAG tasks "
+                    "such as document search, summarization, or contextual QA. "
+                ),
+                "default": {},
+            }
+        },
+    )
+
+    agent_google_api_key: dict[str, str] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your Google API key for Gemini models...",
+                "description": (
+                    "Provide a Google API key to be used when selecting Gemini models."
+                ),
+                "default": {},
+            }
+        },
+    )
+
+    rag_google_api_key: dict[str, str] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "password",
+                "required": True,
+                "placeholder": "Enter your Google API key for RAG operations...",
+                "description": (
+                    "Specify a separate Google API key to be used for RAG tasks "
+                    "if using Gemini models."
+                ),
+                "default": {},
             }
         },
     )
@@ -193,89 +302,6 @@ class Context(BaseModel):
         },
     )
 
-    agent_openai_api_key: dict[str, str] | None = Field(
-        default=None,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "password",
-                "required": True,
-                "placeholder": "Enter your custom OpenAI API key for this agent...",
-                "description": (
-                    "Provide a dedicated OpenAI API key to be used only by this agent. "
-                ),
-                "default": "",
-            }
-        },
-    )
-    rag_openai_api_key: dict[str, str] | None = Field(
-        default=None,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "password",
-                "required": True,
-                "placeholder": "Enter your OpenAI API key for RAG operations...",
-                "description": (
-                    "Specify a separate OpenAI API key to be used for RAG tasks "
-                    "such as document search, summarization, or contextual QA. "
-                ),
-                "default": "",
-            }
-        },
-    )
-    agent_google_api_key: dict[str, str] = Field(
-        default={},
-        metadata={
-            "x_oap_ui_config": {
-                "type": "password",
-                "required": True,
-                "placeholder": "Enter your Google API key for Gemini models...",
-                "description": (
-                    "Provide a Google API key to be used when selecting Gemini models."
-                ),
-                "default": {},
-            }
-        },
-    )
-
-    rag_google_api_key: dict[str, str] | None = Field(
-        default=None,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "password",
-                "required": True,
-                "placeholder": "Enter your Google API key for RAG operations...",
-                "description": (
-                    "Specify a separate Google API key to be used for RAG tasks "
-                    "if using Gemini models."
-                ),
-                "default": {},
-            }
-        },
-    )
-
-    model_name: str | None = Field(
-        default="openai:gpt-4o-mini",
-        metadata={
-            "x_oap_ui_config": {
-                "type": "select",
-                "default": "openai:gpt-4o-mini",
-                "description": "The model to use in all generations",
-                "options": [
-                    {"label": "GPT 4o", "value": "openai:gpt-4o"},
-                    {"label": "GPT 4o mini", "value": "openai:gpt-4o-mini"},
-                    {"label": "GPT 4.1", "value": "openai:gpt-4.1"},
-                    {"label": "GPT 4.1 mini", "value": "openai:gpt-4.1-mini"},
-                    {"label": "GPT 5", "value": "openai:gpt-5"},
-                    {"label": "GPT 5.1", "value": "openai:gpt-5.1"},
-                    {"label": "GPT 5 mini", "value": "openai:gpt-5-mini"},
-                    {"label": "GPT 5.2", "value": "openai:gpt-5.2"},
-                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
-                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
-                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
-                ],
-            }
-        },
-    )
     temperature: float | None = Field(
         default=0.7,
         metadata={
@@ -534,19 +560,24 @@ class Context(BaseModel):
             return DEFAULT_QUESTION_CATEGORIES
         return v
 
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def validate_llm_provider(cls, v):
+        if v is None or v == "":
+            return LLMProvider.OPENAI
+        return v
+
     @model_validator(mode="after")
     def validate_google_api_key_for_gemini(self):
         """Ensure Google API key is provided when using Gemini models."""
-        model_name = self.model_name or ""
-        is_gemini_model = model_name.lower().startswith(
-            "google"
-        ) or model_name.lower().startswith("gemini")
+        if self.agent_openai_api_key == {} and self.agent_google_api_key == {}:
+            return self
 
-        if is_gemini_model:
+        if self.llm_provider == LLMProvider.GOOGLE:
             google_key = self.agent_google_api_key
             if not google_key or not google_key.get("keyId"):
                 raise ValueError(
-                    "Google API key is required when using Gemini models. "
+                    "Google API key is required when using Google Gemini provider. "
                     "Please provide agent_google_api_key with a valid keyId."
                 )
         return self
@@ -554,14 +585,14 @@ class Context(BaseModel):
     @model_validator(mode="after")
     def validate_openai_api_key(self):
         """Ensure OpenAI API key is provided when using OpenAI models."""
-        model_name = self.model_name or ""
-        # "check for model name starting with openai"
-        is_openai = model_name.lower().startswith("openai")
-        if is_openai:
+        if self.agent_openai_api_key == {} and self.agent_google_api_key == {}:
+            return self
+
+        if self.llm_provider == LLMProvider.OPENAI:
             openai_key = self.agent_openai_api_key
             if not openai_key or not openai_key.get("keyId"):
                 raise ValueError(
-                    "OpenAI API key is required when using OpenAI models. "
+                    "OpenAI API key is required when using OpenAI provider. "
                     "Please provide agent_openai_api_key with a valid keyId."
                 )
         return self
