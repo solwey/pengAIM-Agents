@@ -25,6 +25,8 @@ class LangGraphService:
         self.config_path = Path(config_path)
         self.config: dict[str, Any] | None = None
         self._graph_registry: dict[str, Any] = {}
+        # Cache ONLY uncompiled graph definitions (StateGraph). Never cache compiled graphs,
+        # because compiled graphs may hold live DB connections (checkpointer/store).
         self._graph_cache: dict[str, Any] = {}
 
     async def initialize(self):
@@ -143,14 +145,22 @@ class LangGraphService:
         if graph_id not in self._graph_registry:
             raise ValueError(f"Graph not found: {graph_id}")
 
-        # Return cached graph if available and not forcing reload
-        if not force_reload and graph_id in self._graph_cache:
-            return self._graph_cache[graph_id]
-
         graph_info = self._graph_registry[graph_id]
 
-        # Load graph from file
-        base_graph = await self._load_graph_from_file(graph_id, graph_info)
+        # Load graph definition.
+        # IMPORTANT: We must not cache compiled graphs because they can retain stale/closed
+        # DB connections via checkpointer/store. We ONLY cache uncompiled StateGraph objects.
+        base_graph: Any
+        if not force_reload and graph_id in self._graph_cache:
+            base_graph = self._graph_cache[graph_id]
+        else:
+            base_graph = await self._load_graph_from_file(graph_id, graph_info)
+            # Cache ONLY uncompiled graphs (StateGraph) which are safe to reuse.
+            if hasattr(base_graph, "compile"):
+                self._graph_cache[graph_id] = base_graph
+            else:
+                # Do not cache already-compiled graphs (may hold live DB connections).
+                self._graph_cache.pop(graph_id, None)
 
         # Always ensure graphs are compiled with our Postgres checkpointer for persistence
         from ..core.database import db_manager
@@ -160,7 +170,14 @@ class LangGraphService:
             # a Postgres checkpointer for durable state.
             checkpointer_cm = await db_manager.get_checkpointer()
             store_cm = await db_manager.get_store()
-            logger.info(f"🔧 Compiling graph '{graph_id}' with Postgres persistence")
+
+            logger.info(
+                "🔧 Compiling graph with fresh persistence components",
+                graph_id=graph_id,
+                checkpointer_id=id(checkpointer_cm),
+                store_id=id(store_cm),
+            )
+
             compiled_graph = base_graph.compile(
                 checkpointer=checkpointer_cm, store=store_cm
             )
@@ -213,9 +230,6 @@ class LangGraphService:
                     )
                     compiled_graph = base_graph
 
-        # Cache the compiled graph
-        self._graph_cache[graph_id] = compiled_graph
-
         return compiled_graph
 
     async def _load_graph_from_file(self, graph_id: str, graph_info: dict[str, str]):
@@ -253,7 +267,7 @@ class LangGraphService:
         }
 
     def invalidate_cache(self, graph_id: str = None):
-        """Invalidate graph cache for hot-reload"""
+        """Invalidate cached uncompiled graph definitions for hot-reload"""
         if graph_id:
             self._graph_cache.pop(graph_id, None)
         else:
