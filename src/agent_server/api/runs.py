@@ -182,6 +182,15 @@ async def create_run(
     if not assistant:
         raise HTTPException(404, f"Assistant '{request.assistant_id}' not found")
 
+    if assistant.deleted_at is not None:
+        raise HTTPException(400, f"Assistant '{request.assistant_id}' has been deleted")
+
+    if not assistant.enabled:
+        raise HTTPException(
+            403,
+            f"Assistant '{request.assistant_id}' is currently disabled. Please enable it to create runs.",
+        )
+
     config = assistant.config
     context = assistant.context
 
@@ -303,6 +312,15 @@ async def create_and_stream_run(
     assistant = await session.scalar(assistant_stmt)
     if not assistant:
         raise HTTPException(404, f"Assistant '{request.assistant_id}' not found")
+
+    if assistant.deleted_at is not None:
+        raise HTTPException(400, f"Assistant '{request.assistant_id}' has been deleted")
+
+    if not assistant.enabled:
+        raise HTTPException(
+            403,
+            f"Assistant '{request.assistant_id}' is currently disabled. Please enable it to create runs.",
+        )
 
     config = assistant.config
     context = assistant.context

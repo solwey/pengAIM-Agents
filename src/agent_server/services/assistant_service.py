@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+import structlog
 from fastapi import Depends, HTTPException
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,8 @@ from ..core.orm import AssistantVersion as AssistantVersionORM
 from ..core.orm import get_session
 from ..models import Assistant, AssistantCreate, AssistantUpdate, User
 from ..services.langgraph_service import LangGraphService, get_langgraph_service
+
+logger = structlog.get_logger(__name__)
 
 
 def to_pydantic(row: AssistantORM) -> Assistant:
@@ -280,6 +283,8 @@ class AssistantService:
         req_team_id = metadata.pop("team_id", None)
         # Support both request field and legacy metadata for include_deleted
         include_deleted = request.include_deleted or metadata.pop("include_deleted", "false") == "true"
+        # Support include_disabled metadata to show all agents on dashboard
+        include_disabled = metadata.pop("include_disabled", "false") == "true"
 
         team_id = req_team_id if req_team_id and user.is_superadmin else user.team_id
 
@@ -303,6 +308,16 @@ class AssistantService:
 
         if request.graph_id:
             stmt = stmt.where(AssistantORM.graph_id == request.graph_id)
+
+        # Filter by enabled state
+        # By default, omit disabled agents unless explicitly requested via include_disabled
+        if request.enabled is not None:
+            # Explicit filter: show only enabled or only disabled
+            stmt = stmt.where(AssistantORM.enabled == request.enabled)
+        elif not include_disabled:
+            # Default behavior: show only enabled agents
+            # When include_disabled=true, show both enabled and disabled
+            stmt = stmt.where(AssistantORM.enabled == True)
 
         if metadata:
             stmt = stmt.where(AssistantORM.metadata_dict.op("@>")(metadata))
@@ -385,6 +400,7 @@ class AssistantService:
 
         req_team_id = metadata.pop("team_id", None)
         restore = str(metadata.pop("restore", False)).lower() == "true"
+        enabled = metadata.pop("enabled", None)
 
         # Keep config and context up to date with one another
         if config.get("configurable"):
@@ -433,23 +449,30 @@ class AssistantService:
         self.session.add(assistant_version_orm)
         await self.session.commit()
 
+        # Prepare update values
+        update_values = {
+            "name": new_version_details["name"],
+            "description": new_version_details["description"],
+            "graph_id": new_version_details["graph_id"],
+            "config": new_version_details["config"],
+            "context": new_version_details["context"],
+            "version": new_version,
+            "updated_at": now,
+            "metadata_dict": merged_metadata,
+            "type": request.type if request.type is not None else assistant.type,
+        }
+
+        # Add enabled if provided in metadata
+        if enabled is not None:
+            update_values["enabled"] = bool(enabled)
+
         assistant_update = (
             update(AssistantORM)
             .where(
                 AssistantORM.assistant_id == assistant_id,
                 AssistantORM.team_id == team_id,
             )
-            .values(
-                name=new_version_details["name"],
-                description=new_version_details["description"],
-                graph_id=new_version_details["graph_id"],
-                config=new_version_details["config"],
-                context=new_version_details["context"],
-                version=new_version,
-                updated_at=now,
-                metadata_dict=merged_metadata,
-                type=request.type if request.type is not None else assistant.type,
-            )
+            .values(**update_values)
         )
         await self.session.execute(assistant_update)
         await self.session.commit()
@@ -472,6 +495,7 @@ class AssistantService:
         await self.session.commit()
 
         return {"status": "deleted"}
+
 
     async def set_assistant_latest(
         self, assistant_id: str, version: int, user: User
