@@ -72,7 +72,7 @@ class AssistantUpdate(BaseModel):
     config: dict[str, Any] | None = Field(
         {}, description="Configuration to use for the graph."
     )
-    graph_id: str = Field("agent", description="The ID of the graph")
+    graph_id: str | None = Field(None, description="The ID of the graph")
     context: dict[str, Any] | None = Field(
         {},
         description="The context to use for the graph. Useful when graph is configurable.",
