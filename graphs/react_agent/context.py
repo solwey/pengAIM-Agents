@@ -202,6 +202,8 @@ class Context(BaseModel):
                     {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
                     {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
                     {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
+                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
+                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
                 ],
             }
         },

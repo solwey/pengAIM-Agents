@@ -854,6 +854,8 @@ MODEL_TOKEN_LIMITS = {
     "google_genai:gemini-2.5-pro": 1048576,
     "google_genai:gemini-2.5-flash": 1048576,
     "google_genai:gemini-2.5-flash-lite": 1048576,
+    "google_genai:gemini-3-flash-preview": 1048576,
+    "google_genai:gemini-3.1-pro-preview": 1048576,
     "cohere:command-r-plus": 128000,
     "cohere:command-r": 128000,
     "cohere:command-light": 4096,

@@ -324,6 +324,8 @@ class Configuration(BaseModel):
                     {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
                     {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
                     {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
+                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
+                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
                 ],
                 "description": "Model for summarizing research results from Tavily search results",
             }
@@ -366,6 +368,8 @@ class Configuration(BaseModel):
                     {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
                     {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
                     {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
+                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
+                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
                 ],
                 "description": "Model for conducting research. NOTE: Make sure your Researcher Model supports the selected search API.",
             }
@@ -396,6 +400,8 @@ class Configuration(BaseModel):
                     {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
                     {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
                     {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
+                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
+                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
                 ],
                 "description": "Model for compressing research findings from sub-agents. NOTE: Make sure your Compression Model supports the selected search API.",
             }
@@ -426,6 +432,8 @@ class Configuration(BaseModel):
                     {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
                     {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
                     {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
+                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
+                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
                 ],
                 "description": "Model for writing the final report from all research findings",
             }
