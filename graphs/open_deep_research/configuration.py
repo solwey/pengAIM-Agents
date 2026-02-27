@@ -150,6 +150,23 @@ class Configuration(BaseModel):
         },
     )
 
+    rag_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": "text-embedding-3-small",
+                "description": "Embedding model to use for RAG vectorization.",
+                "options": [
+                    {"label": "Text Embedding 3 Small", "value": "text-embedding-3-small"},
+                    {"label": "Text Embedding 3 Large", "value": "text-embedding-3-large"},
+                    {"label": "Text Embedding Ada 002", "value": "text-embedding-ada-002"},
+                    {"label": "Gemini Embedding 001", "value": "gemini-embedding-001"},
+                ],
+            }
+        },
+    )
+
     # General Configuration
     tool_calls_visibility: ToolCallsVisibility = Field(
         default=ToolCallsVisibility.ALWAYS_OFF,
@@ -608,6 +625,15 @@ class Configuration(BaseModel):
             return "openai:gpt-4o-mini"
         return v
 
+    @field_validator("rag_embedding_model", mode="before")
+    @classmethod
+    def _validate_rag_embedding_model(cls, v):
+        if v is None:
+            return "text-embedding-3-small"
+        if isinstance(v, str) and v.strip() == "":
+            return "text-embedding-3-small"
+        return v
+
     @field_validator(
         "summarization_model_max_tokens",
         "research_model_max_tokens",
@@ -780,6 +806,26 @@ class Configuration(BaseModel):
         data = base.model_dump(mode="python")
         data.update(overrides)
         return cls.model_validate(data)
+
+    @model_validator(mode="after")
+    def validate_embedding_model(self):
+        if self.rag_embedding_model is None or self.rag_embedding_model == "":
+            self.rag_embedding_model = (
+                "gemini-embedding-001"
+                if self.llm_provider == LLMProvider.GOOGLE
+                else "text-embedding-3-small"
+            )
+            return self
+
+        if self.llm_provider == LLMProvider.GOOGLE  and self.rag_embedding_model == "text-embedding-3-small":
+            self.rag_embedding_model = "gemini-embedding-001"
+            return self
+
+        if self.llm_provider == LLMProvider.OPENAI and self.rag_embedding_model == "gemini-embedding-001":
+            self.rag_embedding_model = "text-embedding-3-small"
+            return self
+
+        return self
 
     class Config:
         """Pydantic configuration."""
