@@ -1053,9 +1053,10 @@ async def supervisor(
         [getattr(t, "name", None) or str(t) for t in lead_researcher_tools],
     )
 
-    # Configure model with tools, retry logic, and model settings
+    # Configure model with tools, retry logic, and model settings.
+    # tool_choice="any" forces the model to call at least one tool.
     research_model = (
-        configurable_model.bind_tools(lead_researcher_tools)
+        configurable_model.bind_tools(lead_researcher_tools, tool_choice="any")
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
         .with_config(research_model_config)
     )
@@ -1387,9 +1388,11 @@ async def researcher(
         [getattr(t, "name", None) or str(t) for t in tools],
     )
 
-    # Configure model with tools, retry logic, and settings
+    # Configure model with tools, retry logic, and settings.
+    # tool_choice="any" forces the model to call at least one tool rather than
+    # responding with plain text (some models, e.g. gpt-5-mini, skip tool calls otherwise).
     research_model = (
-        configurable_model.bind_tools(tools)
+        configurable_model.bind_tools(tools, tool_choice="any")
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
         .with_config(research_model_config)
     )
@@ -1819,9 +1822,16 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             log_prompt("final_report_generation", "FINAL_REPORT_PROMPT", final_report_prompt)
 
             # Generate the final report
+            final_report_messages = []
+            if configurable.system_prompt:
+                final_report_messages.append(SystemMessage(content=configurable.system_prompt))
+            if configurable.sales_context_prompt:
+                final_report_messages.append(SystemMessage(content=configurable.sales_context_prompt))
+            final_report_messages.append(HumanMessage(content=final_report_prompt))
+
             final_report = await configurable_model.with_config(
                 writer_model_config
-            ).ainvoke([HumanMessage(content=final_report_prompt)])
+            ).ainvoke(final_report_messages)
             
             # Log the LLM response
             log_response("final_report_generation", str(final_report.content))
