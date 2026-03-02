@@ -128,20 +128,7 @@ async def call_model(
     if not isinstance(response, AIMessage):
         raise TypeError(f"Expected AIMessage from model, got {type(response)}")
 
-    # Preserve provider-specific fields (e.g. Gemini thought signatures) that can be stored
-    # in additional_kwargs and are required for subsequent tool-call turns.
-    preserved = AIMessage(
-        content=response.content,
-        additional_kwargs=getattr(response, "additional_kwargs", {}) or {},
-        response_metadata=getattr(response, "response_metadata", {}) or {},
-        id=getattr(response, "id", None),
-    )
-
-    # Preserve tool calls if present
-    if getattr(response, "tool_calls", None):
-        preserved.tool_calls = response.tool_calls
-
-    return {"messages": [preserved]}
+    return {"messages": [response]}
 
 
 async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
