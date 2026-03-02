@@ -73,6 +73,7 @@ async def rag_search(
     )
     system_prompt = config.get("configurable", {}).get("rag_system_prompt") or None
     retrieval_mode = config.get("configurable", {}).get("rag_retrieval_mode") or None
+    embedding_model = config.get("configurable", {}).get("rag_embedding_model") or None
 
     llm_provider = config.get("configurable", {}).get("llm_provider", "openai")
     if llm_provider == "google":
@@ -86,6 +87,8 @@ async def rag_search(
         "system_prompt": system_prompt,
         "retrieval_mode": retrieval_mode,
         "api_key_id": key_data.get("keyId"),
+        "llm_provider": "gemini" if llm_provider == "google" else "open-ai",
+        "embedding_model": embedding_model
     }
     headers = {"authorization": authorization}
 

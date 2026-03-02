@@ -271,6 +271,23 @@ class Context(BaseModel):
         },
     )
 
+    rag_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": "text-embedding-3-small",
+                "description": "Embedding model to use for RAG vectorization.",
+                "options": [
+                    {"label": "Text Embedding 3 Small", "value": "text-embedding-3-small"},
+                    {"label": "Text Embedding 3 Large", "value": "text-embedding-3-large"},
+                    {"label": "Text Embedding Ada 002", "value": "text-embedding-ada-002"},
+                    {"label": "Gemini Embedding 001", "value": "gemini-embedding-001"},
+                ],
+            }
+        },
+    )
+
     search_api: SearchAPI = Field(
         default=SearchAPI.OPENAI,
         metadata={
@@ -507,6 +524,13 @@ class Context(BaseModel):
             return "openai:gpt-4o-mini"
         return v
 
+    @field_validator("rag_embedding_model", mode="before")
+    @classmethod
+    def validate_rag_embedding_model(cls, v):
+        if v is None or v == "":
+            return "text-embedding-3-small"
+        return v
+
     @field_validator("temperature", mode="before")
     @classmethod
     def validate_temperature(cls, v):
@@ -597,4 +621,24 @@ class Context(BaseModel):
                     "OpenAI API key is required when using OpenAI provider. "
                     "Please provide agent_openai_api_key with a valid keyId."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def validate_embedding_model(self):
+        if self.rag_embedding_model is None or self.rag_embedding_model == "":
+            self.rag_embedding_model = (
+                "gemini-embedding-001"
+                if self.llm_provider == LLMProvider.GOOGLE
+                else "text-embedding-3-small"
+            )
+            return self
+
+        if self.llm_provider == LLMProvider.GOOGLE  and self.rag_embedding_model == "text-embedding-3-small":
+            self.rag_embedding_model = "gemini-embedding-001"
+            return self
+
+        if self.llm_provider == LLMProvider.OPENAI and self.rag_embedding_model == "gemini-embedding-001":
+            self.rag_embedding_model = "text-embedding-3-small"
+            return self
+
         return self

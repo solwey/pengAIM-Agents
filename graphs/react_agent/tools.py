@@ -56,6 +56,7 @@ async def create_rag_tool(rag_url: str):
                     # Extract optional parameters
                     system_prompt = configurable.get("rag_system_prompt")
                     retrieval_mode = configurable.get("rag_retrieval_mode")
+                    embedding_model = configurable.get("rag_embedding_model")
 
                     # Select appropriate RAG API key based on model provider
                     model_name = configurable.get("model_name", "")
@@ -87,6 +88,8 @@ async def create_rag_tool(rag_url: str):
                     "system_prompt": system_prompt,
                     "retrieval_mode": retrieval_mode,
                     "api_key_id": key_data.get("keyId"),
+                    "llm_provider": "gemini" if is_google_model else "open-ai",
+                    "embedding_model": embedding_model
                 }
                 headers = {
                     "authorization": authorization,
