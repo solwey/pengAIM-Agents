@@ -1,0 +1,53 @@
+name: Minerva - Build and Push to ECR
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - minerva/develop
+
+jobs:
+  deploy:
+    name: Build and Push to ECR
+    environment: staging
+    runs-on: Ubuntu-Large
+    env:
+      AWS_REGION: us-east-1
+      SECRET_NAME_ENV: pengaim-agents-environment
+      SECRET_NAME_CI: pengaim-agents-ci
+
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.IAMROLE_GITHUB_MINERVA }}
+          role-session-name: GitHubActionsSession
+
+      - name: Fetch AWS secret values
+        run: |
+          aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_CI --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\(.[$k])"' >> $GITHUB_ENV
+
+      - name: Create .env file
+        run: |
+          aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_ENV --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\"\(.[$k])\""' > $DOTENV_FNAME
+
+      - name: Build, tag, and push image to Amazon ECR (Agents)
+        run: |
+          # Build docker image and push to ECR
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+          docker buildx build --platform=linux/amd64 --tag $IMG_TAG --build-arg ENV_FILE=$DOTENV_FNAME --file ./Dockerfile .
+          docker push $IMG_TAG
+
+      - name: Restart EKS deployment
+        run: |
+          aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+
+          kubectl rollout restart deployment $DEPLOYMENT_NAME -n $NAMESPACE
+          kubectl rollout status deployment $DEPLOYMENT_NAME -n $NAMESPACE
