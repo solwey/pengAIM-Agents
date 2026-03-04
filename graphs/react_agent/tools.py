@@ -89,6 +89,7 @@ async def create_rag_tool(rag_url: str):
                     "retrieval_mode": retrieval_mode,
                     "api_key_id": key_data.get("keyId"),
                     "llm_provider": "gemini" if is_google_model else "open-ai",
+                    "llm_model": model_name.split(":")[-1],
                     "embedding_model": embedding_model
                 }
                 headers = {
