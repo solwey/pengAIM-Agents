@@ -26,6 +26,7 @@ from ..models import Run, RunCreate, RunStatus, User
 from ..services.langgraph_service import create_run_config, get_langgraph_service
 from ..services.streaming_service import streaming_service
 from ..utils.assistants import resolve_assistant_id
+from ..utils.config_merge import merge_runtime_config
 from ..utils.run_utils import _should_skip_event
 
 router = APIRouter()
@@ -162,9 +163,6 @@ async def create_run(
     # Get LangGraph service
     langgraph_service = get_langgraph_service()
     logger.info(
-        f"create_run: scheduling background task run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
-    )
-    logger.info(
         f"[create_run] scheduling background task run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
     )
 
@@ -191,7 +189,7 @@ async def create_run(
             f"Assistant '{request.assistant_id}' is currently disabled. Please enable it to create runs.",
         )
 
-    config = assistant.config
+    config = merge_runtime_config(assistant.config, request.config)
     context = assistant.context
 
     # Validate the assistant's graph exists
@@ -322,7 +320,7 @@ async def create_and_stream_run(
             f"Assistant '{request.assistant_id}' is currently disabled. Please enable it to create runs.",
         )
 
-    config = assistant.config
+    config = merge_runtime_config(assistant.config, request.config)
     context = assistant.context
 
     # Validate the assistant's graph exists
@@ -680,7 +678,7 @@ async def wait_for_run(
     if not assistant:
         raise HTTPException(404, f"Assistant '{request.assistant_id}' not found")
 
-    config = assistant.config
+    config = merge_runtime_config(assistant.config, request.config)
     context = assistant.context
 
     # Validate the assistant's graph exists
@@ -1161,6 +1159,7 @@ async def execute_run_async(
         await streaming_service.signal_run_cancelled(run_id)
         raise
     except Exception as e:
+        logger.error(f"[execute_run_async] run_id={run_id} failed: {e}", exc_info=True)
         # Store empty output to avoid JSON serialization issues
         await update_run_status(
             run_id, "failed", output={}, error=str(e), session=session

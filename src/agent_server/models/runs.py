@@ -14,6 +14,15 @@ class RunCreate(BaseModel):
         None,
         description="Input data for the run. Optional when resuming from a checkpoint.",
     )
+    config: dict[str, Any] | None = Field(
+        None,
+        description="Runtime configuration overrides. Merged with the assistant's stored config. "
+        "Typically contains 'configurable' dict with keys like sales_context_prompt, steps, etc.",
+    )
+    metadata: dict[str, Any] | None = Field(
+        None,
+        description="Additional metadata for the run (e.g., assistant_id, graph_id from client).",
+    )
     checkpoint: dict[str, Any] | None = Field(
         None,
         description="Checkpoint configuration (e.g., {'checkpoint_id': '...', 'checkpoint_ns': ''})",
