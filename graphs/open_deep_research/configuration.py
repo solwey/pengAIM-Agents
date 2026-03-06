@@ -51,6 +51,12 @@ class StepConfig(BaseModel):
     sequential_sub_prompts: list[SubPromptConfig] = Field(default_factory=list)
 
 
+def _is_openai_gpt5_model(model_name: str | None) -> bool:
+    if not model_name:
+        return False
+    return model_name.split(":")[-1].lower().startswith("gpt-5")
+
+
 # noinspection PyArgumentList
 class Configuration(BaseModel):
     """Main configuration class for the Deep Research agent."""
@@ -511,6 +517,30 @@ class Configuration(BaseModel):
             }
         },
     )
+    rag_llm_temperature: float | None = Field(
+        default=1.0,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 1.0,
+                "min": 0,
+                "max": 2,
+                "step": 0.1,
+                "description": "Temperature for LLM calls used only in RAG operations.",
+            }
+        },
+    )
+    rag_llm_max_tokens: int | None = Field(
+        default=24_000,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 24_000,
+                "min": 20_000,
+                "description": "Maximum output tokens for LLM calls used only in RAG operations.",
+            }
+        },
+    )
 
     default_questions: list[DefaultQuestionsCategory] = Field(
         default=DEFAULT_QUESTION_CATEGORIES,
@@ -683,6 +713,20 @@ class Configuration(BaseModel):
             return RetrievalMode.RRF
         return v
 
+    @field_validator("rag_llm_temperature", mode="before")
+    @classmethod
+    def _validate_rag_llm_temperature(cls, v):
+        if v is None:
+            return 1.0
+        return v
+
+    @field_validator("rag_llm_max_tokens", mode="before")
+    @classmethod
+    def _validate_rag_llm_max_tokens(cls, v):
+        if v is None:
+            return 20000
+        return v
+
     @field_validator("share_new_chats_by_default", mode="before")
     @classmethod
     def _validate_share_new_chats_by_default(cls, v):
@@ -749,6 +793,14 @@ class Configuration(BaseModel):
                     "OpenAI API key is required when using OpenAI provider. "
                     "Please provide agent_openai_api_key with a valid keyId."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def validate_rag_llm_overrides_for_reasoning_models(self):
+        is_openai_gpt5_summarization = _is_openai_gpt5_model(self.summarization_model)
+        if self.llm_provider != LLMProvider.OPENAI or not is_openai_gpt5_summarization:
+            self.rag_llm_temperature = None
+            self.rag_llm_max_tokens = None
         return self
 
 
