@@ -130,6 +130,12 @@ class SearchAPI(Enum):
     NONE = "none"
 
 
+def _is_openai_gpt5_model(model_name: str | None) -> bool:
+    if not model_name:
+        return False
+    return model_name.split(":")[-1].lower().startswith("gpt-5")
+
+
 class AgentInputState(TypedDict):
     messages: list[AnyMessage]
 
@@ -416,6 +422,30 @@ class Context(BaseModel):
             }
         },
     )
+    rag_llm_temperature: float | None = Field(
+        default=1.0,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 1.0,
+                "min": 0,
+                "max": 2,
+                "step": 0.1,
+                "description": "Temperature for LLM calls used only in RAG operations.",
+            }
+        },
+    )
+    rag_llm_max_tokens: int | None = Field(
+        default=24_000,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 24_000,
+                "min": 20_000,
+                "description": "Maximum output tokens for LLM calls used only in RAG operations.",
+            }
+        },
+    )
     system_prompt: str | None = Field(
         default=DEFAULT_SYSTEM_PROMPT,
         metadata={
@@ -545,6 +575,20 @@ class Context(BaseModel):
             return 4000
         return v
 
+    @field_validator("rag_llm_temperature", mode="before")
+    @classmethod
+    def validate_rag_llm_temperature(cls, v):
+        if v is None:
+            return 1.0
+        return v
+
+    @field_validator("rag_llm_max_tokens", mode="before")
+    @classmethod
+    def validate_rag_llm_max_tokens(cls, v):
+        if v is None:
+            return 20000
+        return v
+
     @field_validator("share_new_chats_by_default", mode="before")
     @classmethod
     def validate_share_flag(cls, v):
@@ -641,4 +685,14 @@ class Context(BaseModel):
             self.rag_embedding_model = "text-embedding-3-small"
             return self
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_rag_llm_overrides_for_reasoning_models(self):
+        if (
+            self.llm_provider != LLMProvider.OPENAI
+            or not _is_openai_gpt5_model(self.model_name)
+        ):
+            self.rag_llm_temperature = None
+            self.rag_llm_max_tokens = None
         return self

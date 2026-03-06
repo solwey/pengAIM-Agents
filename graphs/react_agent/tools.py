@@ -10,6 +10,12 @@ from pydantic import ValidationError
 from graphs.react_agent.rag_models import RagToolResponse, RagToolError, SourceDocument, DocumentCollectionInfo
 
 
+def _is_openai_gpt5_model(model_name: str | None) -> bool:
+    if not model_name:
+        return False
+    return model_name.split(":")[-1].lower().startswith("gpt-5")
+
+
 async def create_rag_tool(rag_url: str):
     """Create a RAG tool that calls a unified QA endpoint.
 
@@ -57,6 +63,8 @@ async def create_rag_tool(rag_url: str):
                     system_prompt = configurable.get("rag_system_prompt")
                     retrieval_mode = configurable.get("rag_retrieval_mode")
                     embedding_model = configurable.get("rag_embedding_model")
+                    llm_temperature = configurable.get("rag_llm_temperature")
+                    llm_max_tokens = configurable.get("rag_llm_max_tokens")
 
                     # Select appropriate RAG API key based on model provider
                     model_name = configurable.get("model_name", "")
@@ -68,6 +76,10 @@ async def create_rag_tool(rag_url: str):
                         key_data = configurable.get("rag_google_api_key", {})
                     else:
                         key_data = configurable.get("rag_openai_api_key", {})
+
+                    if is_google_model or not _is_openai_gpt5_model(model_name):
+                        llm_temperature = None
+                        llm_max_tokens = None
 
                 except (KeyError, IndexError, AttributeError) as e:
                     error = RagToolError(
@@ -90,7 +102,9 @@ async def create_rag_tool(rag_url: str):
                     "api_key_id": key_data.get("keyId"),
                     "llm_provider": "gemini" if is_google_model else "open-ai",
                     "llm_model": model_name.split(":")[-1],
-                    "embedding_model": embedding_model
+                    "embedding_model": embedding_model,
+                    "llm_temperature": llm_temperature,
+                    "llm_max_tokens": llm_max_tokens,
                 }
                 headers = {
                     "authorization": authorization,
@@ -99,7 +113,7 @@ async def create_rag_tool(rag_url: str):
 
                 # === STEP 3: Make HTTP request with proper error handling ===
                 try:
-                    timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
+                    timeout = aiohttp.ClientTimeout(total=90)  # 90 second timeout
                     async with aiohttp.ClientSession(timeout=timeout) as session:
                         async with session.post(
                             search_endpoint, json=body, headers=headers
@@ -128,7 +142,7 @@ async def create_rag_tool(rag_url: str):
 
                 except asyncio.TimeoutError:
                     error = RagToolError(
-                        error="RAG request timed out after 30 seconds",
+                        error="RAG request timed out after 90 seconds",
                         error_type="timeout_error",
                     )
                     return json.dumps(error.model_dump(), ensure_ascii=False)
