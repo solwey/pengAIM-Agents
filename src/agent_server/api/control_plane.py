@@ -98,12 +98,17 @@ async def sweep_stale_workers(session: AsyncSession = Depends(get_session)):
 
 
 @router.delete("/workers/cleanup")
-async def cleanup_offline_workers(session: AsyncSession = Depends(get_session)):
-    """Delete all offline workers."""
+async def cleanup_offline_workers(
+    max_age_hours: int = Query(0, description="Only delete offline workers older than N hours (0 = all)"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete offline workers. Use max_age_hours to keep recent ones."""
+    conditions = [WorkerHeartbeat.status == "offline"]
+    if max_age_hours > 0:
+        cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+        conditions.append(WorkerHeartbeat.last_heartbeat < cutoff)
     result = await session.execute(
-        delete(WorkerHeartbeat).where(
-            WorkerHeartbeat.status == "offline",
-        )
+        delete(WorkerHeartbeat).where(*conditions)
     )
     await session.commit()
     removed = result.rowcount
