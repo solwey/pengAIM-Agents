@@ -32,6 +32,7 @@ from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
 
 
 from .api.assistants import router as assistants_router
+from .api.control_plane import router as control_plane_router
 from .api.runs import router as runs_router
 from .api.store import router as store_router
 from .api.threads import router as threads_router
@@ -43,6 +44,8 @@ from .models.errors import AgentProtocolError, get_error_type
 from .observability.base import get_observability_manager
 from .observability.langfuse_integration import _langfuse_provider
 from .services.event_store import event_store
+from .services import heartbeat_service as hb_module
+from .services.heartbeat_service import HeartbeatService
 from .services.langgraph_service import get_langgraph_service
 from .utils.setup_logging import setup_logging
 
@@ -76,9 +79,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Initialize event store cleanup task
     await event_store.start_cleanup_task()
 
+    # Start heartbeat service
+    hb_module.heartbeat_service = HeartbeatService(active_runs)
+    await hb_module.heartbeat_service.start()
+
     yield
 
-    # Shutdown: Clean up connections and cancel active runs
+    # Shutdown: Stop heartbeat
+    if hb_module.heartbeat_service:
+        await hb_module.heartbeat_service.stop()
+
+    # Clean up connections and cancel active runs
     for task in active_runs.values():
         if not task.done():
             task.cancel()
@@ -135,6 +146,7 @@ main_app.include_router(assistants_router, prefix="", tags=["Assistants"])
 main_app.include_router(threads_router, prefix="", tags=["Threads"])
 main_app.include_router(runs_router, prefix="", tags=["Runs"])
 main_app.include_router(store_router, prefix="", tags=["Store"])
+main_app.include_router(control_plane_router, prefix="", tags=["Control Plane"])
 
 
 # Error handling

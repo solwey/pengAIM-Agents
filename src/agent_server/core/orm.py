@@ -156,6 +156,8 @@ class Run(Base):
     context: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     output: Mapped[dict | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    current_step: Mapped[str | None] = mapped_column(Text, nullable=True)
     user_id: Mapped[str] = mapped_column(Text, nullable=False)
     team_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -181,6 +183,45 @@ class Run(Base):
             "assistant_id",
             "created_at",
         ),
+    )
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeat"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(Text, server_default=text("'online'"))
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+    last_heartbeat: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+    active_run_count: Mapped[int] = mapped_column(
+        Integer, server_default=text("0")
+    )
+    metadata_dict: Mapped[dict] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb"), name="metadata"
+    )
+
+
+class RunStatusHistory(Base):
+    __tablename__ = "run_status_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("runs.run_id", ondelete="CASCADE"), nullable=False
+    )
+    from_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    to_status: Mapped[str] = mapped_column(Text, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    traceback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+
+    __table_args__ = (
+        Index("idx_run_status_history_run_id_created_at", "run_id", "created_at"),
     )
 
 

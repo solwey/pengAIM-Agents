@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import traceback as tb_module
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -18,6 +19,7 @@ from ..core.auth_ctx import with_auth_ctx
 from ..core.auth_deps import get_current_user
 from ..core.orm import Assistant as AssistantORM
 from ..core.orm import Run as RunORM
+from ..core.orm import RunStatusHistory
 from ..core.orm import Thread as ThreadORM
 from ..core.orm import _get_session_maker, get_session
 from ..core.serializers import GeneralSerializer
@@ -1097,6 +1099,24 @@ async def execute_run_async(
                 if isinstance(event_data, dict) and "__interrupt__" in event_data:
                     has_interrupt = True
 
+                # Track current_step from updates events
+                if (
+                    isinstance(raw_event, tuple)
+                    and len(raw_event) >= 2
+                    and raw_event[0] == "updates"
+                    and isinstance(raw_event[1], dict)
+                ):
+                    node_names = [
+                        k for k in raw_event[1] if not k.startswith("__")
+                    ]
+                    if node_names:
+                        await session.execute(
+                            update(RunORM)
+                            .where(RunORM.run_id == str(run_id))
+                            .values(current_step=node_names[0])
+                        )
+                        await session.commit()
+
                 # Track the final output
                 if isinstance(raw_event, tuple):
                     if len(raw_event) >= 2 and raw_event[0] == "values":
@@ -1146,8 +1166,10 @@ async def execute_run_async(
             await streaming_service.store_event_from_raw(
                 run_id, end_event_id, ("end", {"status": "completed"})
             )
+            logger.info("run_completed", run_id=run_id, thread_id=thread_id, event_count=event_counter)
 
     except asyncio.CancelledError:
+        logger.info("run_cancelled", run_id=run_id, thread_id=thread_id)
         # Store empty output to avoid JSON serialization issues
         await update_run_status(run_id, "cancelled", output={}, session=session)
         if not session:
@@ -1159,7 +1181,7 @@ async def execute_run_async(
         await streaming_service.signal_run_cancelled(run_id)
         raise
     except Exception as e:
-        logger.error(f"[execute_run_async] run_id={run_id} failed: {e}", exc_info=True)
+        logger.error("run_failed", run_id=run_id, thread_id=thread_id, error=str(e), exc_info=True)
         # Store empty output to avoid JSON serialization issues
         await update_run_status(
             run_id, "failed", output={}, error=str(e), session=session
@@ -1192,14 +1214,15 @@ async def update_run_status(
         session = maker()  # type: ignore[assignment]
         owns_session = True
     try:
-        values = {"status": status, "updated_at": datetime.now(UTC)}
+        now = datetime.now(UTC)
+        values: dict[str, Any] = {"status": status, "updated_at": now}
         if output is not None:
             # Serialize output to ensure JSON compatibility
             try:
                 serialized_output = serializer.serialize(output)
                 values["output"] = serialized_output
             except Exception as e:
-                logger.warning(f"Failed to serialize output for run {run_id}: {e}")
+                logger.warning("output_serialization_failed", run_id=run_id, error=str(e))
                 # noinspection PyTypeChecker
                 values["output"] = {
                     "error": "Output serialization failed",
@@ -1207,12 +1230,44 @@ async def update_run_status(
                 }
         if error is not None:
             values["error_message"] = error
-        logger.info(f"[update_run_status] updating DB run_id={run_id} status={status}")
+
+        # Fetch previous status for history tracking and duration calc
+        run_orm = await session.scalar(
+            select(RunORM).where(RunORM.run_id == str(run_id))
+        )
+        from_status = run_orm.status if run_orm else None
+
+        # Compute duration_ms on terminal statuses
+        if status in ("completed", "failed", "cancelled", "interrupted") and run_orm:
+            duration = now - run_orm.created_at
+            values["duration_ms"] = int(duration.total_seconds() * 1000)
+
         await session.execute(
             update(RunORM).where(RunORM.run_id == str(run_id)).values(**values)
         )  # type: ignore[arg-type]
+
+        # Record status transition history
+        tb_str = None
+        if error and status == "failed":
+            tb_str = tb_module.format_exc()
+            if tb_str == "NoneType: None\n":
+                tb_str = None
+        session.add(RunStatusHistory(
+            run_id=run_id,
+            from_status=from_status,
+            to_status=status,
+            error_message=error,
+            traceback=tb_str,
+        ))
+
         await session.commit()
-        logger.info(f"[update_run_status] commit done run_id={run_id}")
+        logger.info(
+            "run_status_updated",
+            run_id=run_id,
+            from_status=from_status,
+            to_status=status,
+            duration_ms=values.get("duration_ms"),
+        )
     finally:
         # Close only if we created it here
         if owns_session:
