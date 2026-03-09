@@ -39,6 +39,10 @@ class RunHistoryEntry(BaseModel):
     duration_ms: int | None = None
     created_at: datetime
     updated_at: datetime
+    model_name: str | None = None
+    mode: str | None = None
+    tool_calls_count: int | None = None
+    tools_used: list[str] | None = None
 
 
 class RunStatusTransition(BaseModel):
@@ -60,6 +64,28 @@ class ControlPlaneOverview(BaseModel):
     workers: list[WorkerStatus]
     active_runs: list[ActiveRun]
     stats: DashboardStats
+
+
+class RunDetailResponse(BaseModel):
+    run_id: str
+    thread_id: str
+    assistant_id: str | None = None
+    assistant_name: str | None = None
+    status: str
+    error_message: str | None = None
+    duration_ms: int | None = None
+    current_step: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    # Extended fields
+    input: dict | None = None
+    output: dict | None = None
+    config_snapshot: dict | None = None
+    model_name: str | None = None
+    mode: str | None = None
+    tool_calls_count: int | None = None
+    tools_used: list[str] | None = None
+    user_id: str = ""
 
 
 class RunHistoryPage(BaseModel):

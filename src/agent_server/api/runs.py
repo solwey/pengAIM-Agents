@@ -997,6 +997,11 @@ async def execute_run_async(
     else:
         stream_mode = _normalize_mode(stream_mode)
 
+    # --- Run metrics tracking ---
+    tool_calls_count = 0
+    tools_used_set: set[str] = set()
+    config_snapshot: dict | None = None
+
     try:
         # Update status
         await update_run_status(run_id, "running", session=session)
@@ -1025,6 +1030,15 @@ async def execute_run_async(
 
         # Note: multitask_strategy is handled at the run creation level, not execution level
         # It controls concurrent run behavior, not graph execution behavior
+
+        # Capture config snapshot for metrics
+        config_snapshot = run_config.get("configurable", {})
+        await session.execute(
+            update(RunORM)
+            .where(RunORM.run_id == str(run_id))
+            .values(config_snapshot=config_snapshot)
+        )
+        await session.commit()
 
         # Determine input for execution (either input_data or command)
         if command is not None:
@@ -1117,6 +1131,26 @@ async def execute_run_async(
                         )
                         await session.commit()
 
+                # Track tool calls from updates events
+                if (
+                    isinstance(raw_event, tuple)
+                    and len(raw_event) >= 2
+                    and raw_event[0] == "updates"
+                    and isinstance(raw_event[1], dict)
+                ):
+                    for node_name, node_data in raw_event[1].items():
+                        if node_name.startswith("__"):
+                            continue
+                        if isinstance(node_data, dict):
+                            msgs = node_data.get("messages", [])
+                            if isinstance(msgs, list):
+                                for msg in msgs:
+                                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                        for tc in msg.tool_calls:
+                                            if isinstance(tc, dict) and "name" in tc:
+                                                tool_calls_count += 1
+                                                tools_used_set.add(tc["name"])
+
                 # Track the final output
                 if isinstance(raw_event, tuple):
                     if len(raw_event) >= 2 and raw_event[0] == "values":
@@ -1124,6 +1158,17 @@ async def execute_run_async(
                 elif not isinstance(raw_event, tuple):
                     # Non-tuple events are values mode
                     final_output = raw_event
+
+        # Save tool metrics
+        await session.execute(
+            update(RunORM)
+            .where(RunORM.run_id == str(run_id))
+            .values(
+                tool_calls_count=tool_calls_count,
+                tools_used=list(tools_used_set) if tools_used_set else None,
+            )
+        )
+        await session.commit()
 
         if has_interrupt:
             await update_run_status(

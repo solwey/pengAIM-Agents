@@ -11,11 +11,13 @@ from .runs import active_runs
 
 from ..core.orm import Assistant as AssistantORM
 from ..core.orm import Run as RunORM
+from ..core.orm import RunEvent as RunEventORM
 from ..core.orm import RunStatusHistory, WorkerHeartbeat, get_session
 from ..models.control_plane import (
     ActiveRun,
     ControlPlaneOverview,
     DashboardStats,
+    RunDetailResponse,
     RunHistoryEntry,
     RunHistoryPage,
     RunStatusTransition,
@@ -248,20 +250,28 @@ async def list_runs(
     stmt = base.order_by(order).limit(limit).offset(offset)
     rows = (await session.execute(stmt)).all()
 
-    runs = [
-        RunHistoryEntry(
-            run_id=run.run_id,
-            thread_id=run.thread_id,
-            assistant_id=run.assistant_id,
-            assistant_name=name,
-            status=run.status,
-            error_message=run.error_message,
-            duration_ms=run.duration_ms,
-            created_at=run.created_at,
-            updated_at=run.updated_at,
+    runs = []
+    for run, name in rows:
+        config = run.config_snapshot or run.config or {}
+        model_name = config.get("model_name")
+        mode = config.get("mode")
+        runs.append(
+            RunHistoryEntry(
+                run_id=run.run_id,
+                thread_id=run.thread_id,
+                assistant_id=run.assistant_id,
+                assistant_name=name,
+                status=run.status,
+                error_message=run.error_message,
+                duration_ms=run.duration_ms,
+                created_at=run.created_at,
+                updated_at=run.updated_at,
+                model_name=model_name,
+                mode=mode,
+                tool_calls_count=None,
+                tools_used=None,
+            )
         )
-        for run, name in rows
-    ]
     return RunHistoryPage(runs=runs, total=total, limit=limit, offset=offset)
 
 
@@ -352,6 +362,86 @@ async def cancel_run(
 
 
 # ---------- Sweep Zombie Runs ----------
+
+# ---------- Run Detail ----------
+
+
+@router.get("/runs/{run_id}/detail", response_model=RunDetailResponse)
+async def get_run_detail(run_id: str, session: AsyncSession = Depends(get_session)):
+    """Full detail view of a single run including input/output/config."""
+    stmt = (
+        select(RunORM, AssistantORM.name)
+        .outerjoin(AssistantORM, RunORM.assistant_id == AssistantORM.assistant_id)
+        .where(RunORM.run_id == run_id)
+    )
+    row = (await session.execute(stmt)).first()
+    if not row:
+        raise HTTPException(404, f"Run '{run_id}' not found")
+
+    run, assistant_name = row
+    config = run.config_snapshot or run.config or {}
+    model_name = config.get("model_name")
+    mode = config.get("mode")
+
+    return RunDetailResponse(
+        run_id=run.run_id,
+        thread_id=run.thread_id,
+        assistant_id=run.assistant_id,
+        assistant_name=assistant_name,
+        status=run.status,
+        error_message=run.error_message,
+        duration_ms=run.duration_ms,
+        current_step=run.current_step,
+        created_at=run.created_at,
+        updated_at=run.updated_at,
+        input=run.input,
+        output=run.output,
+        config_snapshot=run.config_snapshot,
+        model_name=model_name,
+        mode=mode,
+        tool_calls_count=None,
+        tools_used=None,
+        user_id=run.user_id,
+    )
+
+
+# ---------- Run Events Replay ----------
+
+
+@router.get("/runs/{run_id}/events")
+async def get_run_events(run_id: str, session: AsyncSession = Depends(get_session)):
+    """Get stored SSE events for a run (available for ~1 hour after execution)."""
+    # Get the run's created_at for elapsed_seconds calculation
+    run = await session.scalar(select(RunORM).where(RunORM.run_id == run_id))
+    if not run:
+        raise HTTPException(404, f"Run '{run_id}' not found")
+
+    run_created_at = run.created_at
+
+    # Query events ordered by sequence
+    result = await session.scalars(
+        select(RunEventORM)
+        .where(RunEventORM.run_id == run_id)
+        .order_by(RunEventORM.seq.asc())
+    )
+    events = result.all()
+
+    if not events:
+        return []
+
+    return [
+        {
+            "seq": evt.seq,
+            "event": evt.event,
+            "data": evt.data,
+            "elapsed_seconds": round(
+                (evt.created_at - run_created_at).total_seconds(), 3
+            ),
+            "created_at": evt.created_at.isoformat(),
+        }
+        for evt in events
+    ]
+
 
 ZOMBIE_RUN_TIMEOUT_MINUTES = 30
 

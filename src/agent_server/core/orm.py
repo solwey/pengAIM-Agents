@@ -166,6 +166,9 @@ class Run(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )
+    tool_calls_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tools_used: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    config_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Indexes for performance
     __table_args__ = (
