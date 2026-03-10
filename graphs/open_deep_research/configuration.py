@@ -45,6 +45,7 @@ class SubPromptConfig(BaseModel):
 
 
 class StepConfig(BaseModel):
+    name: str = ""
     text: str
     placeholders: list[str] = Field(default_factory=list)
     parallel_sub_prompts: list[SubPromptConfig] = Field(default_factory=list)
