@@ -6,7 +6,9 @@ Create Date: 2026-03-09 00:00:00.000000
 
 """
 
+import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB
 
 # revision identifiers, used by Alembic.
 revision = "606141af4b27"
@@ -16,41 +18,65 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Use raw SQL with IF NOT EXISTS for idempotency (safe for prod)
-    op.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER")
-    op.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS current_step TEXT")
+    op.add_column("runs", sa.Column("duration_ms", sa.Integer, nullable=True))
+    op.add_column("runs", sa.Column("current_step", sa.Text, nullable=True))
 
-    op.execute("""
-        CREATE TABLE IF NOT EXISTS worker_heartbeat (
-            id TEXT PRIMARY KEY,
-            status TEXT NOT NULL DEFAULT 'online',
-            started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT now(),
-            active_run_count INTEGER NOT NULL DEFAULT 0,
-            metadata JSONB DEFAULT '{}'::jsonb
-        )
-    """)
+    op.create_table(
+        "worker_heartbeat",
+        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("status", sa.Text, nullable=False, server_default="online"),
+        sa.Column(
+            "started_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "last_heartbeat",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "active_run_count", sa.Integer, nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "metadata",
+            JSONB,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
+    )
 
-    op.execute("""
-        CREATE TABLE IF NOT EXISTS run_status_history (
-            id SERIAL PRIMARY KEY,
-            run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
-            from_status TEXT,
-            to_status TEXT NOT NULL,
-            error_message TEXT,
-            traceback TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-    """)
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_run_status_history_run_id_created_at
-        ON run_status_history (run_id, created_at)
-    """)
+    op.create_table(
+        "run_status_history",
+        sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+        sa.Column(
+            "run_id",
+            sa.Text,
+            sa.ForeignKey("runs.run_id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("from_status", sa.Text, nullable=True),
+        sa.Column("to_status", sa.Text, nullable=False),
+        sa.Column("error_message", sa.Text, nullable=True),
+        sa.Column("traceback", sa.Text, nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+    )
+    op.create_index(
+        "idx_run_status_history_run_id_created_at",
+        "run_status_history",
+        ["run_id", "created_at"],
+    )
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS idx_run_status_history_run_id_created_at")
-    op.execute("DROP TABLE IF EXISTS run_status_history")
-    op.execute("DROP TABLE IF EXISTS worker_heartbeat")
-    op.execute("ALTER TABLE runs DROP COLUMN IF EXISTS current_step")
-    op.execute("ALTER TABLE runs DROP COLUMN IF EXISTS duration_ms")
+    op.drop_index("idx_run_status_history_run_id_created_at", "run_status_history")
+    op.drop_table("run_status_history")
+    op.drop_table("worker_heartbeat")
+    op.drop_column("runs", "current_step")
+    op.drop_column("runs", "duration_ms")

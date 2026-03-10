@@ -6,7 +6,9 @@ Create Date: 2026-03-09 10:00:00.000000
 
 """
 
+import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB
 
 # revision identifiers, used by Alembic.
 revision = "a1b2c3d4e5f6"
@@ -16,13 +18,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Use raw SQL with IF NOT EXISTS for idempotency (safe for prod)
-    op.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS tool_calls_count INTEGER")
-    op.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS tools_used JSONB")
-    op.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS config_snapshot JSONB")
+    op.add_column("runs", sa.Column("tool_calls_count", sa.Integer, nullable=True))
+    op.add_column("runs", sa.Column("tools_used", JSONB, nullable=True))
+    op.add_column("runs", sa.Column("config_snapshot", JSONB, nullable=True))
 
 
 def downgrade() -> None:
-    op.execute("ALTER TABLE runs DROP COLUMN IF EXISTS config_snapshot")
-    op.execute("ALTER TABLE runs DROP COLUMN IF EXISTS tools_used")
-    op.execute("ALTER TABLE runs DROP COLUMN IF EXISTS tool_calls_count")
+    op.drop_column("runs", "config_snapshot")
+    op.drop_column("runs", "tools_used")
+    op.drop_column("runs", "tool_calls_count")

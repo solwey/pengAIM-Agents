@@ -12,19 +12,26 @@ import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command, Send
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth_ctx import with_auth_ctx
 from ..core.auth_deps import get_current_user
 from ..core.orm import Assistant as AssistantORM
 from ..core.orm import Run as RunORM
+from ..core.orm import RunEvent as RunEventORM
 from ..core.orm import RunStatusHistory
 from ..core.orm import Thread as ThreadORM
 from ..core.orm import _get_session_maker, get_session
 from ..core.serializers import GeneralSerializer
 from ..core.sse import create_end_event, get_sse_headers
 from ..models import Run, RunCreate, RunStatus, User
+from ..models.control_plane import (
+    RunDetailResponse,
+    RunHistoryEntry,
+    RunHistoryPage,
+    RunStatusTransition,
+)
 from ..services.langgraph_service import create_run_config, get_langgraph_service
 from ..services.streaming_service import streaming_service
 from ..utils.assistants import resolve_assistant_id
@@ -1393,3 +1400,276 @@ async def delete_run(
 
     # 204 No Content
     return
+
+
+# ---------- Control Plane: Run History (paginated, team-scoped) ----------
+
+
+SORT_COLUMNS = {
+    "created_at": RunORM.created_at,
+    "status": RunORM.status,
+    "duration_ms": RunORM.duration_ms,
+    "updated_at": RunORM.updated_at,
+}
+
+
+@router.get("/runs", response_model=RunHistoryPage)
+async def list_runs_history(
+    status: str | None = Query(None),
+    since: str | None = Query(None, description="ISO datetime"),
+    assistant_id: str | None = Query(None, description="Assistant ID or name"),
+    search: str | None = Query(None, description="Search by run_id prefix"),
+    sort_by: str = Query("created_at"),
+    sort_order: str = Query("desc"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Paginated run history with optional status/date/assistant/search filters."""
+    base = (
+        select(RunORM, AssistantORM.name)
+        .outerjoin(AssistantORM, RunORM.assistant_id == AssistantORM.assistant_id)
+        .where(RunORM.team_id == user.team_id)
+    )
+    count_base = (
+        select(func.count())
+        .select_from(RunORM)
+        .outerjoin(AssistantORM, RunORM.assistant_id == AssistantORM.assistant_id)
+        .where(RunORM.team_id == user.team_id)
+    )
+
+    if status:
+        statuses = [s.strip() for s in status.split(",")]
+        base = base.where(RunORM.status.in_(statuses))
+        count_base = count_base.where(RunORM.status.in_(statuses))
+
+    if since:
+        since_dt = datetime.fromisoformat(since)
+        base = base.where(RunORM.created_at >= since_dt)
+        count_base = count_base.where(RunORM.created_at >= since_dt)
+
+    if assistant_id:
+        assistant_filter = or_(
+            RunORM.assistant_id == assistant_id,
+            AssistantORM.name == assistant_id,
+        )
+        base = base.where(assistant_filter)
+        count_base = count_base.where(assistant_filter)
+
+    if search:
+        pattern = f"%{search}%"
+        search_filter = or_(
+            RunORM.run_id.ilike(f"{search}%"),
+            AssistantORM.name.ilike(pattern),
+        )
+        base = base.where(search_filter)
+        count_base = count_base.where(search_filter)
+
+    total = await session.scalar(count_base) or 0
+
+    sort_col = SORT_COLUMNS.get(sort_by, RunORM.created_at)
+    order = sort_col.asc() if sort_order == "asc" else sort_col.desc()
+    stmt = base.order_by(order).limit(limit).offset(offset)
+    rows = (await session.execute(stmt)).all()
+
+    runs = []
+    for run, name in rows:
+        config = run.config_snapshot or run.config or {}
+        model_name = config.get("model_name")
+        mode = config.get("mode")
+        runs.append(
+            RunHistoryEntry(
+                run_id=run.run_id,
+                thread_id=run.thread_id,
+                assistant_id=run.assistant_id,
+                assistant_name=name,
+                status=run.status,
+                error_message=run.error_message,
+                duration_ms=run.duration_ms,
+                created_at=run.created_at,
+                updated_at=run.updated_at,
+                model_name=model_name,
+                mode=mode,
+                tool_calls_count=None,
+                tools_used=None,
+            )
+        )
+    return RunHistoryPage(runs=runs, total=total, limit=limit, offset=offset)
+
+
+# ---------- Control Plane: Run Status History ----------
+
+
+@router.get("/runs/{run_id}/history", response_model=list[RunStatusTransition])
+async def get_run_status_history(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Status transition timeline for a specific run."""
+    run = await session.scalar(
+        select(RunORM).where(
+            RunORM.run_id == run_id,
+            RunORM.team_id == user.team_id,
+        )
+    )
+    if not run:
+        raise HTTPException(404, f"Run '{run_id}' not found")
+
+    result = await session.scalars(
+        select(RunStatusHistory)
+        .where(RunStatusHistory.run_id == run_id)
+        .order_by(RunStatusHistory.created_at.asc())
+    )
+    return [
+        RunStatusTransition(
+            from_status=h.from_status,
+            to_status=h.to_status,
+            error_message=h.error_message,
+            traceback=h.traceback,
+            created_at=h.created_at,
+        )
+        for h in result
+    ]
+
+
+# ---------- Control Plane: Run Detail ----------
+
+
+@router.get("/runs/{run_id}/detail", response_model=RunDetailResponse)
+async def get_run_detail(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Full detail view of a single run including input/output/config."""
+    stmt = (
+        select(RunORM, AssistantORM.name)
+        .outerjoin(AssistantORM, RunORM.assistant_id == AssistantORM.assistant_id)
+        .where(RunORM.run_id == run_id, RunORM.team_id == user.team_id)
+    )
+    row = (await session.execute(stmt)).first()
+    if not row:
+        raise HTTPException(404, f"Run '{run_id}' not found")
+
+    run, assistant_name = row
+    config = run.config_snapshot or run.config or {}
+    model_name = config.get("model_name")
+    mode = config.get("mode")
+
+    return RunDetailResponse(
+        run_id=run.run_id,
+        thread_id=run.thread_id,
+        assistant_id=run.assistant_id,
+        assistant_name=assistant_name,
+        status=run.status,
+        error_message=run.error_message,
+        duration_ms=run.duration_ms,
+        current_step=run.current_step,
+        created_at=run.created_at,
+        updated_at=run.updated_at,
+        input=run.input,
+        output=run.output,
+        config_snapshot=run.config_snapshot,
+        model_name=model_name,
+        mode=mode,
+        tool_calls_count=None,
+        tools_used=None,
+        user_id=run.user_id,
+    )
+
+
+# ---------- Control Plane: Run Events Replay ----------
+
+
+@router.get("/runs/{run_id}/events")
+async def get_run_events(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get stored SSE events for a run (available for ~1 hour after execution)."""
+    run = await session.scalar(
+        select(RunORM).where(
+            RunORM.run_id == run_id,
+            RunORM.team_id == user.team_id,
+        )
+    )
+    if not run:
+        raise HTTPException(404, f"Run '{run_id}' not found")
+
+    run_created_at = run.created_at
+
+    result = await session.scalars(
+        select(RunEventORM)
+        .where(RunEventORM.run_id == run_id)
+        .order_by(RunEventORM.seq.asc())
+    )
+    events = result.all()
+
+    if not events:
+        return []
+
+    return [
+        {
+            "seq": evt.seq,
+            "event": evt.event,
+            "data": evt.data,
+            "elapsed_seconds": round(
+                (evt.created_at - run_created_at).total_seconds(), 3
+            ),
+            "created_at": evt.created_at.isoformat(),
+        }
+        for evt in events
+    ]
+
+
+# ---------- Control Plane: Cancel Run ----------
+
+
+@router.post("/runs/{run_id}/cancel")
+async def cancel_run_by_id(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Cancel a running task (team-scoped)."""
+    logger.info("cancel_run_requested", run_id=run_id, user_id=user.id)
+    run = await session.scalar(
+        select(RunORM).where(
+            RunORM.run_id == run_id,
+            RunORM.team_id == user.team_id,
+        )
+    )
+    if not run:
+        raise HTTPException(404, f"Run '{run_id}' not found")
+    if run.status not in ("pending", "running", "streaming"):
+        raise HTTPException(409, f"Run is not active (status={run.status})")
+
+    # Record status transition
+    history = RunStatusHistory(
+        run_id=run_id,
+        from_status=run.status,
+        to_status="cancelled",
+        created_at=datetime.now(UTC),
+    )
+    session.add(history)
+
+    # Update run status in DB
+    await session.execute(
+        update(RunORM)
+        .where(RunORM.run_id == run_id)
+        .values(status="cancelled", error_message="Cancelled via control plane")
+    )
+    await session.commit()
+
+    # Cancel streaming and asyncio task
+    await streaming_service.cancel_run(run_id)
+
+    task = active_runs.get(run_id)
+    if task and not task.done():
+        task.cancel()
+
+    logger.info("cancel_run_completed", run_id=run_id)
+    return {"status": "cancelled", "run_id": run_id}
