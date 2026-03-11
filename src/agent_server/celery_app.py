@@ -10,7 +10,25 @@ load_dotenv()
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 REDIS_DB = os.getenv("REDIS_DB", "2")
-REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+REDIS_USER = os.getenv("REDIS_USER", "")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+REDIS_PROTOCOL = os.getenv("REDIS_PROTOCOL", "redis")
+REDIS_USE_CREDENTIALS = os.getenv("REDIS_USE_CREDENTIALS", "").strip().lower() in {
+    "true",
+    "1",
+    "yes",
+    "y",
+    "on",
+}
+
+if REDIS_USE_CREDENTIALS:
+    auth_part = f"{REDIS_USER}:{REDIS_PASSWORD}@"
+else:
+    auth_part = ""
+
+REDIS_URL = f"{REDIS_PROTOCOL}://{auth_part}{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+if REDIS_PROTOCOL == "rediss":
+    REDIS_URL += "?ssl_cert_reqs=CERT_OPTIONAL"
 
 celery_app = Celery(
     "agent_server",
@@ -33,6 +51,10 @@ celery_app.conf.update(
         "sweep-zombie-runs-every-60s": {
             "task": "src.agent_server.tasks.sweep_zombie_runs",
             "schedule": 60.0,
+        },
+        "cleanup-offline-workers-every-5m": {
+            "task": "src.agent_server.tasks.cleanup_offline_workers",
+            "schedule": 300.0,
         },
     },
 )

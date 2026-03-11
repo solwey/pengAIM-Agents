@@ -4,7 +4,7 @@ import os
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, delete, update
 from sqlalchemy.orm import Session
 
 from .celery_app import celery_app
@@ -102,3 +102,24 @@ def sweep_zombie_runs():
             "sweep_zombie_runs", marked_failed=marked, run_ids=zombie_run_ids
         )
         return {"marked_failed": marked}
+
+
+@celery_app.task(name="src.agent_server.tasks.cleanup_offline_workers")
+def cleanup_offline_workers(max_age_hours: int = 0):
+    """Delete offline workers. Use max_age_hours to keep recent ones (0 = all)."""
+    from .core.orm import WorkerHeartbeat
+
+    engine = _get_sync_engine()
+
+    with Session(engine) as session:
+        conditions = [WorkerHeartbeat.status == "offline"]
+        if max_age_hours > 0:
+            cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+            conditions.append(WorkerHeartbeat.last_heartbeat < cutoff)
+        result = session.execute(delete(WorkerHeartbeat).where(*conditions))
+        session.commit()
+        removed = result.rowcount
+
+    if removed:
+        logger.info("cleanup_offline_workers", removed=removed)
+    return {"removed": removed}

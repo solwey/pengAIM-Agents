@@ -3,8 +3,8 @@
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import delete, func, select
+from fastapi import APIRouter, Depends
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.orm import Assistant as AssistantORM
@@ -71,25 +71,6 @@ async def _get_workers(session: AsyncSession) -> list[WorkerStatus]:
             )
         )
     return workers
-
-
-@router.delete("/workers/cleanup")
-async def cleanup_offline_workers(
-    max_age_hours: int = Query(0, description="Only delete offline workers older than N hours (0 = all)"),
-    session: AsyncSession = Depends(get_session),
-):
-    """Delete offline workers. Use max_age_hours to keep recent ones."""
-    conditions = [WorkerHeartbeat.status == "offline"]
-    if max_age_hours > 0:
-        cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
-        conditions.append(WorkerHeartbeat.last_heartbeat < cutoff)
-    result = await session.execute(
-        delete(WorkerHeartbeat).where(*conditions)
-    )
-    await session.commit()
-    removed = result.rowcount
-    logger.info("cleanup_offline_workers", removed=removed)
-    return {"removed": removed}
 
 
 # ---------- Active Runs ----------
