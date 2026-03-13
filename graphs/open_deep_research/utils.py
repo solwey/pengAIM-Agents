@@ -31,6 +31,7 @@ if not RAG_URL:
     raise RuntimeError("RAG_API_URL is not set")
 
 
+
 ##########################
 # Agent Mode utils (RAG = RAG-only, ONLINE = Web)
 ##########################
@@ -1065,6 +1066,121 @@ def normalize_placeholders(payload):
         return out
 
     return []
+
+
+async def resolve_artifact_placeholders(placeholders: list, config: RunnableConfig = None) -> list:
+    """Resolve artifact-type placeholder values by fetching content from pengAIM-RAG.
+    """
+    logging.info(f"[ARTIFACT-RESOLVE] Starting resolution for {len(placeholders)} placeholder(s)")
+
+    # Extract auth token from config (same pattern as rag_search)
+    authorization = None
+    if config:
+        try:
+            authorization = (
+                config.get("configurable", {})
+                .get("langgraph_auth_user", {})
+                .get("permissions")[0]
+                .replace("authz:", "")
+            )
+        except (TypeError, IndexError, AttributeError):
+            pass
+    for i, p in enumerate(placeholders):
+        field_name = p.get("field", "?") if isinstance(p, dict) else "?"
+        value_preview = str(p.get("value", ""))[:100] if isinstance(p, dict) else str(p)[:100]
+        logging.info(f"[ARTIFACT-RESOLVE]   [{i}] field='{field_name}' value_preview='{value_preview}...'")
+
+    if not RAG_URL:
+        logging.warning("[ARTIFACT-RESOLVE] RAG_URL not set, skipping artifact resolution")
+        return placeholders
+
+    resolved = []
+    for p in placeholders:
+        if not isinstance(p, dict):
+            logging.info(f"[ARTIFACT-RESOLVE] Skipping non-dict entry: {type(p)}")
+            resolved.append(p)
+            continue
+
+        value = p.get("value", "")
+        if not isinstance(value, str) or not value.startswith("{"):
+            logging.info(f"[ARTIFACT-RESOLVE] Field '{p.get('field')}': plain string value, passing through")
+            resolved.append(p)
+            continue
+
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError) as e:
+            logging.info(f"[ARTIFACT-RESOLVE] Field '{p.get('field')}': JSON parse failed ({e}), passing through")
+            resolved.append(p)
+            continue
+
+        if not isinstance(parsed, dict) or parsed.get("type") != "artifact":
+            logging.info(f"[ARTIFACT-RESOLVE] Field '{p.get('field')}': JSON but not artifact type, passing through")
+            resolved.append(p)
+            continue
+
+        # It's an artifact placeholder — fetch content
+        artifacts_list = parsed.get("artifacts", [])
+        logging.info(
+            f"[ARTIFACT-RESOLVE] Field '{p.get('field')}': ARTIFACT detected with {len(artifacts_list)} document(s)"
+        )
+
+        content_parts = []
+        for artifact in artifacts_list:
+            artifact_name = artifact.get("file_name", "unknown")
+            try:
+                text = await _fetch_artifact_content(
+                    collection_id=artifact.get("collection_id", ""),
+                    document_uuid=artifact.get("uuid", ""),
+                    file_name=artifact_name,
+                    authorization=authorization,
+                )
+                content_parts.append(f"--- {artifact.get('file_name', 'Document')} ---\n{text}")
+            except RuntimeError as e:
+                raise ValueError(
+                    f"Failed to load artifact '{artifact_name}' for variable '{p['field']}': {e}"
+                ) from e
+
+        combined = "\n\n".join(content_parts)
+        resolved.append({"field": p["field"], "value": combined})
+        logging.info(
+            f"[ARTIFACT-RESOLVE] Resolved '{p['field']}' with {len(content_parts)} doc(s), "
+            f"total {len(combined)} chars"
+        )
+
+    logging.info(f"[ARTIFACT-RESOLVE] Done. Resolved {len(resolved)} placeholder(s)")
+    return resolved
+
+
+async def _fetch_artifact_content(
+    collection_id: str, document_uuid: str, file_name: str, authorization: str | None = None
+) -> str:
+    """Fetch artifact content from pengAIM-RAG via /content endpoint (RAG proxies S3).
+
+    Raises RuntimeError with details on any failure (no silent None returns).
+    """
+    url = (
+        f"{RAG_URL}/api/v1/artifact-collections/{collection_id}"
+        f"/documents/{document_uuid}/content"
+    )
+    headers = {}
+    if authorization:
+        headers["authorization"] = authorization
+    else:
+        raise RuntimeError(f"No auth token for fetching artifact '{file_name}'")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                raise RuntimeError(
+                    f"Failed to fetch content for '{file_name}': "
+                    f"status={resp.status}, body={body[:500]}"
+                )
+            content_type = resp.headers.get("content-type", "")
+            if any(t in content_type for t in ["text/", "application/json", "application/xml", "application/octet-stream"]):
+                return await resp.text()
+            return f"[Binary file: {file_name} ({content_type})]"
 
 
 def apply_placeholders(text: str, placeholders: list) -> str:
