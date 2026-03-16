@@ -1016,7 +1016,20 @@ async def execute_run_async(
 
         # Get graph and execute
         langgraph_service = get_langgraph_service()
-        graph = await langgraph_service.get_graph(graph_id)
+
+        # Dynamic Workflow: compile graph from JSON definition in config
+        if graph_id == "Dynamic Workflow":
+            workflow_def = (config or {}).get("configurable", {}).get(
+                "workflow_definition"
+            )
+            if not workflow_def:
+                raise ValueError(
+                    "workflow_definition is required in config.configurable "
+                    "for Dynamic Workflow graph"
+                )
+            graph = await langgraph_service.get_workflow_graph(workflow_def)
+        else:
+            graph = await langgraph_service.get_graph(graph_id)
 
         run_config = create_run_config(
             run_id, thread_id, user, config or {}, checkpoint

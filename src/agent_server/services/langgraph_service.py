@@ -1,5 +1,6 @@
 """LangGraph integration service with official patterns"""
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -265,6 +266,48 @@ class LangGraphService:
         # The graph should already be compiled in the module
         # If it needs our checkpointer/store, we'll handle that during execution
         return graph
+
+    async def get_workflow_graph(self, workflow_json: dict[str, Any]) -> Any:
+        """Compile a dynamic workflow from JSON and return a compiled graph.
+
+        Caches uncompiled StateGraph by definition hash to avoid recompilation
+        of identical workflows. Always compiles with fresh checkpointer/store.
+        """
+        from graphs.workflow_engine.compiler import compile_workflow
+        from graphs.workflow_engine.schema import WorkflowDefinition
+
+        # Validate and parse the workflow definition
+        definition = WorkflowDefinition(**workflow_json)
+
+        # Cache key based on content hash
+        def_hash = hashlib.sha256(
+            json.dumps(workflow_json, sort_keys=True).encode()
+        ).hexdigest()[:16]
+        cache_key = f"workflow:{def_hash}"
+
+        # Check cache for uncompiled graph
+        if cache_key in self._graph_cache:
+            base_graph = self._graph_cache[cache_key]
+        else:
+            base_graph = compile_workflow(definition)
+            self._graph_cache[cache_key] = base_graph
+            logger.info(
+                "Compiled and cached workflow",
+                workflow_name=definition.name,
+                cache_key=cache_key,
+            )
+
+        # Always compile with fresh persistence (same pattern as get_graph)
+        from ..core.database import db_manager
+
+        checkpointer_cm = await db_manager.get_checkpointer()
+        store_cm = await db_manager.get_store()
+
+        compiled_graph = base_graph.compile(
+            checkpointer=checkpointer_cm, store=store_cm
+        )
+
+        return compiled_graph
 
     def list_graphs(self) -> dict[str, str]:
         """List all available graphs"""
