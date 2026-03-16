@@ -1155,32 +1155,55 @@ async def resolve_artifact_placeholders(placeholders: list, config: RunnableConf
 async def _fetch_artifact_content(
     collection_id: str, document_uuid: str, file_name: str, authorization: str | None = None
 ) -> str:
-    """Fetch artifact content from pengAIM-RAG via /content endpoint (RAG proxies S3).
+    """Fetch artifact content via presigned URL (download directly from S3).
+
+    Step 1: Get presigned URL from pengAIM-RAG.
+    Step 2: Download content directly from S3.
 
     Raises RuntimeError with details on any failure (no silent None returns).
     """
-    url = (
-        f"{RAG_URL}/api/v1/artifact-collections/{collection_id}"
-        f"/documents/{document_uuid}/content"
-    )
-    headers = {}
-    if authorization:
-        headers["authorization"] = authorization
-    else:
+    if not authorization:
         raise RuntimeError(f"No auth token for fetching artifact '{file_name}'")
 
+    download_url_endpoint = (
+        f"{RAG_URL}/api/v1/artifact-collections/{collection_id}"
+        f"/documents/{document_uuid}/download-url"
+    )
+    headers = {"authorization": authorization}
+
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+        # Step 1: Get presigned URL from RAG
+        async with session.get(
+            download_url_endpoint,
+            headers=headers,
+            params={"as_attachment": "false"},
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as resp:
             if resp.status != 200:
                 body = await resp.text()
                 raise RuntimeError(
-                    f"Failed to fetch content for '{file_name}': "
+                    f"Failed to get presigned URL for '{file_name}': "
                     f"status={resp.status}, body={body[:500]}"
                 )
+            presigned_data = await resp.json()
+            presigned_url = presigned_data["url"]
+
+        # Step 2: Fetch content directly from S3
+        async with session.get(
+            presigned_url, timeout=aiohttp.ClientTimeout(total=60)
+        ) as resp:
+            if resp.status != 200:
+                raise RuntimeError(
+                    f"Failed to download artifact '{file_name}' from S3: "
+                    f"status={resp.status}"
+                )
             content_type = resp.headers.get("content-type", "")
-            if any(t in content_type for t in ["text/", "application/json", "application/xml", "application/octet-stream"]):
+            if any(t in content_type for t in ["text/", "application/json", "application/xml"]):
                 return await resp.text()
-            return f"[Binary file: {file_name} ({content_type})]"
+            raise RuntimeError(
+                f"Unsupported content type '{content_type}' for artifact '{file_name}'. "
+                f"Only text-based formats are supported by the LLM."
+            )
 
 
 def apply_placeholders(text: str, placeholders: list) -> str:
