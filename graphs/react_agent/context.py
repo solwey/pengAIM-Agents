@@ -387,11 +387,208 @@ class Context(BaseModel, McpConfigMixin):
                 "type": "select",
                 "default": RetrievalMode.RRF.value,
                 "description": "Select retrieval strategy for RAG.",
+                "group": "retrieval_settings",
+                "group_label": "Retrieval Settings",
+                "group_order": 5,
+                "field_order": 10,
                 "options": [
                     {"label": "Basic", "value": RetrievalMode.BASIC.value},
                     {"label": "HyDE", "value": RetrievalMode.HYDE.value},
                     {"label": "RRF", "value": RetrievalMode.RRF.value},
                 ],
+            }
+        },
+    )
+    rag_retrieval_context_token_budget: int = Field(
+        default=128000,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 128000,
+                "min": 1,
+                "description": "Total token budget allocated for the assembled retrieval context.",
+                "group": "retrieval_budget",
+                "group_label": "Retrieval Budget & Ratios",
+                "group_order": 10,
+                "field_order": 10,
+            }
+        },
+    )
+    rag_retrieval_text_unit_ratio: float = Field(
+        default=0.25,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 0.25,
+                "min": 0.01,
+                "max": 1,
+                "step": 0.01,
+                "description": "Share of the context token budget reserved for text units (chunks).",
+                "group": "retrieval_budget",
+                "group_label": "Retrieval Budget & Ratios",
+                "group_order": 10,
+                "field_order": 20,
+                "validation_group": "retrieval_ratio_budget",
+                "validation_rule": "sum_lte",
+                "validation_value": 1,
+                "validation_message": "Sum of retrieval ratios must be <= 1",
+            }
+        },
+    )
+    rag_retrieval_community_ratio: float = Field(
+        default=0.1,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 0.1,
+                "min": 0.01,
+                "max": 1,
+                "step": 0.01,
+                "description": "Share of the context token budget reserved for community reports.",
+                "group": "retrieval_budget",
+                "group_label": "Retrieval Budget & Ratios",
+                "group_order": 10,
+                "field_order": 30,
+                "validation_group": "retrieval_ratio_budget",
+                "validation_rule": "sum_lte",
+                "validation_value": 1,
+                "validation_message": "Sum of retrieval ratios must be <= 1",
+            }
+        },
+    )
+    rag_retrieval_entity_ratio: float = Field(
+        default=0.35,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 0.35,
+                "min": 0.01,
+                "max": 1,
+                "step": 0.01,
+                "description": "Share of the context token budget reserved for entities.",
+                "group": "retrieval_budget",
+                "group_label": "Retrieval Budget & Ratios",
+                "group_order": 10,
+                "field_order": 40,
+                "validation_group": "retrieval_ratio_budget",
+                "validation_rule": "sum_lte",
+                "validation_value": 1,
+                "validation_message": "Sum of retrieval ratios must be <= 1",
+            }
+        },
+    )
+    rag_retrieval_relationship_ratio: float = Field(
+        default=0.3,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 0.3,
+                "min": 0.01,
+                "max": 1,
+                "step": 0.01,
+                "description": "Share of the context token budget reserved for relationships between entities.",
+                "group": "retrieval_budget",
+                "group_label": "Retrieval Budget & Ratios",
+                "group_order": 10,
+                "field_order": 50,
+                "validation_group": "retrieval_ratio_budget",
+                "validation_rule": "sum_lte",
+                "validation_value": 1,
+                "validation_message": "Sum of retrieval ratios must be <= 1",
+            }
+        },
+    )
+    rag_retrieval_top_k_relationships: int = Field(
+        default=10,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 10,
+                "min": 1,
+                "description": "Maximum number of relationships to keep during retrieval selection.",
+                "group": "retrieval_top_k_limits",
+                "group_label": "Retrieval Top-K Limits",
+                "group_order": 20,
+                "field_order": 10,
+            }
+        },
+    )
+    rag_retrieval_top_k_entities: int = Field(
+        default=10,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 10,
+                "min": 1,
+                "description": "Maximum number of entities used for retrieval and context assembly.",
+                "group": "retrieval_top_k_limits",
+                "group_label": "Retrieval Top-K Limits",
+                "group_order": 20,
+                "field_order": 20,
+            }
+        },
+    )
+    rag_retrieval_chunk_top_k_per_entity: int = Field(
+        default=3,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 3,
+                "min": 1,
+                "description": "Number of top chunks to keep per retrieved entity.",
+                "group": "retrieval_top_k_limits",
+                "group_label": "Retrieval Top-K Limits",
+                "group_order": 20,
+                "field_order": 30,
+            }
+        },
+    )
+    rag_retrieval_chunk_ranking_overfetch: int = Field(
+        default=4,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 4,
+                "min": 1,
+                "description": "Overfetch factor used before the final chunk-ranking pass.",
+                "group": "chunk_ranking",
+                "group_label": "Chunk Ranking",
+                "group_order": 30,
+                "field_order": 10,
+            }
+        },
+    )
+    rag_retrieval_chunk_rank_weight_similarity: float = Field(
+        default=0.75,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 0.75,
+                "min": 0.01,
+                "max": 1,
+                "step": 0.01,
+                "description": "Weight of semantic similarity in chunk ranking.",
+                "group": "chunk_ranking",
+                "group_label": "Chunk Ranking",
+                "group_order": 30,
+                "field_order": 20,
+            }
+        },
+    )
+    rag_retrieval_chunk_rank_weight_entity: float = Field(
+        default=0.25,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 0.25,
+                "min": 0.01,
+                "max": 1,
+                "step": 0.01,
+                "description": "Weight of entity relevance in chunk ranking.",
+                "group": "chunk_ranking",
+                "group_label": "Chunk Ranking",
+                "group_order": 30,
+                "field_order": 30,
             }
         },
     )
@@ -408,6 +605,10 @@ class Context(BaseModel, McpConfigMixin):
                     "Use this to personalize responses for your specific project or domain."
                 ),
                 "default": "",
+                "group": "retrieval_settings",
+                "group_label": "Retrieval Settings",
+                "group_order": 5,
+                "field_order": 20,
             }
         },
     )
@@ -561,6 +762,76 @@ class Context(BaseModel, McpConfigMixin):
         if v is None:
             return 20000
         return v
+
+    @field_validator(
+        "rag_retrieval_context_token_budget",
+        "rag_retrieval_top_k_relationships",
+        "rag_retrieval_top_k_entities",
+        "rag_retrieval_chunk_top_k_per_entity",
+        "rag_retrieval_chunk_ranking_overfetch",
+        mode="before",
+    )
+    @classmethod
+    def validate_rag_retrieval_positive_ints(cls, v, info):
+        default_map = {
+            "rag_retrieval_context_token_budget": 128000,
+            "rag_retrieval_top_k_relationships": 10,
+            "rag_retrieval_top_k_entities": 10,
+            "rag_retrieval_chunk_top_k_per_entity": 3,
+            "rag_retrieval_chunk_ranking_overfetch": 4,
+        }
+        default_value = default_map[info.field_name]
+        if v is None:
+            return default_value
+        try:
+            parsed = int(v)
+        except (TypeError, ValueError):
+            return default_value
+        if parsed < 1:
+            return default_value
+        return parsed
+
+    @field_validator(
+        "rag_retrieval_text_unit_ratio",
+        "rag_retrieval_community_ratio",
+        "rag_retrieval_entity_ratio",
+        "rag_retrieval_relationship_ratio",
+        "rag_retrieval_chunk_rank_weight_similarity",
+        "rag_retrieval_chunk_rank_weight_entity",
+        mode="before",
+    )
+    @classmethod
+    def validate_rag_retrieval_ratios(cls, v, info):
+        default_map = {
+            "rag_retrieval_text_unit_ratio": 0.25,
+            "rag_retrieval_community_ratio": 0.1,
+            "rag_retrieval_entity_ratio": 0.35,
+            "rag_retrieval_relationship_ratio": 0.3,
+            "rag_retrieval_chunk_rank_weight_similarity": 0.75,
+            "rag_retrieval_chunk_rank_weight_entity": 0.25,
+        }
+        default_value = default_map[info.field_name]
+        if v is None:
+            return default_value
+        try:
+            parsed = float(v)
+        except (TypeError, ValueError):
+            return default_value
+        if not (0 <= parsed <= 1):
+            return default_value
+        return parsed
+
+    @model_validator(mode="after")
+    def validate_rag_retrieval_ratio_sum(self):
+        retrieval_ratio_sum = (
+            self.rag_retrieval_text_unit_ratio
+            + self.rag_retrieval_community_ratio
+            + self.rag_retrieval_entity_ratio
+            + self.rag_retrieval_relationship_ratio
+        )
+        if retrieval_ratio_sum > 1:
+            raise ValueError("Sum of retrieval ratios must be <= 1")
+        return self
 
     @field_validator("share_new_chats_by_default", mode="before")
     @classmethod
