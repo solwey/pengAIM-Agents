@@ -1,7 +1,6 @@
 {
   "graphs": {
     "Deep Researcher": "./graphs/open_deep_research/deep_researcher.py:deep_researcher",
-    "ReAct Agent": "./graphs/react_agent/graph.py:graph",
-    "Dynamic Workflow": "./graphs/workflow_engine/entry.py:workflow_graph"
+    "ReAct Agent": "./graphs/react_agent/graph.py:graph"
   }
 }
