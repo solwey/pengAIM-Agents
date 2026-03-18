@@ -269,11 +269,15 @@ class Workflow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()")
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index("idx_workflow_team", "team_id"),
         Index("idx_workflow_team_user", "team_id", "user_id"),
         Index("idx_workflow_is_active", "is_active"),
+        Index("idx_workflow_deleted_at", "deleted_at"),
     )
 
 

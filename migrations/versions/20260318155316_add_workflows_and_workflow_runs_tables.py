@@ -28,11 +28,13 @@ def upgrade() -> None:
     sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
     sa.Column('created_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('deleted_at', sa.TIMESTAMP(timezone=True), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_workflow_is_active', 'workflows', ['is_active'], unique=False)
     op.create_index('idx_workflow_team', 'workflows', ['team_id'], unique=False)
     op.create_index('idx_workflow_team_user', 'workflows', ['team_id', 'user_id'], unique=False)
+    op.create_index('idx_workflow_deleted_at', 'workflows', ['deleted_at'], unique=False)
     op.create_table('workflow_runs',
     sa.Column('id', sa.Text(), server_default=sa.text('uuid_generate_v4()::text'), nullable=False),
     sa.Column('workflow_id', sa.Text(), nullable=False),
@@ -64,6 +66,7 @@ def downgrade() -> None:
     op.drop_index('idx_workflow_run_status', table_name='workflow_runs')
     op.drop_index('idx_workflow_run_created_at', table_name='workflow_runs')
     op.drop_table('workflow_runs')
+    op.drop_index('idx_workflow_deleted_at', table_name='workflows')
     op.drop_index('idx_workflow_team_user', table_name='workflows')
     op.drop_index('idx_workflow_team', table_name='workflows')
     op.drop_index('idx_workflow_is_active', table_name='workflows')

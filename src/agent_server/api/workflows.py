@@ -42,6 +42,7 @@ class WorkflowResponse(BaseModel):
     is_active: bool
     created_at: str
     updated_at: str
+    deleted_at: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -105,9 +106,13 @@ async def list_workflows(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     is_active: bool | None = None,
+    show_deleted: bool = False,
 ):
     """List workflows for the current team."""
     query = select(Workflow).where(Workflow.team_id == user.team_id)
+
+    if not show_deleted:
+        query = query.where(Workflow.deleted_at.is_(None))
 
     if is_active is not None:
         query = query.where(Workflow.is_active == is_active)
@@ -169,15 +174,39 @@ async def update_workflow(
     return _to_response(workflow)
 
 
+@router.post("/workflows/{workflow_id}/restore", response_model=WorkflowResponse)
+async def restore_workflow(
+    workflow_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Restore a soft-deleted workflow."""
+    result = await session.execute(
+        select(Workflow).where(
+            Workflow.id == workflow_id,
+            Workflow.team_id == user.team_id,
+            Workflow.deleted_at.is_not(None),
+        )
+    )
+    workflow = result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Deleted workflow not found")
+    workflow.deleted_at = None
+    workflow.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(workflow)
+    return _to_response(workflow)
+
+
 @router.delete("/workflows/{workflow_id}", status_code=204)
 async def delete_workflow(
     workflow_id: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete a workflow and its runs."""
+    """Soft-delete a workflow by setting deleted_at."""
     workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
-    await session.delete(workflow)
+    workflow.deleted_at = datetime.now(UTC)
     await session.commit()
 
 
@@ -193,6 +222,7 @@ async def _get_workflow_or_404(
         select(Workflow).where(
             Workflow.id == workflow_id,
             Workflow.team_id == team_id,
+            Workflow.deleted_at.is_(None),
         )
     )
     workflow = result.scalar_one_or_none()
@@ -212,4 +242,5 @@ def _to_response(workflow: Workflow) -> WorkflowResponse:
         is_active=workflow.is_active,
         created_at=workflow.created_at.isoformat(),
         updated_at=workflow.updated_at.isoformat(),
+        deleted_at=workflow.deleted_at.isoformat() if workflow.deleted_at else None,
     )
