@@ -65,6 +65,39 @@ async def create_rag_tool(rag_url: str):
                     embedding_model = configurable.get("rag_embedding_model")
                     llm_temperature = configurable.get("rag_llm_temperature")
                     llm_max_tokens = configurable.get("rag_llm_max_tokens")
+                    rag_retrieval_context_token_budget = configurable.get(
+                        "rag_retrieval_context_token_budget"
+                    )
+                    rag_retrieval_text_unit_ratio = configurable.get(
+                        "rag_retrieval_text_unit_ratio"
+                    )
+                    rag_retrieval_community_ratio = configurable.get(
+                        "rag_retrieval_community_ratio"
+                    )
+                    rag_retrieval_entity_ratio = configurable.get(
+                        "rag_retrieval_entity_ratio"
+                    )
+                    rag_retrieval_relationship_ratio = configurable.get(
+                        "rag_retrieval_relationship_ratio"
+                    )
+                    rag_retrieval_top_k_relationships = configurable.get(
+                        "rag_retrieval_top_k_relationships"
+                    )
+                    rag_retrieval_top_k_entities = configurable.get(
+                        "rag_retrieval_top_k_entities"
+                    )
+                    rag_retrieval_chunk_top_k_per_entity = configurable.get(
+                        "rag_retrieval_chunk_top_k_per_entity"
+                    )
+                    rag_retrieval_chunk_ranking_overfetch = configurable.get(
+                        "rag_retrieval_chunk_ranking_overfetch"
+                    )
+                    rag_retrieval_chunk_rank_weight_similarity = configurable.get(
+                        "rag_retrieval_chunk_rank_weight_similarity"
+                    )
+                    rag_retrieval_chunk_rank_weight_entity = configurable.get(
+                        "rag_retrieval_chunk_rank_weight_entity"
+                    )
 
                     # Select appropriate RAG API key based on model provider
                     model_name = configurable.get("model_name", "")
@@ -105,6 +138,17 @@ async def create_rag_tool(rag_url: str):
                     "embedding_model": embedding_model,
                     "llm_temperature": llm_temperature,
                     "llm_max_tokens": llm_max_tokens,
+                    "context_token_budget": rag_retrieval_context_token_budget,
+                    "text_unit_ratio": rag_retrieval_text_unit_ratio,
+                    "community_ratio": rag_retrieval_community_ratio,
+                    "entity_ratio": rag_retrieval_entity_ratio,
+                    "relationship_ratio": rag_retrieval_relationship_ratio,
+                    "top_k_relationships": rag_retrieval_top_k_relationships,
+                    "top_k_entities": rag_retrieval_top_k_entities,
+                    "chunk_top_k_per_entity": rag_retrieval_chunk_top_k_per_entity,
+                    "chunk_ranking_overfetch": rag_retrieval_chunk_ranking_overfetch,
+                    "chunk_rank_weight_similarity": rag_retrieval_chunk_rank_weight_similarity,
+                    "chunk_rank_weight_entity": rag_retrieval_chunk_rank_weight_entity,
                 }
                 headers = {
                     "authorization": authorization,

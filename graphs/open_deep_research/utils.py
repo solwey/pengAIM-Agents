@@ -71,26 +71,58 @@ async def rag_search(
 ) -> str:
     """Search for documents in the collection based on the query"""
 
+    configurable = (config or {}).get("configurable", {})
     authorization = (
-        config.get("configurable", {})
+        configurable
         .get("langgraph_auth_user", {})
         .get("permissions")[0]
         .replace("authz:", "")
     )
-    system_prompt = config.get("configurable", {}).get("rag_system_prompt") or None
-    retrieval_mode = config.get("configurable", {}).get("rag_retrieval_mode") or None
-    embedding_model = config.get("configurable", {}).get("rag_embedding_model") or None
-    llm_temperature = config.get("configurable", {}).get("rag_llm_temperature")
-    llm_max_tokens = config.get("configurable", {}).get("rag_llm_max_tokens")
-    summarization_model = (
-        config.get("configurable", {}).get("summarization_model") or None
+    system_prompt = configurable.get("rag_system_prompt") or None
+    retrieval_mode = configurable.get("rag_retrieval_mode") or None
+    embedding_model = configurable.get("rag_embedding_model") or None
+    llm_temperature = configurable.get("rag_llm_temperature")
+    llm_max_tokens = configurable.get("rag_llm_max_tokens")
+    rag_retrieval_context_token_budget = configurable.get(
+        "rag_retrieval_context_token_budget"
     )
+    rag_retrieval_text_unit_ratio = configurable.get(
+        "rag_retrieval_text_unit_ratio"
+    )
+    rag_retrieval_community_ratio = configurable.get(
+        "rag_retrieval_community_ratio"
+    )
+    rag_retrieval_entity_ratio = configurable.get(
+        "rag_retrieval_entity_ratio"
+    )
+    rag_retrieval_relationship_ratio = configurable.get(
+        "rag_retrieval_relationship_ratio"
+    )
+    rag_retrieval_top_k_relationships = configurable.get(
+        "rag_retrieval_top_k_relationships"
+    )
+    rag_retrieval_top_k_entities = configurable.get(
+        "rag_retrieval_top_k_entities"
+    )
+    rag_retrieval_chunk_top_k_per_entity = configurable.get(
+        "rag_retrieval_chunk_top_k_per_entity"
+    )
+    rag_retrieval_chunk_ranking_overfetch = configurable.get(
+        "rag_retrieval_chunk_ranking_overfetch"
+    )
+    rag_retrieval_chunk_rank_weight_similarity = configurable.get(
+        "rag_retrieval_chunk_rank_weight_similarity"
+    )
+    rag_retrieval_chunk_rank_weight_entity = configurable.get(
+        "rag_retrieval_chunk_rank_weight_entity"
+    )
+    summarization_model = configurable.get("summarization_model") or None
 
-    llm_provider = config.get("configurable", {}).get("llm_provider", "openai")
+    llm_provider = configurable.get("llm_provider", "openai")
     if llm_provider == "google":
-        key_data = config.get("configurable", {}).get("rag_google_api_key", {})
+        key_data = configurable.get("rag_google_api_key", {})
     else:
-        key_data = config.get("configurable", {}).get("rag_openai_api_key", {})
+        key_data = configurable.get("rag_openai_api_key", {})
 
     if not _is_openai_gpt5_model(llm_provider, summarization_model):
         llm_temperature = None
@@ -107,6 +139,17 @@ async def rag_search(
         "embedding_model": embedding_model,
         "llm_temperature": llm_temperature,
         "llm_max_tokens": llm_max_tokens,
+        "context_token_budget": rag_retrieval_context_token_budget,
+        "text_unit_ratio": rag_retrieval_text_unit_ratio,
+        "community_ratio": rag_retrieval_community_ratio,
+        "entity_ratio": rag_retrieval_entity_ratio,
+        "relationship_ratio": rag_retrieval_relationship_ratio,
+        "top_k_relationships": rag_retrieval_top_k_relationships,
+        "top_k_entities": rag_retrieval_top_k_entities,
+        "chunk_top_k_per_entity": rag_retrieval_chunk_top_k_per_entity,
+        "chunk_ranking_overfetch": rag_retrieval_chunk_ranking_overfetch,
+        "chunk_rank_weight_similarity": rag_retrieval_chunk_rank_weight_similarity,
+        "chunk_rank_weight_entity": rag_retrieval_chunk_rank_weight_entity,
     }
     headers = {"authorization": authorization}
 
