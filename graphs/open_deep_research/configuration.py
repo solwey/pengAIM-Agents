@@ -1,9 +1,10 @@
 """Configuration management for the Open Deep Research system."""
 
 import json
+import logging
 import os
 from enum import Enum
-from typing import Any
+from typing import Any, Union
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -44,12 +45,46 @@ class SubPromptConfig(BaseModel):
     text: str
 
 
+class PlaceholderConfig(BaseModel):
+    """A typed placeholder (e.g. artifact picker)."""
+    name: str
+    type: str = "string"
+    label: str | None = None
+
+
 class StepConfig(BaseModel):
     name: str = ""
     text: str
-    placeholders: list[str] = Field(default_factory=list)
+    placeholders: list[Union[str, PlaceholderConfig]] = Field(default_factory=list)
     parallel_sub_prompts: list[SubPromptConfig] = Field(default_factory=list)
     sequential_sub_prompts: list[SubPromptConfig] = Field(default_factory=list)
+
+    @field_validator("placeholders", mode="before")
+    @classmethod
+    def _coerce_placeholders(cls, v: Any) -> list:
+        """Accept both plain strings and dicts like {"name": "x", "type": "artifact"}."""
+        if not isinstance(v, list):
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict):
+                config = PlaceholderConfig(**item)
+                logging.info(f"[CONFIG] Parsed typed placeholder: name='{config.name}', type='{config.type}'")
+                result.append(config)
+            else:
+                result.append(item)
+        logging.info(f"[CONFIG] StepConfig placeholders coerced: {[p.name if isinstance(p, PlaceholderConfig) else p for p in result]}")
+        return result
+
+    @property
+    def placeholder_names(self) -> list[str]:
+        """Return plain placeholder name strings (works for both str and PlaceholderConfig)."""
+        return [
+            p.name if isinstance(p, PlaceholderConfig) else p
+            for p in self.placeholders
+        ]
 
 
 def _is_openai_gpt5_model(model_name: str | None) -> bool:

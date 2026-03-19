@@ -66,6 +66,7 @@ from graphs.open_deep_research.utils import (
     is_token_limit_exceeded,
     normalize_branch_name,
     normalize_placeholders,
+    resolve_artifact_placeholders,
     openai_websearch_called,
     remove_up_to_last_ai_message,
     think_tool,
@@ -257,7 +258,7 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
     goto = "run_sub_prompts" if has_sub_prompts else "prepare_step"
 
     expected_placeholders = [
-        str(x).strip() for x in current_step.placeholders if str(x).strip()
+        x.strip() for x in current_step.placeholder_names if x.strip()
     ]
     expected_placeholders = list(dict.fromkeys(expected_placeholders))
 
@@ -287,10 +288,21 @@ async def provide_placeholders(state: AgentState, config: RunnableConfig):
                     {"field": key, "value": value}
                     for key, value in step_placeholders_dict.items()
                 ]
+                debug_print(
+                    f"provide_placeholders: step={step_index}, "
+                    f"raw placeholders_list={[{k: (v[:80] + '...' if isinstance(v, str) and len(v) > 80 else v) for k, v in p.items()} for p in placeholders_list]}"
+                )
                 normalized = normalize_placeholders(placeholders_list)
                 debug_print(
+                    f"provide_placeholders: step={step_index}, "
+                    f"after normalize: {[{k: (v[:80] + '...' if isinstance(v, str) and len(v) > 80 else v) for k, v in p.items()} for p in normalized]}"
+                )
+                # Resolve artifact-type values if present (no-op for regular string values)
+                normalized = await resolve_artifact_placeholders(normalized, config)
+                debug_print(
                     f"provide_placeholders EXIT (inline): step={step_index}, "
-                    f"returning {len(normalized)} placeholders"
+                    f"returning {len(normalized)} placeholders, "
+                    f"fields={[p.get('field') for p in normalized if isinstance(p, dict)]}"
                 )
                 # Use the inline placeholders directly, no interrupt needed
                 # Use standard append logic (no "override") to preserve history
@@ -1714,10 +1726,10 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     is_assembly_step = False
     if current_step and current_step.placeholders and synthetic_placeholder_names:
         is_assembly_step = bool(
-            set(current_step.placeholders) & synthetic_placeholder_names
+            set(current_step.placeholder_names) & synthetic_placeholder_names
         )
-    
-    debug_print(f"final_report_generation: is_assembly_step={is_assembly_step} (step {step_index}: expecting {current_step.placeholders if current_step else []}, have synthetic: {list(synthetic_placeholder_names)})")
+
+    debug_print(f"final_report_generation: is_assembly_step={is_assembly_step} (step {step_index}: expecting {current_step.placeholder_names if current_step else []}, have synthetic: {list(synthetic_placeholder_names)})")
 
 
     # Build findings based on step type
