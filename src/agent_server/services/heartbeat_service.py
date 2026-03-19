@@ -3,6 +3,7 @@
 import asyncio
 import os
 import platform
+import resource
 import sys
 from datetime import UTC, datetime
 
@@ -69,9 +70,16 @@ class HeartbeatService:
     async def _upsert_heartbeat(self) -> None:
         now = datetime.now(UTC)
         active_count = sum(1 for t in self._active_runs.values() if not t.done())
+        # RSS in MB — ru_maxrss is bytes on macOS, KB on Linux
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        rss_mb = usage.ru_maxrss / (1024 * 1024) if sys.platform == "darwin" else usage.ru_maxrss / 1024
         metadata = {
             "python_version": sys.version,
             "platform": platform.platform(),
+            "pid": os.getpid(),
+            "cpu_count": os.cpu_count(),
+            "memory_rss_mb": round(rss_mb, 1),
+            "total_runs_processed": sum(1 for t in self._active_runs.values() if t.done()),
         }
 
         maker = _get_session_maker()
