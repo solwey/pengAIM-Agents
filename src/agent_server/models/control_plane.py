@@ -60,8 +60,19 @@ class DashboardStats(BaseModel):
     avg_duration_ms: float | None = None
 
 
+class CeleryWorkerStatus(BaseModel):
+    name: str  # e.g. "celery@hostname"
+    status: str  # online
+    active_tasks: int
+    registered_tasks: list[str] = []
+    pool_size: int | None = None
+    pid: int | None = None
+    metadata: dict | None = None
+
+
 class ControlPlaneOverview(BaseModel):
     workers: list[WorkerStatus]
+    celery_workers: list[CeleryWorkerStatus] = []
     active_runs: list[ActiveRun]
     stats: DashboardStats
 
