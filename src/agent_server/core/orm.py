@@ -247,6 +247,77 @@ class RunEvent(Base):
     )
 
 
+class Workflow(Base):
+    __tablename__ = "workflows"
+
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, server_default=text("uuid_generate_v4()::text")
+    )
+    team_id: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    definition: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index("idx_workflow_team", "team_id"),
+        Index("idx_workflow_team_user", "team_id", "user_id"),
+        Index("idx_workflow_is_active", "is_active"),
+        Index("idx_workflow_deleted_at", "deleted_at"),
+    )
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, server_default=text("uuid_generate_v4()::text")
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'pending'")
+    )
+    input_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    output_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    celery_task_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index("idx_workflow_run_workflow", "workflow_id"),
+        Index("idx_workflow_run_team", "team_id"),
+        Index("idx_workflow_run_status", "status"),
+        Index("idx_workflow_run_team_workflow", "team_id", "workflow_id"),
+        Index("idx_workflow_run_created_at", "created_at"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Session factory
 # ---------------------------------------------------------------------------

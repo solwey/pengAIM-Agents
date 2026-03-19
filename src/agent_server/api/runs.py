@@ -1016,6 +1016,7 @@ async def execute_run_async(
 
         # Get graph and execute
         langgraph_service = get_langgraph_service()
+
         graph = await langgraph_service.get_graph(graph_id)
 
         run_config = create_run_config(
