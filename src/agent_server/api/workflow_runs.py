@@ -143,10 +143,15 @@ async def get_workflow_run(
 @router.post("/workflow-runs/{run_id}/cancel", response_model=WorkflowRunResponse)
 async def cancel_workflow_run(
     run_id: str,
+    force: bool = Query(False),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Cancel a running workflow run."""
+    """Cancel a running workflow run.
+
+    Sets status to 'cancelled' in DB. The Celery task polls this field
+    and cancels itself gracefully. Use force=true for emergency termination.
+    """
     run = await _get_run_or_404(session, run_id, user.team_id)
 
     if run.status not in ("pending", "running"):
@@ -155,14 +160,15 @@ async def cancel_workflow_run(
             detail=f"Cannot cancel run with status '{run.status}'",
         )
 
-    # Revoke Celery task if we have the ID
-    if run.celery_task_id:
+    run.status = "cancelled"
+    await session.commit()
+
+    # Force terminate the Celery worker process (emergency only)
+    if force and run.celery_task_id:
         from ..celery_app import celery_app
 
         celery_app.control.revoke(run.celery_task_id, terminate=True)
 
-    run.status = "cancelled"
-    await session.commit()
     await session.refresh(run)
     return _to_response(run)
 

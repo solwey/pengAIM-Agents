@@ -18,6 +18,81 @@ logger = structlog.getLogger(__name__)
 
 HEARTBEAT_TIMEOUT_SECONDS = 45
 ZOMBIE_RUN_TIMEOUT_MINUTES = 30
+CANCELLATION_POLL_INTERVAL = 10  # seconds between DB polls for cancellation
+
+
+def _is_workflow_cancelled(engine, workflow_run_id: str) -> bool:
+    """Check if a workflow run has been cancelled (sync, for use in thread)."""
+    with Session(engine) as session:
+        status = session.execute(
+            select(WorkflowRun.status).where(WorkflowRun.id == workflow_run_id)
+        ).scalar_one_or_none()
+        return status == "cancelled"
+
+
+async def _run_with_cancellation(coro, workflow_run_id: str, engine):
+    """Run a coroutine with cancellation support via DB polling.
+
+    Creates an asyncio task for the main coroutine and a watcher task that
+    polls the database every 10 seconds to check if the run has been cancelled.
+    If cancelled, the main task is cancelled via asyncio.
+
+    Returns the result of the coroutine, or None if cancelled.
+    """
+    # If already cancelled before we start, bail out
+    if await asyncio.to_thread(_is_workflow_cancelled, engine, workflow_run_id):
+        logger.info("Workflow run already cancelled, skipping", run_id=workflow_run_id)
+        coro.close()
+        return None
+
+    async def _cancellation_watcher(main_task: asyncio.Task):
+        """Poll DB for cancellation and cancel the main task if needed."""
+        try:
+            while not main_task.done():
+                await asyncio.sleep(CANCELLATION_POLL_INTERVAL)
+                if await asyncio.to_thread(
+                    _is_workflow_cancelled, engine, workflow_run_id
+                ):
+                    logger.info(
+                        "Workflow run cancelled, stopping task",
+                        run_id=workflow_run_id,
+                    )
+                    main_task.cancel()
+                    return
+        except asyncio.CancelledError:
+            pass
+
+    main_task = asyncio.ensure_future(coro)
+    watcher_task = asyncio.ensure_future(_cancellation_watcher(main_task))
+
+    try:
+        done, _ = await asyncio.wait(
+            [main_task, watcher_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        if main_task in done:
+            watcher_task.cancel()
+            try:
+                return main_task.result()
+            except asyncio.CancelledError:
+                logger.info("Workflow run cancelled successfully", run_id=workflow_run_id)
+                return None
+
+        # Watcher finished first — main_task was already cancelled, wait for it
+        try:
+            await main_task
+        except asyncio.CancelledError:
+            logger.info("Workflow run cancelled successfully", run_id=workflow_run_id)
+            return None
+
+    finally:
+        if not watcher_task.done():
+            watcher_task.cancel()
+            try:
+                await watcher_task
+            except asyncio.CancelledError:
+                pass
 
 
 def _get_sync_engine():
@@ -172,7 +247,26 @@ def execute_workflow(self, workflow_run_id: str):
                 "data": run.input_data or {},
             }
 
-            result = asyncio.run(compiled.ainvoke(initial_state))
+            result = asyncio.run(
+                _run_with_cancellation(
+                    compiled.ainvoke(initial_state),
+                    workflow_run_id,
+                    engine,
+                )
+            )
+
+            # Cancelled mid-execution
+            if result is None:
+                session.refresh(run)
+                if run.status != "cancelled":
+                    run.status = "cancelled"
+                run.completed_at = datetime.now(UTC)
+                session.commit()
+                logger.info(
+                    "execute_workflow: cancelled during execution",
+                    run_id=workflow_run_id,
+                )
+                return {"status": "cancelled", "run_id": workflow_run_id}
 
             final_data = result.get("data", {})
 
