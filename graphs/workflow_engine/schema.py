@@ -12,6 +12,7 @@ class NodeType(str, Enum):
     API_REQUEST = "api_request"
     CONDITION = "condition"
     TRANSFORM = "transform"
+    SLACK_MESSAGE = "slack_message"
 
 
 class ComparisonOperator(str, Enum):
@@ -47,6 +48,12 @@ class TransformConfig(BaseModel):
     set: dict[str, Any]  # key-value pairs to merge into state["data"]
 
 
+class SlackMessageConfig(BaseModel):
+    webhook_url: str  # Slack incoming webhook URL
+    message: str  # Message text (supports {{template}} variables)
+    response_key: str = "slack_response"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -55,7 +62,9 @@ class NodeDef(BaseModel):
     type: NodeType
     config: dict[str, Any]
 
-    def parsed_config(self) -> "ApiRequestConfig | ConditionConfig | TransformConfig":
+    def parsed_config(
+        self,
+    ) -> "ApiRequestConfig | ConditionConfig | TransformConfig | SlackMessageConfig":
         """Return a typed config object based on node type."""
         if self.type == NodeType.API_REQUEST:
             return ApiRequestConfig(**self.config)
@@ -63,6 +72,8 @@ class NodeDef(BaseModel):
             return ConditionConfig(**self.config)
         elif self.type == NodeType.TRANSFORM:
             return TransformConfig(**self.config)
+        elif self.type == NodeType.SLACK_MESSAGE:
+            return SlackMessageConfig(**self.config)
         raise ValueError(f"Unknown node type: {self.type}")
 
 
