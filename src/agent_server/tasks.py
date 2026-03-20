@@ -170,41 +170,13 @@ def execute_workflow(self, workflow_run_id: str):
             initial_state = {
                 "messages": [],
                 "data": run.input_data or {},
+                "steps": [],
             }
 
             result = asyncio.run(compiled.ainvoke(initial_state))
 
             final_data = result.get("data", {})
-
-            # Reconstruct execution steps from definition + final state
-            steps = []
-            skipped_nodes = set()
-
-            # Find which branch was skipped
-            for edge in definition.edges:
-                if edge.type == "conditional" and edge.branches:
-                    branch = "yes" if final_data.get("status") == "success" else "no"
-                    skipped = "no" if branch == "yes" else "yes"
-                    skipped_node = edge.branches.get(skipped)
-                    if skipped_node and skipped_node != "__end__":
-                        skipped_nodes.add(skipped_node)
-
-            for node_def in definition.nodes:
-                if node_def.id in skipped_nodes:
-                    continue
-                step: dict = {"node": node_def.id, "type": node_def.type.value}
-                if node_def.type.value == "api_request":
-                    resp_key = node_def.config.get("response_key", "api_response")
-                    step["data"] = {resp_key: final_data.get(resp_key)}
-                elif node_def.type.value == "condition":
-                    step["branch"] = "yes" if final_data.get("status") == "success" else "no"
-                elif node_def.type.value == "transform":
-                    step["data"] = {
-                        k: final_data.get(k)
-                        for k in node_def.config.get("set", {}).keys()
-                        if k in final_data
-                    }
-                steps.append(step)
+            steps = result.get("steps", [])
 
             run.output_data = {**final_data, "steps": steps}
             run.status = "completed"
