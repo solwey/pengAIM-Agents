@@ -52,6 +52,8 @@ jobs:
           export $(aws secretsmanager get-secret-value --region $AWS_REGION --secret-id $SECRET_NAME_CI --query SecretString --output text | jq -r 'keys[] as $k | "\($k)=\"\(.[$k])\""' | xargs)
           # Restart ECS
           aws ecs update-service --region $AWS_REGION --cluster $CLUSTER_NAME --service $SERVICE_NAME --no-cli-pager --force-new-deployment
+          aws ecs update-service --region $AWS_REGION --cluster $CLUSTER_NAME --service $WORKER_NAME --no-cli-pager --force-new-deployment
+          aws ecs update-service --region $AWS_REGION --cluster $CLUSTER_NAME --service $WORKER_BEAT_NAME --no-cli-pager --force-new-deployment
 
       - name: Notify in Slack
         run: |
