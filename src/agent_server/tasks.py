@@ -170,83 +170,13 @@ def execute_workflow(self, workflow_run_id: str):
             initial_state = {
                 "messages": [],
                 "data": run.input_data or {},
+                "steps": [],
             }
 
             result = asyncio.run(compiled.ainvoke(initial_state))
 
             final_data = result.get("data", {})
-
-            # Reconstruct execution steps from definition + final state
-            steps = []
-            skipped_nodes = set()
-
-            branch_results: dict[str, str] = {}  # condition_node_id -> "yes" or "no"
-            for edge in definition.edges:
-                if edge.type == "conditional" and edge.branches:
-                    yes_node = edge.branches.get("yes", "")
-                    no_node = edge.branches.get("no", "")
-                    # Check if yes-node produced data in final state
-                    yes_def = definition.get_node(yes_node) if yes_node and yes_node != "__end__" else None
-                    no_def = definition.get_node(no_node) if no_node and no_node != "__end__" else None
-
-                    # Determine branch by checking which node's output exists
-                    took_yes = False
-                    if yes_def:
-                        if yes_def.type.value == "transform":
-                            keys = yes_def.config.get("set", {}).keys()
-                            took_yes = any(k in final_data for k in keys)
-                        elif yes_def.type.value == "slack_message":
-                            resp_key = yes_def.config.get("response_key", "slack_response")
-                            took_yes = resp_key in final_data
-                        elif yes_def.type.value == "api_request":
-                            resp_key = yes_def.config.get("response_key", "api_response")
-                            took_yes = resp_key in final_data
-
-                    took_no = False
-                    if no_def:
-                        if no_def.type.value == "transform":
-                            keys = no_def.config.get("set", {}).keys()
-                            took_no = any(k in final_data for k in keys)
-                        elif no_def.type.value == "slack_message":
-                            resp_key = no_def.config.get("response_key", "slack_response")
-                            took_no = resp_key in final_data
-                        elif no_def.type.value == "api_request":
-                            resp_key = no_def.config.get("response_key", "api_response")
-                            took_no = resp_key in final_data
-
-                    if took_yes and not took_no:
-                        branch = "yes"
-                    elif took_no and not took_yes:
-                        branch = "no"
-                    else:
-                        # Fallback: both or neither detected
-                        branch = "yes" if final_data.get("status") == "success" else "no"
-
-                    branch_results[edge.from_node] = branch
-                    skipped_branch = "no" if branch == "yes" else "yes"
-                    skipped_node = edge.branches.get(skipped_branch)
-                    if skipped_node and skipped_node != "__end__":
-                        skipped_nodes.add(skipped_node)
-
-            for node_def in definition.nodes:
-                if node_def.id in skipped_nodes:
-                    continue
-                step: dict = {"node": node_def.id, "type": node_def.type.value}
-                if node_def.type.value == "api_request":
-                    resp_key = node_def.config.get("response_key", "api_response")
-                    step["data"] = {resp_key: final_data.get(resp_key)}
-                elif node_def.type.value == "condition":
-                    step["branch"] = branch_results.get(node_def.id, "no")
-                elif node_def.type.value == "transform":
-                    step["data"] = {
-                        k: final_data.get(k)
-                        for k in node_def.config.get("set", {}).keys()
-                        if k in final_data
-                    }
-                elif node_def.type.value == "slack_message":
-                    resp_key = node_def.config.get("response_key", "slack_response")
-                    step["data"] = {resp_key: final_data.get(resp_key)}
-                steps.append(step)
+            steps = result.get("steps", [])
 
             run.output_data = {**final_data, "steps": steps}
             run.status = "completed"
