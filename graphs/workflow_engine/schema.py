@@ -36,6 +36,11 @@ class ApiRequestConfig(BaseModel):
     body: dict[str, Any] | None = None
     timeout_seconds: int = Field(default=30, ge=1, le=300)
     response_key: str = "api_response"
+    retry_count: int = Field(default=0, ge=0, le=5)
+    retry_delay_seconds: float = Field(default=2.0, ge=0.5, le=30)
+    retry_on_status: list[int] = Field(
+        default_factory=lambda: [500, 502, 503, 504]
+    )
 
 
 class ConditionConfig(BaseModel):
