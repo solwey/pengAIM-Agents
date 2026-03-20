@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import create_engine, delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Session
 
 from .celery_app import celery_app
@@ -21,16 +22,18 @@ ZOMBIE_RUN_TIMEOUT_MINUTES = 30
 CANCELLATION_POLL_INTERVAL = 10  # seconds between DB polls for cancellation
 
 
-def _is_workflow_cancelled(engine, workflow_run_id: str) -> bool:
-    """Check if a workflow run has been cancelled (sync, for use in thread)."""
-    with Session(engine) as session:
-        status = session.execute(
-            select(WorkflowRun.status).where(WorkflowRun.id == workflow_run_id)
+async def _is_workflow_cancelled(async_engine, workflow_run_id: str) -> bool:
+    """Check if a workflow run has been cancelled."""
+    async with AsyncSession(async_engine) as session:
+        status = (
+            await session.execute(
+                select(WorkflowRun.status).where(WorkflowRun.id == workflow_run_id)
+            )
         ).scalar_one_or_none()
         return status == "cancelled"
 
 
-async def _run_with_cancellation(coro, workflow_run_id: str, engine):
+async def _run_with_cancellation(coro, workflow_run_id: str, async_engine):
     """Run a coroutine with cancellation support via DB polling.
 
     Creates an asyncio task for the main coroutine and a watcher task that
@@ -40,7 +43,7 @@ async def _run_with_cancellation(coro, workflow_run_id: str, engine):
     Returns the result of the coroutine, or None if cancelled.
     """
     # If already cancelled before we start, bail out
-    if await asyncio.to_thread(_is_workflow_cancelled, engine, workflow_run_id):
+    if await _is_workflow_cancelled(async_engine, workflow_run_id):
         logger.info("Workflow run already cancelled, skipping", run_id=workflow_run_id)
         coro.close()
         return None
@@ -50,9 +53,7 @@ async def _run_with_cancellation(coro, workflow_run_id: str, engine):
         try:
             while not main_task.done():
                 await asyncio.sleep(CANCELLATION_POLL_INTERVAL)
-                if await asyncio.to_thread(
-                    _is_workflow_cancelled, engine, workflow_run_id
-                ):
+                if await _is_workflow_cancelled(async_engine, workflow_run_id):
                     logger.info(
                         "Workflow run cancelled, stopping task",
                         run_id=workflow_run_id,
@@ -95,14 +96,22 @@ async def _run_with_cancellation(coro, workflow_run_id: str, engine):
                 pass
 
 
-def _get_sync_engine():
-    """Create a sync SQLAlchemy engine for Celery tasks."""
-    url = os.getenv(
+def _get_db_url() -> str:
+    """Return the DATABASE_URL from environment."""
+    return os.getenv(
         "DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/aegra"
     )
-    # Convert async URL to sync
-    sync_url = url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
+
+
+def _get_sync_engine():
+    """Create a sync SQLAlchemy engine for Celery tasks."""
+    sync_url = _get_db_url().replace("postgresql+asyncpg://", "postgresql+psycopg://")
     return create_engine(sync_url)
+
+
+def _get_async_engine():
+    """Create an async SQLAlchemy engine for Celery tasks."""
+    return create_async_engine(_get_db_url())
 
 
 @celery_app.task(name="src.agent_server.tasks.sweep_stale_workers")
@@ -247,13 +256,18 @@ def execute_workflow(self, workflow_run_id: str):
                 "data": run.input_data or {},
             }
 
-            result = asyncio.run(
-                _run_with_cancellation(
-                    compiled.ainvoke(initial_state),
-                    workflow_run_id,
-                    engine,
-                )
-            )
+            async def _run():
+                async_engine = _get_async_engine()
+                try:
+                    return await _run_with_cancellation(
+                        compiled.ainvoke(initial_state),
+                        workflow_run_id,
+                        async_engine,
+                    )
+                finally:
+                    await async_engine.dispose()
+
+            result = asyncio.run(_run())
 
             # Cancelled mid-execution
             if result is None:
