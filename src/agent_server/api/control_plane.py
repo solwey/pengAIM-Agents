@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.orm import Assistant as AssistantORM
@@ -12,6 +12,7 @@ from ..core.orm import Run as RunORM
 from ..core.orm import WorkerHeartbeat, get_session
 from ..models.control_plane import (
     ActiveRun,
+    CeleryWorkerStatus,
     ControlPlaneOverview,
     DashboardStats,
     WorkerStatus,
@@ -37,9 +38,15 @@ def _worker_effective_status(hb: WorkerHeartbeat) -> str:
 async def get_overview(session: AsyncSession = Depends(get_session)):
     """Combined dashboard snapshot: workers + active runs + 24h stats."""
     workers = await _get_workers(session)
+    celery_workers = await _get_celery_workers()
     active = await _get_active_runs(session)
     stats = await _get_stats(session)
-    return ControlPlaneOverview(workers=workers, active_runs=active, stats=stats)
+    return ControlPlaneOverview(
+        workers=workers,
+        celery_workers=celery_workers,
+        active_runs=active,
+        stats=stats,
+    )
 
 
 # ---------- Workers ----------
@@ -68,6 +75,84 @@ async def _get_workers(session: AsyncSession) -> list[WorkerStatus]:
                 uptime_seconds=uptime,
                 active_run_count=hb.active_run_count,
                 metadata=hb.metadata_dict,
+            )
+        )
+    return workers
+
+
+@router.delete("/workers/cleanup")
+async def cleanup_offline_workers(session: AsyncSession = Depends(get_session)):
+    """Delete all offline worker heartbeat records."""
+    result = await session.execute(
+        delete(WorkerHeartbeat).where(WorkerHeartbeat.status == "offline")
+    )
+    await session.commit()
+    removed = result.rowcount
+    if removed:
+        logger.info("cleanup_offline_workers", removed=removed)
+    return {"removed": removed}
+
+
+# ---------- Celery Workers ----------
+
+
+@router.get("/celery-workers", response_model=list[CeleryWorkerStatus])
+async def list_celery_workers():
+    """List Celery workers and their status."""
+    return await _get_celery_workers()
+
+
+async def _get_celery_workers() -> list[CeleryWorkerStatus]:
+    """Query Celery worker stats via inspect API."""
+    import asyncio
+
+    from ..celery_app import celery_app
+
+    def _inspect():
+        inspector = celery_app.control.inspect(timeout=1.0)
+        try:
+            active = inspector.active() or {}
+            registered = inspector.registered() or {}
+            stats = inspector.stats() or {}
+        except Exception:
+            return {}, {}, {}
+        return active, registered, stats
+
+    try:
+        active, registered, stats = await asyncio.to_thread(_inspect)
+    except Exception:
+        logger.warning("Failed to inspect Celery workers")
+        return []
+
+    workers = []
+    all_names = set(active.keys()) | set(registered.keys()) | set(stats.keys())
+    for name in sorted(all_names):
+        worker_stats = stats.get(name, {})
+        pool = worker_stats.get("pool", {})
+        rusage = worker_stats.get("rusage", {})
+        broker = worker_stats.get("broker", {})
+        total_tasks = worker_stats.get("total", {})
+        workers.append(
+            CeleryWorkerStatus(
+                name=name,
+                status="online",
+                active_tasks=len(active.get(name, [])),
+                registered_tasks=registered.get(name, []),
+                pool_size=pool.get("max-concurrency"),
+                pid=worker_stats.get("pid"),
+                metadata={
+                    "total_tasks": total_tasks,
+                    "total_executed": sum(total_tasks.values()) if total_tasks else 0,
+                    "broker_transport": broker.get("transport"),
+                    "broker_host": broker.get("hostname"),
+                    "broker_port": broker.get("port"),
+                    "prefetch_count": worker_stats.get("prefetch_count"),
+                    "memory_mb": round(rusage.get("maxrss", 0) / 1024 / 1024, 1) if rusage.get("maxrss") else None,
+                    "cpu_user_time": round(rusage.get("utime", 0), 2) if rusage.get("utime") else None,
+                    "cpu_system_time": round(rusage.get("stime", 0), 2) if rusage.get("stime") else None,
+                    "pool_processes": len(pool.get("processes", [])),
+                    "pool_implementation": pool.get("implementation", "").split(":")[-1] if pool.get("implementation") else None,
+                },
             )
         )
     return workers
