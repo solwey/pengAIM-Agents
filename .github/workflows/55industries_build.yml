@@ -1,0 +1,51 @@
+name: 55Industries - Build & Deploy
+
+on:
+  push:
+    branches:
+      - 55_industries/develop
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy
+    environment: staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create empty .env file
+        run: touch .env
+
+      - name: Log in to Azure via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.ALLIANCE_ARM_CLIENT_ID }}
+          subscription-id: ${{ secrets.ALLIANCE_ARM_SUBSCRIPTION_ID }}
+          tenant-id: ${{ secrets.ALLIANCE_ARM_TENANT_ID }}
+          environment: ${{ secrets.ALLIANCE_ARM_ENVIRONMENT }}
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Azure Container Registry
+        run: az acr login --name ${{ vars.ALLIANCE_ACR_REGISTRY_NAME }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: |
+            linux/amd64
+          build-args: |
+            ENV_FILE=.env
+          tags: |
+            ${{ vars.ALLIANCE_ACR_REGISTRY_NAME }}.azurecr.us/pengaim-agents:${{ github.sha }}
+            ${{ vars.ALLIANCE_ACR_REGISTRY_NAME }}.azurecr.us/pengaim-agents:latest
