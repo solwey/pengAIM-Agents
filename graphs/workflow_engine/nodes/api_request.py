@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 from urllib.parse import urlparse
@@ -15,6 +16,17 @@ from graphs.workflow_engine.schema import ApiRequestConfig
 logger = logging.getLogger(__name__)
 
 _ALLOWED_SCHEMES = {"http", "https"}
+
+
+def _parse_response_body(response: httpx.Response) -> Any:
+    """Parse response body as JSON if content-type indicates it, else text."""
+    content_type = response.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            return response.json()
+        except Exception:
+            return response.text
+    return response.text
 
 
 class ApiRequestExecutor(NodeExecutor):
@@ -42,7 +54,7 @@ class ApiRequestExecutor(NodeExecutor):
                     "data": {
                         **data,
                         cfg.response_key: {
-                            "status_code": 0,
+                            "status_code": None,
                             "body": None,
                             "headers": {},
                             "error": (
@@ -61,53 +73,79 @@ class ApiRequestExecutor(NodeExecutor):
                     for k, v in cfg.body.items()
                 }
 
-            try:
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(cfg.timeout_seconds)
-                ) as client:
-                    response = await client.request(
-                        method=cfg.method,
-                        url=resolved_url,
-                        headers=resolved_headers,
-                        json=resolved_body,
-                    )
+            max_attempts = cfg.retry_count + 1
+            result: dict[str, Any] = {}
 
-                    # Parse response body
-                    content_type = response.headers.get("content-type", "")
-                    if "application/json" in content_type:
-                        try:
-                            body = response.json()
-                        except Exception:
-                            body = response.text
-                    else:
-                        body = response.text
+            for attempt in range(max_attempts):
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=httpx.Timeout(cfg.timeout_seconds)
+                    ) as client:
+                        response = await client.request(
+                            method=cfg.method,
+                            url=resolved_url,
+                            headers=resolved_headers,
+                            json=resolved_body,
+                        )
 
+                        body = _parse_response_body(response)
+                        result = {
+                            "status_code": response.status_code,
+                            "body": body,
+                            "headers": dict(response.headers),
+                        }
+
+                        # Retry on specific status codes
+                        if (
+                            response.status_code in cfg.retry_on_status
+                            and attempt < max_attempts - 1
+                        ):
+                            logger.info(
+                                "Workflow api_request [%s %s] retry %d/%d (status=%s)",
+                                cfg.method,
+                                resolved_url,
+                                attempt + 1,
+                                cfg.retry_count,
+                                response.status_code,
+                            )
+                            await asyncio.sleep(cfg.retry_delay_seconds)
+                            continue
+
+                        break  # Success or non-retryable status
+
+                except httpx.TimeoutException:
                     result = {
-                        "status_code": response.status_code,
-                        "body": body,
-                        "headers": dict(response.headers),
+                        "status_code": None,
+                        "body": None,
+                        "headers": {},
+                        "error": f"Request timed out after {cfg.timeout_seconds}s",
                     }
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(cfg.retry_delay_seconds)
+                        continue
+                    break
 
-            except httpx.TimeoutException:
-                result = {
-                    "status_code": 0,
-                    "body": None,
-                    "headers": {},
-                    "error": f"Request timed out after {cfg.timeout_seconds}s",
-                }
-            except httpx.RequestError as exc:
-                result = {
-                    "status_code": 0,
-                    "body": None,
-                    "headers": {},
-                    "error": f"Request failed: {exc}",
-                }
+                except httpx.RequestError as exc:
+                    result = {
+                        "status_code": None,
+                        "body": None,
+                        "headers": {},
+                        "error": f"Request failed: {exc}",
+                    }
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(cfg.retry_delay_seconds)
+                        continue
+                    break
+
+            if cfg.retry_count > 0:
+                result["attempts"] = attempt + 1  # noqa: F821
 
             logger.info(
-                "Workflow api_request [%s %s] -> status=%s",
+                "Workflow api_request [%s %s] -> status=%s%s",
                 cfg.method,
                 resolved_url,
                 result.get("status_code"),
+                f" (attempts={result['attempts']})" if "attempts" in result else "",
             )
 
             return {"data": {**data, cfg.response_key: result}}

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import operator
+import time
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any, TypedDict
 
@@ -48,24 +49,40 @@ def _wrap_with_step_tracking(
     """Wrap a node function to record an executed step in state["steps"]."""
 
     async def wrapped(state: dict[str, Any], config: RunnableConfig) -> dict[str, Any]:
-        result = await fn(state, config)
+        start = time.monotonic()
         step: dict[str, Any] = {"node": node_id, "type": node_type}
 
-        if node_type == "condition" and condition_config:
-            cfg = ConditionConfig(**condition_config)
-            data = state.get("data", {})
-            actual = resolve_field(data, cfg.field)
-            branch = "yes" if compare(actual, cfg.operator.value, cfg.value) else "no"
-            step["branch"] = branch
-        elif "data" in result:
-            current_data = state.get("data", {})
-            changed = {
-                k: v
-                for k, v in result["data"].items()
-                if k not in current_data or current_data[k] != v
-            }
-            if changed:
-                step["data"] = changed
+        try:
+            result = await fn(state, config)
+            step["status"] = "completed"
+
+            if node_type == "condition" and condition_config:
+                cfg = ConditionConfig(**condition_config)
+                data = state.get("data", {})
+                actual = resolve_field(data, cfg.field)
+                branch = (
+                    "yes"
+                    if compare(actual, cfg.operator.value, cfg.value)
+                    else "no"
+                )
+                step["branch"] = branch
+            elif "data" in result:
+                current_data = state.get("data", {})
+                changed = {
+                    k: v
+                    for k, v in result["data"].items()
+                    if k not in current_data or current_data[k] != v
+                }
+                if changed:
+                    step["data"] = changed
+
+        except Exception as exc:
+            step["status"] = "failed"
+            step["error"] = str(exc)[:500]
+            raise
+
+        finally:
+            step["duration_ms"] = round((time.monotonic() - start) * 1000)
 
         result["steps"] = [step]
         return result
