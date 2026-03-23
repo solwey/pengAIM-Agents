@@ -23,12 +23,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy project metadata and source
 COPY pyproject.toml ./
+COPY uv.lock ./
 COPY README.md ./
 COPY src/ ./src/
 
-# Install project (builds wheel and installs dependencies specified in pyproject)
-RUN python -m pip install --upgrade pip && \
-    pip install --no-cache-dir .
+# Install runtime deps from lock, then install project package without re-resolving deps
+RUN python -m pip install --upgrade pip uv && \
+    uv export --frozen --format requirements.txt --no-dev --no-emit-project -o requirements.lock.txt && \
+    uv pip sync --system requirements.lock.txt && \
+    pip install --no-cache-dir --no-deps .
 
 # -----------------------------
 # Final, minimal runtime image
@@ -67,5 +70,3 @@ USER app
 
 # Leave default CMD empty so docker-compose command can run migrations then start uvicorn
 # CMD ["uvicorn", "src.agent_server.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-
