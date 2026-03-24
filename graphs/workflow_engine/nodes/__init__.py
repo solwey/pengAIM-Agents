@@ -1,5 +1,6 @@
 from .api_request import ApiRequestExecutor
 from .condition import ConditionExecutor, build_condition_router
+from .delay import DelayExecutor
 from .email_message import EmailMessageExecutor
 from .slack_message import SlackMessageExecutor
 from .switch import SwitchExecutor, build_switch_router
@@ -12,6 +13,7 @@ NODE_REGISTRY: dict[str, type] = {
     "slack_message": SlackMessageExecutor,
     "email_message": EmailMessageExecutor,
     "switch": SwitchExecutor,
+    "delay": DelayExecutor,
 }
 
 __all__ = ["NODE_REGISTRY", "build_condition_router", "build_switch_router"]

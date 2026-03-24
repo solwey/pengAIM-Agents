@@ -15,6 +15,7 @@ class NodeType(str, Enum):
     SLACK_MESSAGE = "slack_message"
     EMAIL_MESSAGE = "email_message"
     SWITCH = "switch"
+    DELAY = "delay"
 
 
 class ComparisonOperator(str, Enum):
@@ -81,6 +82,10 @@ class SwitchConfig(BaseModel):
     default_label: str = "default"
 
 
+class DelayConfig(BaseModel):
+    seconds: float = Field(default=5, ge=0.1, le=3600)
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -98,6 +103,7 @@ class NodeDef(BaseModel):
             NodeType.SLACK_MESSAGE: SlackMessageConfig,
             NodeType.EMAIL_MESSAGE: EmailMessageConfig,
             NodeType.SWITCH: SwitchConfig,
+            NodeType.DELAY: DelayConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
