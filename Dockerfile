@@ -55,8 +55,8 @@ COPY graphs/ ./graphs/
 # (We can switch compose to 'agent_server.main:app' later and drop this for a smaller image.)
 COPY src/ ./src/
 
-ARG ENV_FILE
-COPY ${ENV_FILE} ./.env
+ARG ENV_FILE=.env*
+COPY ${ENV_FILE} /
 
 RUN rm -f scripts/.env*
 

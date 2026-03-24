@@ -29,6 +29,7 @@ jobs:
           subscription-id: ${{ secrets.ALLIANCE_ARM_SUBSCRIPTION_ID }}
           tenant-id: ${{ secrets.ALLIANCE_ARM_TENANT_ID }}
           environment: ${{ secrets.ALLIANCE_ARM_ENVIRONMENT }}
+          audience: ${{ secrets.ALLIANCE_ARM_AUDIENCE }}
 
       - name: Set up Docker Buildx
         id: buildx
@@ -44,8 +45,6 @@ jobs:
           push: true
           platforms: |
             linux/amd64
-          build-args: |
-            ENV_FILE=.env
           tags: |
             ${{ vars.ALLIANCE_ACR_REGISTRY_NAME }}.azurecr.us/pengaim-agents:${{ github.sha }}
             ${{ vars.ALLIANCE_ACR_REGISTRY_NAME }}.azurecr.us/pengaim-agents:latest
