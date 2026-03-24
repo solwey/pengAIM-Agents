@@ -92,9 +92,10 @@ def _wrap_with_step_tracking(
                     step["data"] = changed
 
             # Clear _error from previous nodes on success
-            if "data" in result and "_error" in result.get("data", {}):
-                pass  # keep if node set it intentionally
-            elif "data" in result:
+            current_error = state.get("data", {}).get("_error")
+            if current_error and current_error.get("node") != node_id:
+                if "data" not in result:
+                    result["data"] = {**state.get("data", {})}
                 result["data"].pop("_error", None)
 
         except Exception as exc:
@@ -140,12 +141,6 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
         if edge.type == "on_error" and edge.to_node:
             nodes_with_error_edges.add(edge.from_node)
             error_targets[edge.from_node] = edge.to_node
-
-    # Collect nodes that have sequential outgoing edges (for error routing)
-    sequential_targets: dict[str, str] = {}
-    for edge in definition.edges:
-        if edge.type == "sequential" and edge.from_node != "__start__":
-            sequential_targets[edge.from_node] = edge.to_node or "__end__"
 
     # ── Register nodes ────────────────────────────────────────
     for node_def in definition.nodes:
