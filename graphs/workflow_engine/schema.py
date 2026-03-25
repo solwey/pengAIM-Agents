@@ -13,6 +13,9 @@ class NodeType(str, Enum):
     CONDITION = "condition"
     TRANSFORM = "transform"
     SLACK_MESSAGE = "slack_message"
+    EMAIL_MESSAGE = "email_message"
+    SWITCH = "switch"
+    DELAY = "delay"
 
 
 class ComparisonOperator(str, Enum):
@@ -54,9 +57,33 @@ class TransformConfig(BaseModel):
 
 
 class SlackMessageConfig(BaseModel):
-    webhook_url: str  # Slack incoming webhook URL
-    message: str  # Message text (supports {{template}} variables)
+    webhook_url: str
+    message: str
     response_key: str = "slack_response"
+
+
+class EmailMessageConfig(BaseModel):
+    to: str
+    subject: str
+    html_body: str
+    text_body: str | None = None
+    response_key: str = "email_response"
+
+
+class SwitchCase(BaseModel):
+    label: str
+    field: str
+    operator: ComparisonOperator
+    value: Any
+
+
+class SwitchConfig(BaseModel):
+    cases: list[SwitchCase] = Field(min_length=1)
+    default_label: str = "default"
+
+
+class DelayConfig(BaseModel):
+    seconds: float = Field(default=5, ge=0.1, le=3600)
 
 
 # ── Node & Edge definitions ──────────────────────────────────
@@ -67,26 +94,28 @@ class NodeDef(BaseModel):
     type: NodeType
     config: dict[str, Any]
 
-    def parsed_config(
-        self,
-    ) -> "ApiRequestConfig | ConditionConfig | TransformConfig | SlackMessageConfig":
+    def parsed_config(self):
         """Return a typed config object based on node type."""
-        if self.type == NodeType.API_REQUEST:
-            return ApiRequestConfig(**self.config)
-        elif self.type == NodeType.CONDITION:
-            return ConditionConfig(**self.config)
-        elif self.type == NodeType.TRANSFORM:
-            return TransformConfig(**self.config)
-        elif self.type == NodeType.SLACK_MESSAGE:
-            return SlackMessageConfig(**self.config)
-        raise ValueError(f"Unknown node type: {self.type}")
+        config_map = {
+            NodeType.API_REQUEST: ApiRequestConfig,
+            NodeType.CONDITION: ConditionConfig,
+            NodeType.TRANSFORM: TransformConfig,
+            NodeType.SLACK_MESSAGE: SlackMessageConfig,
+            NodeType.EMAIL_MESSAGE: EmailMessageConfig,
+            NodeType.SWITCH: SwitchConfig,
+            NodeType.DELAY: DelayConfig,
+        }
+        cls = config_map.get(self.type)
+        if cls is None:
+            raise ValueError(f"Unknown node type: {self.type}")
+        return cls(**self.config)
 
 
 class EdgeDef(BaseModel):
     from_node: str = Field(alias="from")
     to_node: str | None = Field(default=None, alias="to")
-    type: Literal["sequential", "conditional"] = "sequential"
-    branches: dict[str, str] | None = None  # {"yes": "node_a", "no": "node_b"}
+    type: Literal["sequential", "conditional", "switch", "on_error"] = "sequential"
+    branches: dict[str, str] | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -154,6 +183,27 @@ class WorkflowDefinition(BaseModel):
                             f"Branch '{label}' references unknown node: '{target}'"
                         )
 
+            elif edge.type == "switch":
+                if not edge.branches:
+                    raise ValueError(
+                        f"Switch edge from '{edge.from_node}' must have 'branches'"
+                    )
+                for label, target in edge.branches.items():
+                    if target not in valid_ids:
+                        raise ValueError(
+                            f"Switch branch '{label}' references unknown node: '{target}'"
+                        )
+
+            elif edge.type == "on_error":
+                if edge.to_node is None:
+                    raise ValueError(
+                        f"on_error edge from '{edge.from_node}' must have a 'to' field"
+                    )
+                if edge.to_node not in valid_ids:
+                    raise ValueError(
+                        f"on_error edge 'to' references unknown node: '{edge.to_node}'"
+                    )
+
         # Conditional edges must originate from condition nodes
         for edge in self.edges:
             if edge.type == "conditional":
@@ -164,6 +214,18 @@ class WorkflowDefinition(BaseModel):
                     raise ValueError(
                         f"Conditional edge from '{edge.from_node}' must originate "
                         f"from a 'condition' node"
+                    )
+
+        # Switch edges must originate from switch nodes
+        for edge in self.edges:
+            if edge.type == "switch":
+                source_node = next(
+                    (n for n in self.nodes if n.id == edge.from_node), None
+                )
+                if source_node is None or source_node.type != NodeType.SWITCH:
+                    raise ValueError(
+                        f"Switch edge from '{edge.from_node}' must originate "
+                        f"from a 'switch' node"
                     )
 
         # Must have exactly one edge from __start__
