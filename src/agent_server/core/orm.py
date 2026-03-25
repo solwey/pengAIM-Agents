@@ -318,6 +318,51 @@ class WorkflowRun(Base):
     )
 
 
+class WorkflowSchedule(Base):
+    __tablename__ = "workflow_schedules"
+
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, server_default=text("uuid_generate_v4()::text")
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    cron_expression: Mapped[str] = mapped_column(Text, nullable=False)
+    timezone: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'UTC'")
+    )
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    input_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    next_run_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
+    )
+
+    __table_args__ = (
+        Index("idx_schedule_workflow", "workflow_id"),
+        Index("idx_schedule_team", "team_id"),
+        Index("idx_schedule_enabled_next", "is_enabled", "next_run_at"),
+        Index(
+            "idx_schedule_unique_active_workflow",
+            "workflow_id",
+            unique=True,
+            postgresql_where=text("is_enabled = true"),
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Session factory
 # ---------------------------------------------------------------------------

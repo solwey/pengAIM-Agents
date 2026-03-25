@@ -56,5 +56,9 @@ celery_app.conf.update(
             "task": "src.agent_server.tasks.cleanup_offline_workers",
             "schedule": 300.0,
         },
+        "dispatch-scheduled-workflows-every-60s": {
+            "task": "src.agent_server.tasks.dispatch_scheduled_workflows",
+            "schedule": 60.0,
+        },
     },
 )
