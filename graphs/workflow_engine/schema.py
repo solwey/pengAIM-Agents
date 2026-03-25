@@ -67,6 +67,11 @@ class EmailMessageConfig(BaseModel):
     subject: str
     html_body: str
     text_body: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
     response_key: str = "email_response"
 
 
