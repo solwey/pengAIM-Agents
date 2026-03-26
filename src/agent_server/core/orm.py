@@ -272,12 +272,18 @@ class Workflow(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    webhook_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    webhook_path: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    webhook_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("idx_workflow_team", "team_id"),
         Index("idx_workflow_team_user", "team_id", "user_id"),
         Index("idx_workflow_is_active", "is_active"),
         Index("idx_workflow_deleted_at", "deleted_at"),
+        Index("idx_workflow_webhook_path", "webhook_path", unique=True),
     )
 
 

@@ -1,5 +1,6 @@
 """CRUD endpoints for Workflow definitions."""
 
+import os
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,8 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.auth_deps import get_current_user
 from ..core.orm import Workflow, get_session
 from ..models.auth import User
+from ..services.webhook_security import generate_webhook_path, generate_webhook_secret
 
 router = APIRouter(tags=["Workflows"])
+
+_port = os.getenv("PORT", "8001")
+AGENTS_PUBLIC_URL = os.getenv("AGENTS_PUBLIC_URL", f"http://localhost:{_port}")
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +45,9 @@ class WorkflowResponse(BaseModel):
     description: str | None
     definition: dict
     is_active: bool
+    webhook_enabled: bool = False
+    webhook_url: str | None = None
+    webhook_secret: str | None = None
     created_at: str
     updated_at: str
     deleted_at: str | None = None
@@ -52,6 +60,13 @@ class WorkflowListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class WebhookConfigResponse(BaseModel):
+    enabled: bool
+    webhook_url: str
+    webhook_secret: str
+    webhook_path: str
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +85,11 @@ def _validate_definition(definition: dict) -> None:
         WorkflowDefinition(**definition)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Invalid workflow definition: {e}")
+
+
+def _build_webhook_url(webhook_path: str) -> str:
+    """Construct the full public webhook URL."""
+    return f"{AGENTS_PUBLIC_URL.rstrip('/')}/webhook/{webhook_path}"
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +231,99 @@ async def delete_workflow(
 
 
 # ---------------------------------------------------------------------------
+# Webhook management endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/workflows/{workflow_id}/webhook",
+    response_model=WebhookConfigResponse,
+)
+async def enable_webhook(
+    workflow_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Enable webhook trigger for a workflow.
+
+    Generates a unique webhook URL and secret.  The secret is returned
+    only in this response — store it securely.
+    """
+    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+
+    if workflow.webhook_enabled and workflow.webhook_path:
+        raise HTTPException(
+            status_code=409,
+            detail="Webhook already enabled. Use /webhook/regenerate to get a new secret.",
+        )
+
+    path = generate_webhook_path()
+    secret = generate_webhook_secret()
+
+    workflow.webhook_enabled = True
+    workflow.webhook_path = path
+    workflow.webhook_secret = secret
+    workflow.updated_at = datetime.now(UTC)
+
+    await session.commit()
+    await session.refresh(workflow)
+
+    return WebhookConfigResponse(
+        enabled=True,
+        webhook_url=_build_webhook_url(path),
+        webhook_secret=secret,
+        webhook_path=path,
+    )
+
+
+@router.delete("/workflows/{workflow_id}/webhook", status_code=204)
+async def disable_webhook(
+    workflow_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Disable webhook trigger for a workflow."""
+    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+
+    workflow.webhook_enabled = False
+    workflow.webhook_path = None
+    workflow.webhook_secret = None
+    workflow.updated_at = datetime.now(UTC)
+
+    await session.commit()
+
+
+@router.post(
+    "/workflows/{workflow_id}/webhook/regenerate",
+    response_model=WebhookConfigResponse,
+)
+async def regenerate_webhook_secret(
+    workflow_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Regenerate the webhook secret.  Keeps the same URL path."""
+    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+
+    if not workflow.webhook_enabled or not workflow.webhook_path:
+        raise HTTPException(status_code=400, detail="Webhook is not enabled")
+
+    secret = generate_webhook_secret()
+    workflow.webhook_secret = secret
+    workflow.updated_at = datetime.now(UTC)
+
+    await session.commit()
+    await session.refresh(workflow)
+
+    return WebhookConfigResponse(
+        enabled=True,
+        webhook_url=_build_webhook_url(workflow.webhook_path),
+        webhook_secret=secret,
+        webhook_path=workflow.webhook_path,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -232,6 +345,10 @@ async def _get_workflow_or_404(
 
 
 def _to_response(workflow: Workflow) -> WorkflowResponse:
+    webhook_url = None
+    if workflow.webhook_enabled and workflow.webhook_path:
+        webhook_url = _build_webhook_url(workflow.webhook_path)
+
     return WorkflowResponse(
         id=workflow.id,
         team_id=workflow.team_id,
@@ -240,6 +357,9 @@ def _to_response(workflow: Workflow) -> WorkflowResponse:
         description=workflow.description,
         definition=workflow.definition,
         is_active=workflow.is_active,
+        webhook_enabled=workflow.webhook_enabled,
+        webhook_url=webhook_url,
+        webhook_secret=workflow.webhook_secret if workflow.webhook_enabled else None,
         created_at=workflow.created_at.isoformat(),
         updated_at=workflow.updated_at.isoformat(),
         deleted_at=workflow.deleted_at.isoformat() if workflow.deleted_at else None,

@@ -16,6 +16,8 @@ class NodeType(str, Enum):
     EMAIL_MESSAGE = "email_message"
     SWITCH = "switch"
     DELAY = "delay"
+    GENERATE_REPORT = "generate_report"
+    RUN_AGENT = "run_agent"
 
 
 class ComparisonOperator(str, Enum):
@@ -89,6 +91,22 @@ class DelayConfig(BaseModel):
     seconds: float = Field(default=5, ge=0.1, le=3600)
 
 
+class GenerateReportConfig(BaseModel):
+    automation_id: str  # presentation bot ID
+    report_type: str = "PIC-weekly"
+    period: str = ""  # e.g. "2026-w10", supports {{template}}
+    content: str = ""  # optional prompt/content, supports {{template}}
+    generator: str = "manus"  # "manus" or "local"
+    response_key: str = "report_result"
+
+
+class RunAgentConfig(BaseModel):
+    assistant_id: str  # LangGraph assistant/graph ID
+    prompt: str  # message to send to agent, supports {{template}}
+    response_key: str = "agent_result"
+    timeout_seconds: int = Field(default=120, ge=10, le=600)
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -107,6 +125,8 @@ class NodeDef(BaseModel):
             NodeType.EMAIL_MESSAGE: EmailMessageConfig,
             NodeType.SWITCH: SwitchConfig,
             NodeType.DELAY: DelayConfig,
+            NodeType.GENERATE_REPORT: GenerateReportConfig,
+            NodeType.RUN_AGENT: RunAgentConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
