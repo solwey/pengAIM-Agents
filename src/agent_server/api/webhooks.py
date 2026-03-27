@@ -75,11 +75,18 @@ async def handle_workflow_webhook(webhook_path: str, request: Request):
         if not isinstance(body_json, dict):
             body_json = {"payload": body_json}
 
+        # Normalize keys: "First Name" → "first_name" (for RB2B and similar)
+        normalized = {}
+        for key, value in body_json.items():
+            norm_key = key.strip().lower().replace(" ", "_")
+            normalized[norm_key] = value
+
         input_data = {
-            **body_json,
+            **normalized,
             "_webhook": {
                 "received_at": datetime.now(UTC).isoformat(),
                 "source_ip": request.client.host if request.client else None,
+                "raw_keys": list(body_json.keys()),
             },
         }
 

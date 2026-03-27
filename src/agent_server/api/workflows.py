@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth_deps import get_current_user
-from ..core.orm import Workflow, get_session
+from ..core.orm import Workflow, WorkflowVersion, get_session
 from ..models.auth import User
 from ..services.webhook_security import generate_webhook_path, generate_webhook_secret
 
@@ -45,6 +45,7 @@ class WorkflowResponse(BaseModel):
     description: str | None
     definition: dict
     is_active: bool
+    version: int = 1
     webhook_enabled: bool = False
     webhook_url: str | None = None
     webhook_secret: str | None = None
@@ -174,11 +175,17 @@ async def update_workflow(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update a workflow. Validates the definition if provided."""
+    """Update a workflow. Validates the definition if provided.
+
+    When the definition changes, a new version snapshot is created automatically.
+    """
     workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
 
+    definition_changed = False
     if body.definition is not None:
         _validate_definition(body.definition)
+        if body.definition != workflow.definition:
+            definition_changed = True
         workflow.definition = body.definition
 
     if body.name is not None:
@@ -187,6 +194,17 @@ async def update_workflow(
         workflow.description = body.description
     if body.is_active is not None:
         workflow.is_active = body.is_active
+
+    if definition_changed:
+        workflow.version += 1
+        session.add(WorkflowVersion(
+            workflow_id=workflow.id,
+            version=workflow.version,
+            definition=workflow.definition,
+            name=workflow.name,
+            description=workflow.description,
+            created_by=user.id,
+        ))
 
     workflow.updated_at = datetime.now(UTC)
     await session.commit()
@@ -228,6 +246,95 @@ async def delete_workflow(
     workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
     workflow.deleted_at = datetime.now(UTC)
     await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Version management endpoints
+# ---------------------------------------------------------------------------
+
+
+class WorkflowVersionResponse(BaseModel):
+    workflow_id: str
+    version: int
+    name: str
+    description: str | None
+    created_by: str
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/workflows/{workflow_id}/versions")
+async def list_workflow_versions(
+    workflow_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """List all versions of a workflow."""
+    await _get_workflow_or_404(session, workflow_id, user.team_id)
+
+    result = await session.execute(
+        select(WorkflowVersion)
+        .where(WorkflowVersion.workflow_id == workflow_id)
+        .order_by(WorkflowVersion.version.desc())
+    )
+    versions = result.scalars().all()
+
+    return [
+        WorkflowVersionResponse(
+            workflow_id=v.workflow_id,
+            version=v.version,
+            name=v.name,
+            description=v.description,
+            created_by=v.created_by,
+            created_at=v.created_at.isoformat(),
+        )
+        for v in versions
+    ]
+
+
+@router.post(
+    "/workflows/{workflow_id}/versions/{version}/restore",
+    response_model=WorkflowResponse,
+)
+async def restore_workflow_version(
+    workflow_id: str,
+    version: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Restore a workflow to a previous version."""
+    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+
+    result = await session.execute(
+        select(WorkflowVersion).where(
+            WorkflowVersion.workflow_id == workflow_id,
+            WorkflowVersion.version == version,
+        )
+    )
+    ver = result.scalar_one_or_none()
+    if not ver:
+        raise HTTPException(status_code=404, detail=f"Version {version} not found")
+
+    workflow.definition = ver.definition
+    workflow.name = ver.name
+    workflow.description = ver.description
+    workflow.version += 1
+    workflow.updated_at = datetime.now(UTC)
+
+    # Create a snapshot for the restore action
+    session.add(WorkflowVersion(
+        workflow_id=workflow.id,
+        version=workflow.version,
+        definition=workflow.definition,
+        name=workflow.name,
+        description=workflow.description,
+        created_by=user.id,
+    ))
+
+    await session.commit()
+    await session.refresh(workflow)
+    return _to_response(workflow)
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +464,7 @@ def _to_response(workflow: Workflow) -> WorkflowResponse:
         description=workflow.description,
         definition=workflow.definition,
         is_active=workflow.is_active,
+        version=workflow.version,
         webhook_enabled=workflow.webhook_enabled,
         webhook_url=webhook_url,
         webhook_secret=workflow.webhook_secret if workflow.webhook_enabled else None,

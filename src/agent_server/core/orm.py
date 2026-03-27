@@ -272,6 +272,9 @@ class Workflow(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
     webhook_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
@@ -284,6 +287,22 @@ class Workflow(Base):
         Index("idx_workflow_is_active", "is_active"),
         Index("idx_workflow_deleted_at", "deleted_at"),
         Index("idx_workflow_webhook_path", "webhook_path", unique=True),
+    )
+
+
+class WorkflowVersion(Base):
+    __tablename__ = "workflow_versions"
+
+    workflow_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("workflows.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    definition: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()")
     )
 
 
