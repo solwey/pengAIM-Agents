@@ -1,8 +1,8 @@
 """Endpoints for executing and managing Workflow Runs."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth_deps import get_current_user
@@ -53,6 +53,7 @@ class WorkflowRunListResponse(BaseModel):
 @router.post("/workflow-runs", response_model=WorkflowRunResponse, status_code=201)
 async def create_workflow_run(
     body: WorkflowRunCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -83,10 +84,11 @@ async def create_workflow_run(
     await session.commit()
     await session.refresh(run)
 
-    # Queue Celery task
+    # Queue Celery task with auth token for api_keys resolution
     from ..tasks import execute_workflow
 
-    task = execute_workflow.delay(run.id)
+    auth_token = request.headers.get("authorization", "")
+    task = execute_workflow.delay(run.id, auth_token=auth_token)
     run.celery_task_id = task.id
     await session.commit()
 

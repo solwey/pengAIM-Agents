@@ -14,7 +14,13 @@ from sqlalchemy.orm import Session
 
 from .celery_app import celery_app
 from .core.orm import Run as RunORM
-from .core.orm import RunStatusHistory, Workflow, WorkflowRun, WorkflowSchedule, WorkerHeartbeat
+from .core.orm import (
+    RunStatusHistory,
+    Workflow,
+    WorkflowRun,
+    WorkflowSchedule,
+    WorkerHeartbeat,
+)
 from graphs.workflow_engine.compiler import compile_workflow
 from graphs.workflow_engine.schema import WorkflowDefinition
 
@@ -80,7 +86,9 @@ async def _run_with_cancellation(coro, workflow_run_id: str, async_engine):
             try:
                 return main_task.result()
             except asyncio.CancelledError:
-                logger.info("Workflow run cancelled successfully", run_id=workflow_run_id)
+                logger.info(
+                    "Workflow run cancelled successfully", run_id=workflow_run_id
+                )
                 return None
 
         # Watcher finished first — main_task was already cancelled, wait for it
@@ -213,7 +221,7 @@ def cleanup_offline_workers(max_age_hours: int = 0):
     bind=True,
     max_retries=0,
 )
-def execute_workflow(self, workflow_run_id: str):
+def execute_workflow(self, workflow_run_id: str, auth_token: str | None = None):
     """Execute a workflow run: compile JSON → LangGraph → ainvoke.
 
     Steps:
@@ -235,7 +243,9 @@ def execute_workflow(self, workflow_run_id: str):
             return {"error": "run not found"}
 
         if run.status == "cancelled":
-            logger.info("execute_workflow: run already cancelled", run_id=workflow_run_id)
+            logger.info(
+                "execute_workflow: run already cancelled", run_id=workflow_run_id
+            )
             return {"status": "cancelled"}
 
         run.status = "running"
@@ -260,11 +270,15 @@ def execute_workflow(self, workflow_run_id: str):
                 "steps": [],
             }
 
+            run_config = (
+                {"configurable": {"auth_token": auth_token}} if auth_token else None
+            )
+
             async def _run():
                 async_engine = _get_async_engine()
                 try:
                     return await _run_with_cancellation(
-                        compiled.ainvoke(initial_state),
+                        compiled.ainvoke(initial_state, config=run_config),
                         workflow_run_id,
                         async_engine,
                     )

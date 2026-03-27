@@ -11,7 +11,11 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    resolve_templates,
+    reveal_api_key,
+)
 from graphs.workflow_engine.schema import EmailMessageConfig
 
 logger = logging.getLogger(__name__)
@@ -44,11 +48,14 @@ class EmailMessageExecutor(NodeExecutor):
                 if cfg.smtp_user
                 else os.environ.get("SMTP_USER", "")
             )
-            password = (
-                resolve_templates(cfg.smtp_password, data)
-                if cfg.smtp_password
-                else os.environ.get("SMTP_PASSWORD", "")
-            )
+
+            # Fetch SMTP password from api_keys table via pengAIM-RAG
+            password = ""
+            if cfg.smtp_password_key_id:
+                password = await reveal_api_key(config, cfg.smtp_password_key_id) or ""
+            if not password:
+                password = os.environ.get("SMTP_PASSWORD", "")
+
             from_addr = (
                 resolve_templates(cfg.smtp_from, data)
                 if cfg.smtp_from
