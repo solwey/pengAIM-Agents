@@ -1,8 +1,7 @@
-"""Run Agent node executor — triggers a LangGraph agent run and waits for completion."""
+"""Run Agent node executor — triggers a LangGraph agent run via /runs/wait."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -14,8 +13,6 @@ from graphs.workflow_engine.schema import RunAgentConfig
 
 logger = logging.getLogger(__name__)
 
-_POLL_INTERVAL = 3  # seconds between status checks
-
 
 class RunAgentExecutor(NodeExecutor):
     @staticmethod
@@ -26,14 +23,13 @@ class RunAgentExecutor(NodeExecutor):
             data = state.get("data", {})
             resolved_prompt = resolve_templates(cfg.prompt, data)
 
-            # Use internal API (same server) — relative to localhost
             configurable = config.get("configurable", {})
             auth_token = configurable.get("auth_token", "")
             base_url = configurable.get("agents_api_url", "http://localhost:8001")
 
             headers: dict[str, str] = {"Content-Type": "application/json"}
             if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
+                headers["Authorization"] = auth_token
 
             result: dict[str, Any]
             try:
@@ -55,9 +51,9 @@ class RunAgentExecutor(NodeExecutor):
 
                     thread_id = thread_resp.json().get("thread_id")
 
-                    # 2. Create run
-                    run_resp = await client.post(
-                        f"{base_url}/threads/{thread_id}/runs",
+                    # 2. Create run and wait for completion via /runs/wait
+                    wait_resp = await client.post(
+                        f"{base_url}/threads/{thread_id}/runs/wait",
                         json={
                             "assistant_id": cfg.assistant_id,
                             "input": {
@@ -73,66 +69,33 @@ class RunAgentExecutor(NodeExecutor):
                         },
                         headers=headers,
                     )
-                    if run_resp.status_code not in (200, 201):
+
+                    if wait_resp.status_code not in (200, 201):
                         result = {
                             "ok": False,
-                            "error": f"Failed to create run: {run_resp.text[:300]}",
+                            "error": f"Agent run failed: {wait_resp.text[:300]}",
                         }
                         return {"data": {**data, cfg.response_key: result}}
 
-                    run_data = run_resp.json()
-                    run_id = run_data.get("run_id")
+                    output = wait_resp.json()
 
-                    # 3. Poll for completion
-                    elapsed = 0
-                    final_status = "unknown"
-                    while elapsed < cfg.timeout_seconds:
-                        await asyncio.sleep(_POLL_INTERVAL)
-                        elapsed += _POLL_INTERVAL
-
-                        status_resp = await client.get(
-                            f"{base_url}/threads/{thread_id}/runs/{run_id}",
-                            headers=headers,
-                        )
-                        if status_resp.status_code != 200:
-                            continue
-
-                        status_data = status_resp.json()
-                        final_status = status_data.get("status", "unknown")
-
-                        if final_status in ("success", "error", "cancelled"):
-                            break
-
-                    # 4. Get final messages
+                    # Extract final message from output
                     agent_output = None
-                    if final_status == "success":
-                        msgs_resp = await client.get(
-                            f"{base_url}/threads/{thread_id}/state",
-                            headers=headers,
-                        )
-                        if msgs_resp.status_code == 200:
-                            thread_state = msgs_resp.json()
-                            values = thread_state.get("values", {})
-                            messages = values.get("messages", [])
-                            if messages:
-                                last_msg = messages[-1]
-                                if isinstance(last_msg, dict):
-                                    agent_output = last_msg.get("content", "")
-                                else:
-                                    agent_output = str(last_msg)
+                    messages = output.get("messages", [])
+                    if messages:
+                        last_msg = messages[-1]
+                        if isinstance(last_msg, dict):
+                            agent_output = last_msg.get("content", "")
+                        else:
+                            agent_output = str(last_msg)
 
                     result = {
-                        "ok": final_status == "success",
-                        "status": final_status,
+                        "ok": True,
+                        "status": "success",
                         "thread_id": thread_id,
-                        "run_id": run_id,
                         "output": agent_output,
                     }
-
-                    if final_status == "success":
-                        logger.info("Agent run completed: run_id=%s", run_id)
-                    else:
-                        logger.warning("Agent run ended with status=%s, run_id=%s", final_status, run_id)
+                    logger.info("Agent run completed: thread_id=%s", thread_id)
 
             except httpx.TimeoutException:
                 result = {"ok": False, "error": "Agent run timed out"}

@@ -1,11 +1,12 @@
 """add webhook trigger columns to workflows
 
 Revision ID: b3c4d5e6f7a8
-Revises: a2794b43fa4b
+Revises: b3905c54gb5c
 Create Date: 2026-03-26 12:00:00.000000
 
 """
 
+import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -16,22 +17,24 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS webhook_enabled BOOLEAN NOT NULL DEFAULT false"
+    op.add_column(
+        "workflows",
+        sa.Column(
+            "webhook_enabled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
     )
-    op.execute(
-        "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS webhook_path TEXT"
-    )
-    op.execute(
-        "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS webhook_secret TEXT"
-    )
-    op.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_webhook_path ON workflows (webhook_path)"
+    op.add_column("workflows", sa.Column("webhook_path", sa.Text(), nullable=True))
+    op.add_column("workflows", sa.Column("webhook_secret", sa.Text(), nullable=True))
+    op.create_index(
+        "idx_workflow_webhook_path", "workflows", ["webhook_path"], unique=True
     )
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS idx_workflow_webhook_path")
-    op.execute("ALTER TABLE workflows DROP COLUMN IF EXISTS webhook_secret")
-    op.execute("ALTER TABLE workflows DROP COLUMN IF EXISTS webhook_path")
-    op.execute("ALTER TABLE workflows DROP COLUMN IF EXISTS webhook_enabled")
+    op.drop_index("idx_workflow_webhook_path", table_name="workflows")
+    op.drop_column("workflows", "webhook_secret")
+    op.drop_column("workflows", "webhook_path")
+    op.drop_column("workflows", "webhook_enabled")

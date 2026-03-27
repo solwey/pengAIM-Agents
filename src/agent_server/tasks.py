@@ -221,7 +221,7 @@ def cleanup_offline_workers(max_age_hours: int = 0):
     bind=True,
     max_retries=0,
 )
-def execute_workflow(self, workflow_run_id: str, auth_token: str | None = None):
+def execute_workflow(self, workflow_run_id: str, auth_token: str = ""):
     """Execute a workflow run: compile JSON → LangGraph → ainvoke.
 
     Steps:
@@ -270,15 +270,14 @@ def execute_workflow(self, workflow_run_id: str, auth_token: str | None = None):
                 "steps": [],
             }
 
-            run_config = (
-                {"configurable": {"auth_token": auth_token}} if auth_token else None
-            )
-
             async def _run():
                 async_engine = _get_async_engine()
                 try:
                     return await _run_with_cancellation(
-                        compiled.ainvoke(initial_state, config=run_config),
+                        compiled.ainvoke(
+                            initial_state,
+                            config={"configurable": {"auth_token": auth_token}},
+                        ),
                         workflow_run_id,
                         async_engine,
                     )
