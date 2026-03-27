@@ -38,6 +38,7 @@ from .api.store import router as store_router
 from .api.threads import router as threads_router
 from .api.workflows import router as workflows_router
 from .api.workflow_runs import router as workflow_runs_router
+from .api.workflow_schedules import router as workflow_schedules_router
 from .core.auth_middleware import get_auth_backend, on_auth_error
 from .core.database import db_manager
 from .core.health import router as health_router
@@ -151,6 +152,7 @@ main_app.include_router(store_router, prefix="", tags=["Store"])
 main_app.include_router(control_plane_router, prefix="", tags=["Control Plane"])
 main_app.include_router(workflows_router, prefix="", tags=["Workflows"])
 main_app.include_router(workflow_runs_router, prefix="", tags=["Workflow Runs"])
+main_app.include_router(workflow_schedules_router, prefix="", tags=["Workflow Schedules"])
 
 
 # Error handling

@@ -3,6 +3,9 @@
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from croniter import croniter as croniter_cls
 
 import structlog
 from sqlalchemy import create_engine, delete, select, update
@@ -11,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .celery_app import celery_app
 from .core.orm import Run as RunORM
-from .core.orm import RunStatusHistory, Workflow, WorkflowRun, WorkerHeartbeat
+from .core.orm import RunStatusHistory, Workflow, WorkflowRun, WorkflowSchedule, WorkerHeartbeat
 from graphs.workflow_engine.compiler import compile_workflow
 from graphs.workflow_engine.schema import WorkflowDefinition
 
@@ -310,3 +313,66 @@ def execute_workflow(self, workflow_run_id: str):
                 error=str(exc),
             )
             return {"status": "failed", "error": str(exc)}
+
+
+@celery_app.task(name="src.agent_server.tasks.dispatch_scheduled_workflows")
+def dispatch_scheduled_workflows():
+    """Check for due workflow schedules and dispatch them."""
+    engine = _get_sync_engine()
+    now = datetime.now(UTC)
+    dispatched = 0
+
+    with Session(engine) as session:
+        due_schedules = (
+            session.execute(
+                select(WorkflowSchedule)
+                .where(
+                    WorkflowSchedule.is_enabled.is_(True),
+                    WorkflowSchedule.next_run_at <= now,
+                )
+                .with_for_update(skip_locked=True)
+            )
+            .scalars()
+            .all()
+        )
+
+        for schedule in due_schedules:
+            workflow = session.execute(
+                select(Workflow).where(
+                    Workflow.id == schedule.workflow_id,
+                    Workflow.is_active.is_(True),
+                    Workflow.deleted_at.is_(None),
+                )
+            ).scalar_one_or_none()
+
+            if not workflow:
+                schedule.is_enabled = False
+                schedule.updated_at = now
+                continue
+
+            run = WorkflowRun(
+                workflow_id=schedule.workflow_id,
+                team_id=schedule.team_id,
+                user_id=schedule.user_id,
+                status="pending",
+                input_data=schedule.input_data or {},
+            )
+            session.add(run)
+            session.flush()
+
+            task = execute_workflow.delay(run.id)
+            run.celery_task_id = task.id
+
+            schedule.last_run_at = now
+            schedule.updated_at = now
+            tz = ZoneInfo(schedule.timezone)
+            cron = croniter_cls(schedule.cron_expression, now.astimezone(tz))
+            schedule.next_run_at = cron.get_next(datetime).astimezone(UTC)
+
+            dispatched += 1
+
+        session.commit()
+
+    if dispatched:
+        logger.info("dispatch_scheduled_workflows", dispatched=dispatched)
+    return {"dispatched": dispatched}
