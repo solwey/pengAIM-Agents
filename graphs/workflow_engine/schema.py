@@ -41,9 +41,7 @@ class ApiRequestConfig(BaseModel):
     response_key: str = "api_response"
     retry_count: int = Field(default=0, ge=0, le=5)
     retry_delay_seconds: float = Field(default=2.0, ge=0.5, le=30)
-    retry_on_status: list[int] = Field(
-        default_factory=lambda: [500, 502, 503, 504]
-    )
+    retry_on_status: list[int] = Field(default_factory=lambda: [500, 502, 503, 504])
 
 
 class ConditionConfig(BaseModel):
@@ -67,6 +65,11 @@ class EmailMessageConfig(BaseModel):
     subject: str
     html_body: str
     text_body: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_user: str | None = None
+    smtp_password_key_id: str | None = None
+    smtp_from: str | None = None
     response_key: str = "email_response"
 
 
@@ -146,9 +149,7 @@ class WorkflowDefinition(BaseModel):
         # Node ids must not clash with sentinels
         for nid in node_ids:
             if nid in sentinels:
-                raise ValueError(
-                    f"Node id '{nid}' is reserved. Use a different name."
-                )
+                raise ValueError(f"Node id '{nid}' is reserved. Use a different name.")
 
         # Validate edges reference existing nodes
         for edge in self.edges:

@@ -7,10 +7,19 @@ subclass NodeExecutor, and register in nodes/__init__.py.
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Coroutine
 from typing import Any
+
+import aiohttp
+from langchain_core.runnables import RunnableConfig
+
+logger = logging.getLogger(__name__)
+
+RAG_API_URL = os.getenv("RAG_API_URL", "")
 
 
 class NodeExecutor(ABC):
@@ -59,6 +68,7 @@ def resolve_templates(value: str, data: dict[str, Any]) -> str:
 
     Only resolves from state data — never from environment variables.
     """
+
     def _replacer(match: re.Match) -> str:
         path = match.group(1)
         resolved = resolve_field(data, path)
@@ -89,3 +99,33 @@ def compare(actual: Any, operator: str, expected: Any) -> bool:
         return fn(actual, expected)
     except TypeError:
         return False
+
+
+async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
+    """Fetch a decrypted API key from pengAIM-RAG via /keys/{key_id}/reveal.
+
+    Uses auth_token from RunnableConfig.configurable to authenticate.
+    Returns None if RAG_API_URL is not set, auth is missing, or fetch fails.
+    """
+    if not RAG_API_URL or not key_id:
+        return None
+
+    auth_token = config.get("configurable", {}).get("auth_token", "")
+    if not auth_token:
+        return None
+
+    url = f"{RAG_API_URL}/keys/{key_id}/reveal"
+    headers = {"authorization": auth_token, "Accept": "text/plain"}
+
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
+                url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp,
+        ):
+            resp.raise_for_status()
+            return await resp.text()
+    except Exception as exc:
+        logger.warning("Failed to reveal api key %s: %s", key_id, exc)
+        return None
