@@ -36,6 +36,7 @@ from .api.control_plane import router as control_plane_router
 from .api.runs import router as runs_router
 from .api.store import router as store_router
 from .api.threads import router as threads_router
+from .api.webhooks import router as webhooks_router
 from .api.workflows import router as workflows_router
 from .api.workflow_runs import router as workflow_runs_router
 from .api.workflow_schedules import router as workflow_schedules_router
@@ -114,10 +115,20 @@ app = FastAPI(
 )
 
 health_app = FastAPI()
+webhook_app = FastAPI()
 main_app = FastAPI()
 
+# Add CORS to webhook_app so browsers/external services can call it
+webhook_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["POST"],
+    allow_headers=["*"],
+)
+webhook_app.include_router(webhooks_router, prefix="")
 
 app.mount("/health", health_app)
+app.mount("/webhook", webhook_app)
 app.mount("/", main_app)
 
 
