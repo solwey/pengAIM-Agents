@@ -17,8 +17,8 @@ from graphs.workflow_engine.schema import ICPScoreConfig
 
 logger = logging.getLogger(__name__)
 
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8002")
-WORKFLOW_LLM_MODEL = os.getenv("WORKFLOW_LLM_MODEL", "openai:gpt-4o-mini")
+REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
+DEFAULT_LLM_MODEL = os.getenv("WORKFLOW_LLM_MODEL", "openai:gpt-4o-mini")
 
 ICP_SCORING_PROMPT = """You are an ICP (Ideal Customer Profile) scoring assistant.
 
@@ -74,7 +74,7 @@ class ICPScoreExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
                     resp = await client.get(
-                        f"{BACKEND_API_URL}/api/v1/team-context",
+                        f"{REVY_API_URL}/api/v1/team-context",
                         headers=headers,
                     )
                     if resp.status_code == 200:
@@ -95,8 +95,9 @@ class ICPScoreExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
+                llm_model = cfg.model or DEFAULT_LLM_MODEL
                 model = init_chat_model(
-                    WORKFLOW_LLM_MODEL,
+                    llm_model,
                     temperature=0,
                     max_tokens=200,
                 )

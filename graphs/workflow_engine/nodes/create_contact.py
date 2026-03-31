@@ -14,7 +14,7 @@ from graphs.workflow_engine.schema import CreateContactConfig
 
 logger = logging.getLogger(__name__)
 
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8002")
+REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 # Auto-mapping for common webhook fields
 AUTO_FIELD_MAP: dict[str, str] = {
@@ -81,7 +81,11 @@ class CreateContactExecutor(NodeExecutor):
                         if src_key in item and item[src_key]:
                             contact[dst_key] = item[src_key]
 
-                # Need at least first_name
+                # Ensure required fields have at least empty defaults
+                if "last_name" not in contact:
+                    contact["last_name"] = ""
+
+                # Need at least first_name or email
                 if contact.get("first_name") or contact.get("email"):
                     contacts.append(contact)
 
@@ -94,7 +98,7 @@ class CreateContactExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.post(
-                        f"{BACKEND_API_URL}/api/v1/contacts/bulk",
+                        f"{REVY_API_URL}/api/v1/contacts/bulk",
                         json={"items": contacts},
                         headers=headers,
                     )

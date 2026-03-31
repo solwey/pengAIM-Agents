@@ -44,9 +44,15 @@ class SlackMessageExecutor(NodeExecutor):
             result: dict[str, Any]
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(15)) as client:
+                    payload: dict[str, Any] = {"text": resolved_message}
+                    if cfg.username:
+                        payload["username"] = resolve_templates(cfg.username, data)
+                    if cfg.icon_emoji:
+                        payload["icon_emoji"] = cfg.icon_emoji
+
                     response = await client.post(
                         resolved_url,
-                        json={"text": resolved_message},
+                        json=payload,
                         headers={"Content-Type": "application/json"},
                     )
 

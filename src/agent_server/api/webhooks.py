@@ -7,9 +7,11 @@ HMAC-SHA256 signatures or Bearer tokens.
 
 import json
 import logging
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request
+from jose import jwt
 from sqlalchemy import select
 
 from ..core.orm import Workflow, WorkflowRun, _get_session_maker
@@ -22,6 +24,47 @@ from ..services.webhook_security import (
 logger = logging.getLogger("webhooks")
 
 router = APIRouter(tags=["Webhooks"])
+
+
+def _decode_jwt_key(v: str | None) -> str | None:
+    """Decode base64-encoded key to PEM, or return as-is if already PEM."""
+    if not v:
+        return None
+    v = v.strip()
+    if v.startswith("-----BEGIN"):
+        return v
+    try:
+        import base64
+
+        return base64.b64decode(v).decode("utf-8")
+    except Exception:
+        return v
+
+
+def _create_internal_token(user_id: str, team_id: str) -> str:
+    """Create a short-lived JWT for internal service calls on behalf of
+    the workflow owner.  Uses the same signing key / algorithm that
+    pengAIM-RAG uses so the revops-backend accepts it transparently.
+    """
+    private_key = _decode_jwt_key(os.getenv("JWT_PRIVATE_KEY"))
+    secret = os.getenv("JWT_SECRET")
+    alg = os.getenv("JWT_ALG", "RS256")
+
+    signing_key = private_key or secret
+    if not signing_key:
+        logger.warning("[webhooks] No JWT_PRIVATE_KEY or JWT_SECRET — cannot mint internal token")
+        return ""
+
+    now = datetime.now(UTC)
+    claims = {
+        "sub": user_id,
+        "team_id": team_id,
+        "role": "owner",
+        "typ": "access",
+        "iat": now,
+        "exp": now + timedelta(minutes=30),
+    }
+    return jwt.encode(claims, signing_key, algorithm=alg)
 
 
 @router.post("/{webhook_path}")
@@ -102,10 +145,16 @@ async def handle_workflow_webhook(webhook_path: str, request: Request):
         await session.commit()
         await session.refresh(run)
 
-        # 6. Queue Celery task
+        # 6. Generate internal auth token for the workflow owner so that
+        #    downstream nodes (create_account, create_contact, etc.) can
+        #    call the revops-backend on behalf of the workflow creator.
+        internal_token = _create_internal_token(workflow.user_id, workflow.team_id)
+        auth_token = f"Bearer {internal_token}" if internal_token else ""
+
+        # 7. Queue Celery task
         from ..tasks import execute_workflow
 
-        task = execute_workflow.delay(run.id)
+        task = execute_workflow.delay(run.id, auth_token=auth_token)
         run.celery_task_id = task.id
         await session.commit()
 

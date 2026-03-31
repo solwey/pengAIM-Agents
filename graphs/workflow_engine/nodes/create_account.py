@@ -14,16 +14,18 @@ from graphs.workflow_engine.schema import CreateAccountConfig
 
 logger = logging.getLogger(__name__)
 
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8002")
+REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 # Auto-mapping for common webhook fields (RB2B, etc.)
-AUTO_FIELD_MAP: dict[str, str] = {
-    "company_name": "name",
-    "website": "website",
-    "industry": "industry",
-    "employee_count": "employees",
-    "estimate_revenue": "revenue",
-}
+# List of (source_key, target_key) — allows one source to map to multiple targets.
+AUTO_FIELD_MAP: list[tuple[str, str]] = [
+    ("company_name", "name"),
+    ("website", "website"),
+    ("industry", "industry"),
+    ("employee_count", "employees"),
+    ("employee_count", "size"),
+    ("estimate_revenue", "revenue"),
+]
 
 
 class CreateAccountExecutor(NodeExecutor):
@@ -69,10 +71,11 @@ class CreateAccountExecutor(NodeExecutor):
                     for target, template in cfg.field_mapping.items():
                         account[target] = resolve_templates(template, item)
                 else:
-                    # Auto-mapping
-                    for src_key, dst_key in AUTO_FIELD_MAP.items():
-                        if src_key in item:
-                            account[dst_key] = item[src_key]
+                    # Auto-mapping (convert all values to strings for backend)
+                    for src_key, dst_key in AUTO_FIELD_MAP:
+                        val = item.get(src_key)
+                        if val is not None and val != "":
+                            account[dst_key] = str(val)
                     # Also copy name directly if present
                     if "name" in item and "name" not in account:
                         account["name"] = item["name"]
@@ -94,7 +97,7 @@ class CreateAccountExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.post(
-                        f"{BACKEND_API_URL}/api/v1/accounts/bulk",
+                        f"{REVY_API_URL}/api/v1/accounts/bulk",
                         json={"items": accounts},
                         headers=headers,
                     )

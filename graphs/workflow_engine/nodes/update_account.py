@@ -14,7 +14,7 @@ from graphs.workflow_engine.schema import UpdateAccountConfig
 
 logger = logging.getLogger(__name__)
 
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8002")
+REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class UpdateAccountExecutor(NodeExecutor):
@@ -58,7 +58,7 @@ class UpdateAccountExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.put(
-                        f"{BACKEND_API_URL}/api/v1/accounts/{account_id}",
+                        f"{REVY_API_URL}/api/v1/accounts/{account_id}",
                         json=updates,
                         headers=headers,
                     )

@@ -9,7 +9,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from graphs.workflow_engine.nodes.base import NodeExecutor
+from graphs.workflow_engine.nodes.base import NodeExecutor, reveal_api_key
 from graphs.workflow_engine.schema import ReadGoogleSheetConfig
 
 logger = logging.getLogger(__name__)
@@ -25,14 +25,19 @@ class ReadGoogleSheetExecutor(NodeExecutor):
         ) -> dict:
             data = state.get("data", {})
 
-            sa_key_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_KEY", "")
+            # Retrieve Google SA key from api_keys table (encrypted storage)
+            sa_key_json = ""
+            if cfg.google_sa_key_id:
+                sa_key_json = await reveal_api_key(config, cfg.google_sa_key_id) or ""
+
             if not sa_key_json:
                 return {
                     "data": {
                         **data,
                         cfg.response_key: {
                             "ok": False,
-                            "error": "GOOGLE_SERVICE_ACCOUNT_KEY not configured",
+                            "error": "Google Service Account key not configured. "
+                            "Save your key via the node settings.",
                         },
                     }
                 }
@@ -98,7 +103,7 @@ class ReadGoogleSheetExecutor(NodeExecutor):
             except json.JSONDecodeError:
                 result = {
                     "ok": False,
-                    "error": "GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON",
+                    "error": "Google Service Account key is not valid JSON",
                 }
             except Exception as exc:
                 result = {"ok": False, "error": f"Google Sheets error: {exc}"}

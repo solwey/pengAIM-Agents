@@ -65,6 +65,8 @@ class TransformConfig(BaseModel):
 class SlackMessageConfig(BaseModel):
     webhook_url: str
     message: str
+    username: str = ""  # override bot display name
+    icon_emoji: str = ""  # override bot icon (e.g. ":robot_face:")
     response_key: str = "slack_response"
 
 
@@ -110,7 +112,7 @@ class RunAgentConfig(BaseModel):
     assistant_id: str  # LangGraph assistant/graph ID
     prompt: str  # message to send to agent, supports {{template}}
     response_key: str = "agent_result"
-    timeout_seconds: int = Field(default=120, ge=10, le=600)
+    timeout_seconds: int = Field(default=300, ge=10, le=600)
 
 
 class CreateAccountConfig(BaseModel):
@@ -134,6 +136,7 @@ class UpdateAccountConfig(BaseModel):
 
 class ICPScoreConfig(BaseModel):
     account_data_key: str = ""  # where to find account data in state
+    model: str = ""  # LLM model (e.g. "openai:gpt-4o-mini"), empty = env default
     response_key: str = "icp_score"
 
 
@@ -141,6 +144,7 @@ class ReadGoogleSheetConfig(BaseModel):
     spreadsheet_id: str
     sheet_name: str = "Sheet1"
     range: str = "A:Z"
+    google_sa_key_id: str = ""  # api_keys ID for Google Service Account JSON
     response_key: str = "sheet_data"
 
 
