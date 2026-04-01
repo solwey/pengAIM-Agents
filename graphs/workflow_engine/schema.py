@@ -24,6 +24,7 @@ class NodeType(str, Enum):
     ICP_SCORE = "icp_score"
     READ_GOOGLE_SHEET = "read_google_sheet"
     LLM_COMPLETE = "llm_complete"
+    ADD_TAG = "add_tag"
 
 
 class ComparisonOperator(str, Enum):
@@ -155,6 +156,14 @@ class LLMCompleteConfig(BaseModel):
     response_key: str = "llm_result"
 
 
+class AddTagConfig(BaseModel):
+    tag_name: str  # supports {{template}} variables
+    tag_color: str = "#6366f1"
+    entity_type: str = "account"  # "account" or "contact"
+    entity_id_key: str = "created_accounts.account_id"
+    response_key: str = "add_tag_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -182,6 +191,7 @@ class NodeDef(BaseModel):
             NodeType.ICP_SCORE: ICPScoreConfig,
             NodeType.READ_GOOGLE_SHEET: ReadGoogleSheetConfig,
             NodeType.LLM_COMPLETE: LLMCompleteConfig,
+            NodeType.ADD_TAG: AddTagConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

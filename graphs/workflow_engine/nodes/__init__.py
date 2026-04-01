@@ -13,6 +13,7 @@ from .slack_message import SlackMessageExecutor
 from .switch import SwitchExecutor, build_switch_router
 from .transform import TransformExecutor
 from .update_account import UpdateAccountExecutor
+from .add_tag import AddTagExecutor
 
 NODE_REGISTRY: dict[str, type] = {
     "api_request": ApiRequestExecutor,
@@ -30,6 +31,7 @@ NODE_REGISTRY: dict[str, type] = {
     "icp_score": ICPScoreExecutor,
     "read_google_sheet": ReadGoogleSheetExecutor,
     "llm_complete": LLMCompleteExecutor,
+    "add_tag": AddTagExecutor,
 }
 
 __all__ = ["NODE_REGISTRY", "build_condition_router", "build_switch_router"]

@@ -71,11 +71,11 @@ class CreateAccountExecutor(NodeExecutor):
                     for target, template in cfg.field_mapping.items():
                         account[target] = resolve_templates(template, item)
                 else:
-                    # Auto-mapping (convert all values to strings for backend)
+                    # Auto-mapping: preserve original types, let backend coerce
                     for src_key, dst_key in AUTO_FIELD_MAP:
                         val = item.get(src_key)
                         if val is not None and val != "":
-                            account[dst_key] = str(val)
+                            account[dst_key] = val
                     # Also copy name directly if present
                     if "name" in item and "name" not in account:
                         account["name"] = item["name"]
