@@ -44,18 +44,18 @@ jobs:
           docker buildx build --platform=linux/amd64 --tag $IMG_TAG --build-arg ENV_FILE=$DOTENV_FNAME --file ./Dockerfile .
           docker push $IMG_TAG
 
-      # - name: Restart EKS deployment
-      #   run: |
-      #     aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+      - name: Restart EKS deployment
+        run: |
+          aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
 
-      #     kubectl rollout restart deployment $DEPLOYMENT_NAME -n $NAMESPACE
-      #     kubectl rollout status deployment $DEPLOYMENT_NAME -n $NAMESPACE
+          kubectl rollout restart deployment $DEPLOYMENT_NAME -n $NAMESPACE
+          kubectl rollout status deployment $DEPLOYMENT_NAME -n $NAMESPACE
 
-      #     kubectl rollout restart deployment $DEPLOYMENT_NAME_WORKER -n $NAMESPACE
-      #     kubectl rollout status deployment $DEPLOYMENT_NAME_WORKER -n $NAMESPACE
+          kubectl rollout restart deployment $DEPLOYMENT_NAME_WORKER -n $NAMESPACE
+          kubectl rollout status deployment $DEPLOYMENT_NAME_WORKER -n $NAMESPACE
 
-      #     kubectl rollout restart deployment $DEPLOYMENT_NAME_BEAT -n $NAMESPACE
-      #     kubectl rollout status deployment $DEPLOYMENT_NAME_BEAT -n $NAMESPACE
+          kubectl rollout restart deployment $DEPLOYMENT_NAME_BEAT -n $NAMESPACE
+          kubectl rollout status deployment $DEPLOYMENT_NAME_BEAT -n $NAMESPACE
 
       - name: Notify in Slack
         run: |
