@@ -91,12 +91,31 @@ def _wrap_with_step_tracking(
                 if changed:
                     step["data"] = changed
 
+            # Detect ok:False in node results and trigger on_error routing
+            if has_error_edge and "data" in result:
+                current_data = state.get("data", {})
+                for key, val in result["data"].items():
+                    if (
+                        key not in current_data
+                        and isinstance(val, dict)
+                        and val.get("ok") is False
+                    ):
+                        error_msg = val.get("error", "Node returned ok: false")
+                        step["status"] = "failed"
+                        step["error"] = str(error_msg)[:500]
+                        result["data"]["_error"] = {
+                            "node": node_id,
+                            "message": str(error_msg)[:500],
+                        }
+                        break
+
             # Clear _error from previous nodes on success
-            current_error = state.get("data", {}).get("_error")
-            if current_error and current_error.get("node") != node_id:
-                if "data" not in result:
-                    result["data"] = {**state.get("data", {})}
-                result["data"].pop("_error", None)
+            if step.get("status") != "failed":
+                current_error = state.get("data", {}).get("_error")
+                if current_error and current_error.get("node") != node_id:
+                    if "data" not in result:
+                        result["data"] = {**state.get("data", {})}
+                    result["data"].pop("_error", None)
 
         except Exception as exc:
             step["status"] = "failed"
@@ -134,6 +153,21 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
     """
     builder = StateGraph(WorkflowState)
 
+    # Collect disabled node IDs
+    disabled_ids = {n.id for n in definition.nodes if not n.enabled}
+
+    # Build a mapping: disabled node → its outgoing target (for rewiring)
+    # Only handles sequential edges for simplicity
+    disabled_bypass: dict[str, str | None] = {}
+    if disabled_ids:
+        for node_id in disabled_ids:
+            target = None
+            for edge in definition.edges:
+                if edge.from_node == node_id and edge.type == "sequential":
+                    target = edge.to_node
+                    break
+            disabled_bypass[node_id] = target
+
     # Collect nodes that have on_error edges
     nodes_with_error_edges: set[str] = set()
     error_targets: dict[str, str] = {}  # node_id -> error_handler_node_id
@@ -142,8 +176,18 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
             nodes_with_error_edges.add(edge.from_node)
             error_targets[edge.from_node] = edge.to_node
 
+    def _resolve_target(target: str | None) -> str | None:
+        """Follow disabled node bypass chain."""
+        seen: set[str] = set()
+        while target and target in disabled_bypass and target not in seen:
+            seen.add(target)
+            target = disabled_bypass[target]
+        return target
+
     # ── Register nodes ────────────────────────────────────────
     for node_def in definition.nodes:
+        if node_def.id in disabled_ids:
+            continue
         executor_cls = NODE_REGISTRY.get(node_def.type.value)
         if executor_cls is None:
             raise ValueError(
@@ -173,6 +217,10 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
         if edge.type == "on_error":
             continue  # handled below
 
+        # Skip edges originating from disabled nodes
+        if edge.from_node in disabled_ids:
+            continue
+
         src = START if edge.from_node == "__start__" else edge.from_node
 
         # If this node has an on_error edge AND a sequential edge,
@@ -181,9 +229,11 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
             if edge.from_node not in handled_by_error_routing:
                 handled_by_error_routing.add(edge.from_node)
 
-                normal_tgt = END if edge.to_node == "__end__" else edge.to_node
+                resolved_to = _resolve_target(edge.to_node)
+                normal_tgt = END if resolved_to == "__end__" else resolved_to
                 error_tgt_id = error_targets[edge.from_node]
-                error_tgt = END if error_tgt_id == "__end__" else error_tgt_id
+                resolved_err = _resolve_target(error_tgt_id)
+                error_tgt = END if resolved_err == "__end__" else resolved_err
 
                 def _make_error_router(node_id: str):
                     def route(state: dict[str, Any]) -> str:
@@ -201,8 +251,10 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
             continue
 
         if edge.type == "sequential":
-            tgt = END if edge.to_node == "__end__" else edge.to_node
-            builder.add_edge(src, tgt)
+            resolved_to = _resolve_target(edge.to_node)
+            tgt = END if resolved_to == "__end__" else resolved_to
+            if tgt is not None:
+                builder.add_edge(src, tgt)
 
         elif edge.type == "conditional":
             condition_node = definition.get_node(edge.from_node)
@@ -215,7 +267,9 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
 
             mapping: dict[str, str] = {}
             for label, target in (edge.branches or {}).items():
-                mapping[label] = END if target == "__end__" else target
+                resolved = _resolve_target(target)
+                if resolved is not None:
+                    mapping[label] = END if resolved == "__end__" else resolved
 
             builder.add_conditional_edges(src, route_fn, mapping)
 
@@ -230,7 +284,9 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
 
             mapping = {}
             for label, target in (edge.branches or {}).items():
-                mapping[label] = END if target == "__end__" else target
+                resolved = _resolve_target(target)
+                if resolved is not None:
+                    mapping[label] = END if resolved == "__end__" else resolved
 
             builder.add_conditional_edges(src, route_fn, mapping)
 

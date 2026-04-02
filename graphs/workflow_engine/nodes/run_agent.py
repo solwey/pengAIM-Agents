@@ -81,11 +81,25 @@ class RunAgentExecutor(NodeExecutor):
 
                     # Extract final message from output
                     agent_output = None
-                    messages = output.get("messages", [])
+                    # Try values.messages first (LangGraph format), then messages
+                    messages = (
+                        output.get("values", {}).get("messages", [])
+                        or output.get("messages", [])
+                    )
                     if messages:
                         last_msg = messages[-1]
                         if isinstance(last_msg, dict):
-                            agent_output = last_msg.get("content", "")
+                            content = last_msg.get("content", "")
+                            # content can be a string or list of {type, text}
+                            if isinstance(content, list):
+                                agent_output = "\n".join(
+                                    part.get("text", "") for part in content
+                                    if isinstance(part, dict) and part.get("text")
+                                )
+                            elif isinstance(content, str):
+                                agent_output = content
+                            else:
+                                agent_output = str(content)
                         else:
                             agent_output = str(last_msg)
 

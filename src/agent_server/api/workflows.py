@@ -2,6 +2,7 @@
 
 import os
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -258,6 +259,7 @@ class WorkflowVersionResponse(BaseModel):
     version: int
     name: str
     description: str | None
+    definition: dict[str, Any] | None = None
     created_by: str
     created_at: str
 
@@ -286,6 +288,7 @@ async def list_workflow_versions(
             version=v.version,
             name=v.name,
             description=v.description,
+            definition=v.definition,
             created_by=v.created_by,
             created_at=v.created_at.isoformat(),
         )

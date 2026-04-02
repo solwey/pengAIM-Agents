@@ -18,6 +18,13 @@ class NodeType(str, Enum):
     DELAY = "delay"
     GENERATE_REPORT = "generate_report"
     RUN_AGENT = "run_agent"
+    CREATE_ACCOUNT = "create_account"
+    CREATE_CONTACT = "create_contact"
+    UPDATE_ACCOUNT = "update_account"
+    ICP_SCORE = "icp_score"
+    READ_GOOGLE_SHEET = "read_google_sheet"
+    LLM_COMPLETE = "llm_complete"
+    ADD_TAG = "add_tag"
 
 
 class ComparisonOperator(str, Enum):
@@ -59,6 +66,8 @@ class TransformConfig(BaseModel):
 class SlackMessageConfig(BaseModel):
     webhook_url: str
     message: str
+    username: str = ""  # override bot display name
+    icon_emoji: str = ""  # override bot icon (e.g. ":robot_face:")
     response_key: str = "slack_response"
 
 
@@ -104,7 +113,55 @@ class RunAgentConfig(BaseModel):
     assistant_id: str  # LangGraph assistant/graph ID
     prompt: str  # message to send to agent, supports {{template}}
     response_key: str = "agent_result"
-    timeout_seconds: int = Field(default=120, ge=10, le=600)
+    timeout_seconds: int = Field(default=300, ge=10, le=600)
+
+
+class CreateAccountConfig(BaseModel):
+    data_key: str = ""  # dot-path to data source (e.g. "sheet_data.rows"), empty = root
+    field_mapping: dict[str, str] = Field(default_factory=dict)  # {"name": "{{company_name}}"}
+    response_key: str = "created_accounts"
+
+
+class CreateContactConfig(BaseModel):
+    account_id_key: str = "created_accounts.account_id"  # dot-path to account ID in state
+    data_key: str = ""  # source data key
+    field_mapping: dict[str, str] = Field(default_factory=dict)
+    response_key: str = "created_contacts"
+
+
+class UpdateAccountConfig(BaseModel):
+    account_id_key: str = "created_accounts.account_id"  # dot-path to account ID in state
+    updates: dict[str, str] = Field(default_factory=dict)  # {"score": "{{icp_score.score}}"}
+    response_key: str = "update_result"
+
+
+class ICPScoreConfig(BaseModel):
+    account_data_key: str = ""  # where to find account data in state
+    model: str = ""  # LLM model (e.g. "openai:gpt-4o-mini"), empty = env default
+    response_key: str = "icp_score"
+
+
+class ReadGoogleSheetConfig(BaseModel):
+    spreadsheet_id: str
+    sheet_name: str = "Sheet1"
+    range: str = "A:Z"
+    google_sa_key_id: str = ""  # api_keys ID for Google Service Account JSON
+    response_key: str = "sheet_data"
+
+
+class LLMCompleteConfig(BaseModel):
+    prompt: str  # supports {{template}} variables
+    system_prompt: str = ""
+    max_tokens: int = Field(default=1000, ge=1, le=4000)
+    response_key: str = "llm_result"
+
+
+class AddTagConfig(BaseModel):
+    tag_name: str  # supports {{template}} variables
+    tag_color: str = "#6366f1"
+    entity_type: str = "account"  # "account" or "contact"
+    entity_id_key: str = "created_accounts.account_id"
+    response_key: str = "add_tag_result"
 
 
 # ── Node & Edge definitions ──────────────────────────────────
@@ -114,6 +171,7 @@ class NodeDef(BaseModel):
     id: str
     type: NodeType
     config: dict[str, Any]
+    enabled: bool = True
 
     def parsed_config(self):
         """Return a typed config object based on node type."""
@@ -127,6 +185,13 @@ class NodeDef(BaseModel):
             NodeType.DELAY: DelayConfig,
             NodeType.GENERATE_REPORT: GenerateReportConfig,
             NodeType.RUN_AGENT: RunAgentConfig,
+            NodeType.CREATE_ACCOUNT: CreateAccountConfig,
+            NodeType.CREATE_CONTACT: CreateContactConfig,
+            NodeType.UPDATE_ACCOUNT: UpdateAccountConfig,
+            NodeType.ICP_SCORE: ICPScoreConfig,
+            NodeType.READ_GOOGLE_SHEET: ReadGoogleSheetConfig,
+            NodeType.LLM_COMPLETE: LLMCompleteConfig,
+            NodeType.ADD_TAG: AddTagConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
@@ -256,6 +321,39 @@ class WorkflowDefinition(BaseModel):
                 f"Workflow must have exactly one edge from '__start__', "
                 f"found {len(start_edges)}"
             )
+
+        # Detect cycles via DFS
+        adj: dict[str, list[str]] = {}
+        for edge in self.edges:
+            src = edge.from_node
+            if src not in adj:
+                adj[src] = []
+            if edge.type in ("sequential", "on_error") and edge.to_node:
+                adj[src].append(edge.to_node)
+            elif edge.type in ("conditional", "switch") and edge.branches:
+                adj[src].extend(edge.branches.values())
+
+        visited: set[str] = set()
+        visiting: set[str] = set()
+
+        def _has_cycle(node: str) -> bool:
+            if node in visiting:
+                return True
+            if node in visited:
+                return False
+            visiting.add(node)
+            for neighbor in adj.get(node, []):
+                if _has_cycle(neighbor):
+                    return True
+            visiting.discard(node)
+            visited.add(node)
+            return False
+
+        for start in adj:
+            if start not in visited and _has_cycle(start):
+                raise ValueError(
+                    "Workflow contains a cycle — remove circular connections"
+                )
 
         return self
 

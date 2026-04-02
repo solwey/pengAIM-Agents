@@ -58,6 +58,11 @@ def resolve_field(data: dict[str, Any], field_path: str) -> Any:
     for part in parts:
         if isinstance(current, dict):
             current = current.get(part)
+        elif isinstance(current, list):
+            try:
+                current = current[int(part)]
+            except (IndexError, ValueError):
+                return None
         else:
             return None
     return current
