@@ -14,6 +14,10 @@ from .switch import SwitchExecutor, build_switch_router
 from .transform import TransformExecutor
 from .update_account import UpdateAccountExecutor
 from .add_tag import AddTagExecutor
+from .remove_tag import RemoveTagExecutor
+from .add_to_list import AddToListExecutor
+from .tag_condition import TagConditionExecutor, build_tag_condition_router
+from .set_source import SetSourceExecutor
 
 NODE_REGISTRY: dict[str, type] = {
     "api_request": ApiRequestExecutor,
@@ -32,6 +36,10 @@ NODE_REGISTRY: dict[str, type] = {
     "read_google_sheet": ReadGoogleSheetExecutor,
     "llm_complete": LLMCompleteExecutor,
     "add_tag": AddTagExecutor,
+    "remove_tag": RemoveTagExecutor,
+    "add_to_list": AddToListExecutor,
+    "tag_condition": TagConditionExecutor,
+    "set_source": SetSourceExecutor,
 }
 
-__all__ = ["NODE_REGISTRY", "build_condition_router", "build_switch_router"]
+__all__ = ["NODE_REGISTRY", "build_condition_router", "build_switch_router", "build_tag_condition_router"]

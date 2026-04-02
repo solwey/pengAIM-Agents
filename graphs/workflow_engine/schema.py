@@ -25,6 +25,10 @@ class NodeType(str, Enum):
     READ_GOOGLE_SHEET = "read_google_sheet"
     LLM_COMPLETE = "llm_complete"
     ADD_TAG = "add_tag"
+    REMOVE_TAG = "remove_tag"
+    ADD_TO_LIST = "add_to_list"
+    TAG_CONDITION = "tag_condition"
+    SET_SOURCE = "set_source"
 
 
 class ComparisonOperator(str, Enum):
@@ -164,6 +168,34 @@ class AddTagConfig(BaseModel):
     response_key: str = "add_tag_result"
 
 
+class RemoveTagConfig(BaseModel):
+    tag_name: str  # supports {{template}} variables
+    entity_type: str = "account"
+    entity_id_key: str = "created_accounts.account_id"
+    response_key: str = "remove_tag_result"
+
+
+class AddToListConfig(BaseModel):
+    list_id: str = ""  # direct list ID
+    entity_id_key: str = "created_accounts.account_id"
+    response_key: str = "add_to_list_result"
+
+
+class TagConditionConfig(BaseModel):
+    entity_type: str = "account"
+    entity_id_key: str = "created_accounts.account_id"
+    tag_names: list[str] = Field(default_factory=list)
+    match_mode: str = "any"  # "any" or "all"
+    response_key: str = "tag_check_result"
+
+
+class SetSourceConfig(BaseModel):
+    source_name: str = ""  # supports {{template}} — e.g. "Website Visitor"
+    entity_type: str = "account"
+    entity_id_key: str = "created_accounts.account_id"
+    response_key: str = "set_source_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -192,6 +224,10 @@ class NodeDef(BaseModel):
             NodeType.READ_GOOGLE_SHEET: ReadGoogleSheetConfig,
             NodeType.LLM_COMPLETE: LLMCompleteConfig,
             NodeType.ADD_TAG: AddTagConfig,
+            NodeType.REMOVE_TAG: RemoveTagConfig,
+            NodeType.ADD_TO_LIST: AddToListConfig,
+            NodeType.TAG_CONDITION: TagConditionConfig,
+            NodeType.SET_SOURCE: SetSourceConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

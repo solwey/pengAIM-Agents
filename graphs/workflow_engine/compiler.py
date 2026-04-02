@@ -24,6 +24,7 @@ from graphs.workflow_engine.nodes import (
     NODE_REGISTRY,
     build_condition_router,
     build_switch_router,
+    build_tag_condition_router,
 )
 from graphs.workflow_engine.nodes.base import compare, resolve_field
 from graphs.workflow_engine.schema import ConditionConfig, NodeType, SwitchConfig, WorkflowDefinition
@@ -197,7 +198,7 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
         raw_fn = executor_cls.create(node_def.config)
 
         condition_config = None
-        if node_def.type in (NodeType.CONDITION, NodeType.SWITCH):
+        if node_def.type in (NodeType.CONDITION, NodeType.SWITCH, NodeType.TAG_CONDITION):
             condition_config = node_def.config
 
         node_fn = _wrap_with_step_tracking(
@@ -263,7 +264,10 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
                     f"Conditional edge references non-existent node: '{edge.from_node}'"
                 )
 
-            route_fn = build_condition_router(condition_node.config)
+            if condition_node.type == NodeType.TAG_CONDITION:
+                route_fn = build_tag_condition_router(condition_node.config)
+            else:
+                route_fn = build_condition_router(condition_node.config)
 
             mapping: dict[str, str] = {}
             for label, target in (edge.branches or {}).items():
