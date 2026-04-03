@@ -16,7 +16,10 @@ from .update_account import UpdateAccountExecutor
 from .add_tag import AddTagExecutor
 from .remove_tag import RemoveTagExecutor
 from .add_to_list import AddToListExecutor
+from .remove_from_list import RemoveFromListExecutor
 from .tag_condition import TagConditionExecutor, build_tag_condition_router
+from .list_condition import ListConditionExecutor, build_list_condition_router
+from .source_condition import SourceConditionExecutor, build_source_condition_router
 from .set_source import SetSourceExecutor
 
 NODE_REGISTRY: dict[str, type] = {
@@ -38,8 +41,18 @@ NODE_REGISTRY: dict[str, type] = {
     "add_tag": AddTagExecutor,
     "remove_tag": RemoveTagExecutor,
     "add_to_list": AddToListExecutor,
+    "remove_from_list": RemoveFromListExecutor,
     "tag_condition": TagConditionExecutor,
+    "list_condition": ListConditionExecutor,
+    "source_condition": SourceConditionExecutor,
     "set_source": SetSourceExecutor,
 }
 
-__all__ = ["NODE_REGISTRY", "build_condition_router", "build_switch_router", "build_tag_condition_router"]
+__all__ = [
+    "NODE_REGISTRY",
+    "build_condition_router",
+    "build_switch_router",
+    "build_tag_condition_router",
+    "build_list_condition_router",
+    "build_source_condition_router",
+]

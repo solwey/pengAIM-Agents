@@ -29,6 +29,9 @@ class NodeType(str, Enum):
     ADD_TO_LIST = "add_to_list"
     TAG_CONDITION = "tag_condition"
     SET_SOURCE = "set_source"
+    REMOVE_FROM_LIST = "remove_from_list"
+    LIST_CONDITION = "list_condition"
+    SOURCE_CONDITION = "source_condition"
 
 
 class ComparisonOperator(str, Enum):
@@ -196,6 +199,26 @@ class SetSourceConfig(BaseModel):
     response_key: str = "set_source_result"
 
 
+class RemoveFromListConfig(BaseModel):
+    list_id: str = ""
+    entity_id_key: str = "created_accounts.account_id"
+    response_key: str = "remove_from_list_result"
+
+
+class ListConditionConfig(BaseModel):
+    list_id: str = ""
+    entity_type: str = "account"
+    entity_id_key: str = "created_accounts.account_id"
+    response_key: str = "list_check_result"
+
+
+class SourceConditionConfig(BaseModel):
+    source_name: str = ""  # supports {{template}}
+    entity_type: str = "account"
+    entity_id_key: str = "created_accounts.account_id"
+    response_key: str = "source_check_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -204,6 +227,7 @@ class NodeDef(BaseModel):
     type: NodeType
     config: dict[str, Any]
     enabled: bool = True
+    description: str = ""
 
     def parsed_config(self):
         """Return a typed config object based on node type."""
@@ -228,6 +252,9 @@ class NodeDef(BaseModel):
             NodeType.ADD_TO_LIST: AddToListConfig,
             NodeType.TAG_CONDITION: TagConditionConfig,
             NodeType.SET_SOURCE: SetSourceConfig,
+            NodeType.REMOVE_FROM_LIST: RemoveFromListConfig,
+            NodeType.LIST_CONDITION: ListConditionConfig,
+            NodeType.SOURCE_CONDITION: SourceConditionConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
