@@ -25,6 +25,8 @@ from graphs.workflow_engine.nodes import (
     build_condition_router,
     build_switch_router,
     build_tag_condition_router,
+    build_list_condition_router,
+    build_source_condition_router,
 )
 from graphs.workflow_engine.nodes.base import compare, resolve_field
 from graphs.workflow_engine.schema import ConditionConfig, NodeType, SwitchConfig, WorkflowDefinition
@@ -198,7 +200,7 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
         raw_fn = executor_cls.create(node_def.config)
 
         condition_config = None
-        if node_def.type in (NodeType.CONDITION, NodeType.SWITCH, NodeType.TAG_CONDITION):
+        if node_def.type in (NodeType.CONDITION, NodeType.SWITCH, NodeType.TAG_CONDITION, NodeType.LIST_CONDITION, NodeType.SOURCE_CONDITION):
             condition_config = node_def.config
 
         node_fn = _wrap_with_step_tracking(
@@ -266,6 +268,10 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
 
             if condition_node.type == NodeType.TAG_CONDITION:
                 route_fn = build_tag_condition_router(condition_node.config)
+            elif condition_node.type == NodeType.LIST_CONDITION:
+                route_fn = build_list_condition_router(condition_node.config)
+            elif condition_node.type == NodeType.SOURCE_CONDITION:
+                route_fn = build_source_condition_router(condition_node.config)
             else:
                 route_fn = build_condition_router(condition_node.config)
 
