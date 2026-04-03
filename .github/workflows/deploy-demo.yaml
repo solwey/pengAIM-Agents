@@ -1,0 +1,19 @@
+name: Deploy Demo
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - solwey/main
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build_deploy:
+    name: Build and Deploy
+    uses: ./.github/workflows/build-and-deploy-images.yaml
+    with:
+      env: solwey-demo
+    secrets: inherit
