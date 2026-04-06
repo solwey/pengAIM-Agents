@@ -359,7 +359,8 @@ class WorkflowDefinition(BaseModel):
                 source_node = next(
                     (n for n in self.nodes if n.id == edge.from_node), None
                 )
-                if source_node is None or source_node.type != NodeType.CONDITION:
+                conditional_types = {NodeType.CONDITION, NodeType.TAG_CONDITION, NodeType.LIST_CONDITION, NodeType.SOURCE_CONDITION}
+                if source_node is None or source_node.type not in conditional_types:
                     raise ValueError(
                         f"Conditional edge from '{edge.from_node}' must originate "
                         f"from a 'condition' node"
