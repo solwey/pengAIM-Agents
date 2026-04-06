@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_templates
 from graphs.workflow_engine.schema import GenerateReportConfig
 
 logger = logging.getLogger(__name__)
-
-RAG_API_URL = os.getenv("RAG_API_URL", "http://localhost:8000")
 
 
 class GenerateReportExecutor(NodeExecutor):
@@ -50,7 +48,7 @@ class GenerateReportExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     response = await client.post(
-                        f"{RAG_API_URL}/api/v1/reports/generate",
+                        f"{settings.graphs.RAG_API_URL}/api/v1/reports/generate",
                         json=payload,
                         headers=headers,
                     )

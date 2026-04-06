@@ -1,24 +1,19 @@
 import json
 import logging
-import os
 from datetime import datetime
 from typing import Annotated
 
-import aiohttp
+import httpx
 from firecrawl import AsyncFirecrawlApp
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool, StructuredTool, tool
+from langchain_core.tools import BaseTool, tool
 from tavily import AsyncTavilyClient
 
+from aegra_api.settings import settings
 from graphs.react_agent.context import AgentMode, Context, SearchAPI
 from graphs.react_agent.tools import create_rag_tool
 
 logger = logging.getLogger(__name__)
-
-RAG_URL = os.getenv("RAG_API_URL", "")
-
-if not RAG_URL:
-    raise RuntimeError("RAG-only mode is enabled but RAG_API_URL is not set.")
 
 
 def get_today_str() -> str:
@@ -65,9 +60,7 @@ async def get_api_key_for_model(model_name: str, config: RunnableConfig) -> str 
     """
     model_name_lower = model_name.lower()
     model_prefixes = ["openai", "anthropic", "google"]
-    provider = next(
-        (prefix for prefix in model_prefixes if model_name_lower.startswith(prefix)), None
-    )
+    provider = next((prefix for prefix in model_prefixes if model_name_lower.startswith(prefix)), None)
     if not provider:
         return None
 
@@ -101,32 +94,25 @@ async def get_api_key(
     Returns:
         The decrypted API key or None if not found
     """
-    authorization = (
-        config.get("configurable", {})
-        .get("langgraph_auth_user", {})
-        .get("permissions")[0]
-        .replace("authz:", "")
-    )
+    authorization = _extract_authorization(config)
     if not authorization or not key_id:
         return None
 
     search_params = f"provider={provider}&name={name}" if provider and name else ""
     search_endpoint = (
-        f"{RAG_URL}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
+        f"{settings.graphs.RAG_API_URL}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
     )
     headers = {"authorization": authorization, "Accept": "text/plain"}
 
     try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(search_endpoint, headers=headers) as search_response,
-        ):
-            search_response.raise_for_status()
-            key = await search_response.text()
+        async with httpx.AsyncClient() as client:
+            search_response = await client.get(search_endpoint, headers=headers)
+        search_response.raise_for_status()
+        key = search_response.text
 
         return key
-    except Exception as e:
-        print("Key exception", e)
+    except Exception:
+        logger.warning("Failed to fetch API key", exc_info=True)
         return None
 
 
@@ -145,9 +131,8 @@ def _extract_authorization(config: RunnableConfig | None) -> str | None:
     try:
         configurable = config.get("configurable", {})
         auth_user = configurable.get("langgraph_auth_user", {})
-        permissions = auth_user.get("permissions", [])
-        if permissions:
-            return permissions[0].replace("authz:", "")
+        token = auth_user.get("authorization")
+        return token
     except (KeyError, IndexError, AttributeError):
         pass
 
@@ -174,9 +159,7 @@ def _create_tavily_search_tool():
             return json.dumps({"error": "Tavily API key not configured"})
 
         client = AsyncTavilyClient(api_key=api_key)
-        results = await client.search(
-            query, max_results=5, include_raw_content=False
-        )
+        results = await client.search(query, max_results=5, include_raw_content=False)
 
         formatted = "Search results:\n\n"
         for i, result in enumerate(results.get("results", [])):
@@ -270,7 +253,7 @@ async def _build_tools(
 
     # Load RAG tool if in RAG mode
     if cfg.mode == AgentMode.RAG:
-        rag_tool = await create_rag_tool(RAG_URL)
+        rag_tool = await create_rag_tool(settings.graphs.RAG_API_URL)
         tools.append(rag_tool)
 
     if cfg.mode == AgentMode.WEB_SEARCH:

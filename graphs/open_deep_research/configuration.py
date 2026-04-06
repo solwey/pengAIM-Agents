@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from enum import Enum
-from typing import Any, Union
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -47,6 +47,7 @@ class SubPromptConfig(BaseModel):
 
 class PlaceholderConfig(BaseModel):
     """A typed placeholder (e.g. artifact picker)."""
+
     name: str
     type: str = "string"
     label: str | None = None
@@ -55,7 +56,7 @@ class PlaceholderConfig(BaseModel):
 class StepConfig(BaseModel):
     name: str = ""
     text: str
-    placeholders: list[Union[str, PlaceholderConfig]] = Field(default_factory=list)
+    placeholders: list[str | PlaceholderConfig] = Field(default_factory=list)
     parallel_sub_prompts: list[SubPromptConfig] = Field(default_factory=list)
     sequential_sub_prompts: list[SubPromptConfig] = Field(default_factory=list)
 
@@ -75,16 +76,15 @@ class StepConfig(BaseModel):
                 result.append(config)
             else:
                 result.append(item)
-        logging.info(f"[CONFIG] StepConfig placeholders coerced: {[p.name if isinstance(p, PlaceholderConfig) else p for p in result]}")
+        logging.info(
+            f"[CONFIG] StepConfig placeholders coerced: {[p.name if isinstance(p, PlaceholderConfig) else p for p in result]}"
+        )
         return result
 
     @property
     def placeholder_names(self) -> list[str]:
         """Return plain placeholder name strings (works for both str and PlaceholderConfig)."""
-        return [
-            p.name if isinstance(p, PlaceholderConfig) else p
-            for p in self.placeholders
-        ]
+        return [p.name if isinstance(p, PlaceholderConfig) else p for p in self.placeholders]
 
 
 def _is_openai_gpt5_model(model_name: str | None) -> bool:
@@ -128,8 +128,6 @@ class Configuration(BaseModel):
         },
     )
 
-
-
     agent_openai_api_key: dict[str, str] = Field(
         default={},
         metadata={
@@ -137,9 +135,7 @@ class Configuration(BaseModel):
                 "type": "password",
                 "required": True,
                 "placeholder": "Enter your custom OpenAI API key for this agent...",
-                "description": (
-                    "Provide a dedicated OpenAI API key to be used only by this agent. "
-                ),
+                "description": ("Provide a dedicated OpenAI API key to be used only by this agent. "),
                 "default": {},
             }
         },
@@ -168,9 +164,7 @@ class Configuration(BaseModel):
                 "type": "password",
                 "required": True,
                 "placeholder": "Enter your Google API key for Gemini models...",
-                "description": (
-                    "Provide a Google API key to be used when selecting Gemini models."
-                ),
+                "description": ("Provide a Google API key to be used when selecting Gemini models."),
                 "default": {},
             }
         },
@@ -216,9 +210,7 @@ class Configuration(BaseModel):
             "x_oap_ui_config": {
                 "type": "select",
                 "default": ToolCallsVisibility.ALWAYS_OFF.value,
-                "description": (
-                    "Controls visibility and behavior of tool call toggles for this agent."
-                ),
+                "description": ("Controls visibility and behavior of tool call toggles for this agent."),
                 "options": [
                     {
                         "label": "User preference",
@@ -1110,11 +1102,8 @@ class Configuration(BaseModel):
             self.rag_llm_max_tokens = None
         return self
 
-
     @classmethod
-    def from_runnable_config(
-        cls, config: RunnableConfig | None = None
-    ) -> "Configuration":
+    def from_runnable_config(cls, config: RunnableConfig | None = None) -> "Configuration":
         """Create a Configuration instance from a RunnableConfig."""
         base = cls()
 
@@ -1127,11 +1116,9 @@ class Configuration(BaseModel):
                 return False
             if isinstance(v, str) and v.strip() == "":
                 return False
-            if isinstance(v, (list, dict)) and len(v) == 0:
-                return False
-            return True
+            return not (isinstance(v, (list, dict)) and len(v) == 0)
 
-        for field_name, field_info in cls.model_fields.items():
+        for field_name, _field_info in cls.model_fields.items():
             # env has priority over configurable
             raw = os.environ.get(field_name.upper(), None)
             val: Any = None
@@ -1170,13 +1157,11 @@ class Configuration(BaseModel):
     def validate_embedding_model(self):
         if self.rag_embedding_model is None or self.rag_embedding_model == "":
             self.rag_embedding_model = (
-                "gemini-embedding-001"
-                if self.llm_provider == LLMProvider.GOOGLE
-                else "text-embedding-3-small"
+                "gemini-embedding-001" if self.llm_provider == LLMProvider.GOOGLE else "text-embedding-3-small"
             )
             return self
 
-        if self.llm_provider == LLMProvider.GOOGLE  and self.rag_embedding_model == "text-embedding-3-small":
+        if self.llm_provider == LLMProvider.GOOGLE and self.rag_embedding_model == "text-embedding-3-small":
             self.rag_embedding_model = "gemini-embedding-001"
             return self
 

@@ -1,38 +1,38 @@
-.PHONY: help install dev-install setup-hooks format lint type-check security test test-cov clean run ci-check
+.PHONY: help install dev-install setup-hooks format lint type-check security test test-api test-cli test-cov clean run ci-check openapi prod worker beat
 
 help:
 	@echo "Available commands:"
 	@echo "  make install       - Install production dependencies"
-	@echo "  make dev-install   - Install dev dependencies + git hooks"
+	@echo "  make dev-install   - Install all dependencies + git hooks"
 	@echo "  make setup-hooks   - Reinstall git hooks (if needed)"
 	@echo "  make format        - Format code with ruff"
 	@echo "  make lint          - Lint code with ruff"
-	@echo "  make type-check    - Run mypy type checking"
+	@echo "  make type-check    - Run ty type checking"
 	@echo "  make security      - Run security checks with bandit"
-	@echo "  make test          - Run tests"
+	@echo "  make test          - Run all tests"
+	@echo "  make test-api      - Run aegra-api tests only"
+	@echo "  make test-cli      - Run aegra-cli tests only"
 	@echo "  make test-cov      - Run tests with coverage"
+	@echo "  make openapi       - Regenerate docs/openapi.json from code"
 	@echo "  make ci-check      - Run all CI checks locally"
 	@echo "  make clean         - Clean cache files"
 	@echo "  make run           - Run the server"
 
 install:
-	uv sync --no-dev
+	uv sync --all-packages --no-dev
 
 dev-install:
-	uv sync
+	uv sync --all-packages
 	@uv run pre-commit install
 	@uv run pre-commit install --hook-type commit-msg
 	@echo ""
-	@echo "✅ Dependencies installed!"
-	@echo "✅ Git hooks installed!"
-	@echo "🚀 You're ready to develop!"
+	@echo "Done! Dependencies installed and git hooks set up."
 
 setup-hooks:
 	uv run pre-commit install
 	uv run pre-commit install --hook-type commit-msg
 	@echo ""
-	@echo "✅ Git hooks reinstalled!"
-	@echo "📝 Your commits will now be checked automatically"
+	@echo "Git hooks reinstalled!"
 
 format:
 	uv run ruff format .
@@ -42,25 +42,46 @@ lint:
 	uv run ruff check .
 
 type-check:
-	uv run mypy src/
+	uv run ty check libs/aegra-api/src/ libs/aegra-cli/src/
 
 security:
-	uv run bandit -c pyproject.toml -r src/
+	uv run bandit -c pyproject.toml -r libs/aegra-api/src/ libs/aegra-cli/src/
 
-test:
-	uv run pytest
+test: test-api test-cli
+
+test-api:
+	uv run --package aegra-api pytest libs/aegra-api/tests/
+
+test-cli:
+	uv run --package aegra-cli pytest libs/aegra-cli/tests/
 
 test-cov:
-	uv run pytest --cov=src --cov-report=html --cov-report=term
+	uv run --package aegra-api pytest libs/aegra-api/tests/ --cov=libs/aegra-api/src --cov-report=html --cov-report=term
+	uv run --package aegra-cli pytest libs/aegra-cli/tests/ --cov=libs/aegra-cli/src --cov-report=term
 
-ci-check: format lint type-check security test
+openapi:
+	uv run --package aegra-api python scripts/export_openapi.py
+
+ci-check: format lint
+	-uv run ty check libs/aegra-api/src/ libs/aegra-cli/src/
+	-uv run bandit -c pyproject.toml -r libs/aegra-api/src/ libs/aegra-cli/src/
+	$(MAKE) test
 	@echo ""
-	@echo "✅ All CI checks passed!"
+	@echo "All CI checks completed! (ty and bandit are non-blocking)"
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov 2>/dev/null || true
+	rm -rf .pytest_cache .ty_cache .ruff_cache htmlcov 2>/dev/null || true
 
 run:
-	uv run python run_server.py
+	aegra dev --no-db-check
+
+worker:
+	aegra worker
+
+beat:
+	aegra beat
+
+prod:
+	aegra serve

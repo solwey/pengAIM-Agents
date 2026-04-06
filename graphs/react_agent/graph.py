@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import re
 from typing import Any, Literal
 
@@ -14,11 +13,14 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
+from aegra_api.settings import settings
 from graphs.react_agent.context import (
     AgentInputState,
+    AgentMode,
     AgentOutputState,
     AgentState,
-    Context, AgentMode, SearchAPI,
+    Context,
+    SearchAPI,
 )
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -39,11 +41,8 @@ from graphs.react_agent.utils import (
 
 logger = logging.getLogger(__name__)
 
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 
-async def call_model(
-        state: AgentState, config: RunnableConfig
-) -> dict[str, list[AIMessage]]:
+async def call_model(state: AgentState, config: RunnableConfig) -> dict[str, list[AIMessage]]:
     cfg = Context(**config.get("configurable", {}))
 
     # Prepare tools (pass config for MCP authorization)
@@ -54,7 +53,7 @@ async def call_model(
     api_key = await get_api_key_for_model(cfg.model_name or "", config)
 
     model_name = cfg.model_name
-    if AZURE_OPENAI_ENDPOINT:
+    if settings.graphs.AZURE_OPENAI_ENDPOINT:
         model_name = re.sub(r"^openai:", "azure_openai:", model_name)
 
     model = init_chat_model(
@@ -74,13 +73,15 @@ async def call_model(
                 all_tool_specs.append({"google_search": {}})
                 logger.info(
                     "React Agent: Binding Google native search. model=%s, search_api=%s",
-                    model_name, cfg.search_api.value,
+                    model_name,
+                    cfg.search_api.value,
                 )
             else:
                 logger.warning(
                     "React Agent: search_api=GOOGLE but model provider is '%s' (model=%s). "
                     "Skipping Google native search — use a Google model or switch search_api.",
-                    model_provider, model_name,
+                    model_provider,
+                    model_name,
                 )
 
         elif cfg.search_api == SearchAPI.OPENAI:
@@ -88,19 +89,22 @@ async def call_model(
                 all_tool_specs.append({"type": "web_search"})
                 logger.info(
                     "React Agent: Binding OpenAI native search. model=%s, search_api=%s",
-                    model_name, cfg.search_api.value,
+                    model_name,
+                    cfg.search_api.value,
                 )
             else:
                 logger.warning(
                     "React Agent: search_api=OPENAI but model provider is '%s' (model=%s). "
                     "Skipping OpenAI native search — use an OpenAI model or switch search_api.",
-                    model_provider, model_name,
+                    model_provider,
+                    model_name,
                 )
 
         elif cfg.search_api in (SearchAPI.TAVILY, SearchAPI.FIRECRAWL):
             logger.info(
                 "React Agent: Using %s search tool. model=%s",
-                cfg.search_api.value, model_name,
+                cfg.search_api.value,
+                model_name,
             )
 
     if all_tool_specs:
@@ -113,13 +117,14 @@ async def call_model(
     else:
         logger.debug(
             "React Agent: No tools to bind. model=%s, mode=%s",
-            model_name, cfg.mode.value,
+            model_name,
+            cfg.mode.value,
         )
 
     final_system_prompt = (
-            (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
-            + (cfg.tools_policy_prompt or "")
-            + UNEDITABLE_SYSTEM_PROMPT.format(date=get_today_str())
+        (cfg.system_prompt or DEFAULT_SYSTEM_PROMPT)
+        + (cfg.tools_policy_prompt or "")
+        + UNEDITABLE_SYSTEM_PROMPT.format(date=get_today_str())
     )
 
     system_message = SystemMessage(content=final_system_prompt)

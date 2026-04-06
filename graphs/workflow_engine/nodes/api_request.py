@@ -36,16 +36,12 @@ class ApiRequestExecutor(NodeExecutor):
     def create(config: dict[str, Any]):
         cfg = ApiRequestConfig(**config)
 
-        async def api_request_node(
-            state: dict[str, Any], config: RunnableConfig
-        ) -> dict[str, Any]:
+        async def api_request_node(state: dict[str, Any], config: RunnableConfig) -> dict[str, Any]:
             data: dict[str, Any] = state.get("data", {})
 
             # Resolve templates in URL and headers
             resolved_url = resolve_templates(cfg.url, data)
-            resolved_headers = {
-                k: resolve_templates(v, data) for k, v in cfg.headers.items()
-            }
+            resolved_headers = {k: resolve_templates(v, data) for k, v in cfg.headers.items()}
 
             # Validate URL scheme
             parsed = urlparse(resolved_url)
@@ -57,10 +53,7 @@ class ApiRequestExecutor(NodeExecutor):
                             "status_code": None,
                             "body": None,
                             "headers": {},
-                            "error": (
-                                f"Invalid URL scheme '{parsed.scheme}'. "
-                                f"Only {_ALLOWED_SCHEMES} are allowed."
-                            ),
+                            "error": (f"Invalid URL scheme '{parsed.scheme}'. Only {_ALLOWED_SCHEMES} are allowed."),
                         },
                     }
                 }
@@ -69,8 +62,7 @@ class ApiRequestExecutor(NodeExecutor):
             resolved_body = None
             if cfg.body is not None:
                 resolved_body = {
-                    k: resolve_templates(str(v), data) if isinstance(v, str) else v
-                    for k, v in cfg.body.items()
+                    k: resolve_templates(str(v), data) if isinstance(v, str) else v for k, v in cfg.body.items()
                 }
 
             max_attempts = cfg.retry_count + 1
@@ -78,9 +70,7 @@ class ApiRequestExecutor(NodeExecutor):
 
             for attempt in range(max_attempts):
                 try:
-                    async with httpx.AsyncClient(
-                        timeout=httpx.Timeout(cfg.timeout_seconds)
-                    ) as client:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(cfg.timeout_seconds)) as client:
                         response = await client.request(
                             method=cfg.method,
                             url=resolved_url,
@@ -96,10 +86,7 @@ class ApiRequestExecutor(NodeExecutor):
                         }
 
                         # Retry on specific status codes
-                        if (
-                            response.status_code in cfg.retry_on_status
-                            and attempt < max_attempts - 1
-                        ):
+                        if response.status_code in cfg.retry_on_status and attempt < max_attempts - 1:
                             logger.info(
                                 "Workflow api_request [%s %s] retry %d/%d (status=%s)",
                                 cfg.method,

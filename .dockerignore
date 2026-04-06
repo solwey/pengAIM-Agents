@@ -29,5 +29,4 @@ docs/
 .DS_Store
 .env
 *.log
-
-
+celerybeat-schedule.db

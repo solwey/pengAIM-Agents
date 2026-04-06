@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
 from graphs.workflow_engine.schema import CreateContactConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 # Auto-mapping for common webhook fields
 AUTO_FIELD_MAP: dict[str, str] = {
@@ -46,9 +44,12 @@ class CreateContactExecutor(NodeExecutor):
             # Resolve account ID
             account_id = resolve_field(data, cfg.account_id_key)
             if not account_id:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": f"Account ID not found at '{cfg.account_id_key}'"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "error": f"Account ID not found at '{cfg.account_id_key}'"},
+                    }
+                }
 
             # Get source data
             if cfg.data_key:
@@ -63,9 +64,7 @@ class CreateContactExecutor(NodeExecutor):
             elif isinstance(source, dict):
                 items = [source]
             else:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "No contact data found"
-                }}}
+                return {"data": {**data, cfg.response_key: {"ok": False, "error": "No contact data found"}}}
 
             contacts = []
             for item in items:
@@ -90,25 +89,20 @@ class CreateContactExecutor(NodeExecutor):
                     contacts.append(contact)
 
             if not contacts:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "No valid contacts to create"
-                }}}
+                return {"data": {**data, cfg.response_key: {"ok": False, "error": "No valid contacts to create"}}}
 
             result: dict[str, Any]
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.post(
-                        f"{REVY_API_URL}/api/v1/contacts/bulk",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/contacts/bulk",
                         json={"items": contacts},
                         headers=headers,
                     )
                     if resp.status_code in (200, 201):
                         body = resp.json()
                         results_list = body.get("results", [])
-                        success_ids = [
-                            r["item_id"] for r in results_list
-                            if r.get("success") and r.get("item_id")
-                        ]
+                        success_ids = [r["item_id"] for r in results_list if r.get("success") and r.get("item_id")]
                         result = {
                             "ok": True,
                             "total": body.get("total", len(contacts)),

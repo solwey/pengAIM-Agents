@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -11,6 +10,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import (
     NodeExecutor,
     resolve_templates,
@@ -32,35 +32,21 @@ class EmailMessageExecutor(NodeExecutor):
             resolved_to = resolve_templates(cfg.to, data)
             resolved_subject = resolve_templates(cfg.subject, data)
             resolved_html = resolve_templates(cfg.html_body, data)
-            resolved_text = (
-                resolve_templates(cfg.text_body, data) if cfg.text_body else None
-            )
+            resolved_text = resolve_templates(cfg.text_body, data) if cfg.text_body else None
 
             # SMTP settings: node config overrides env vars
-            host = (
-                resolve_templates(cfg.smtp_host, data)
-                if cfg.smtp_host
-                else os.environ.get("SMTP_HOST", "smtp.gmail.com")
-            )
-            port = cfg.smtp_port or int(os.environ.get("SMTP_PORT", "587"))
-            user = (
-                resolve_templates(cfg.smtp_user, data)
-                if cfg.smtp_user
-                else os.environ.get("SMTP_USER", "")
-            )
+            host = resolve_templates(cfg.smtp_host, data) if cfg.smtp_host else settings.graphs.SMTP_HOST
+            port = cfg.smtp_port or settings.graphs.SMTP_PORT
+            user = resolve_templates(cfg.smtp_user, data) if cfg.smtp_user else settings.graphs.SMTP_USER
 
             # Fetch SMTP password from api_keys table via pengAIM-RAG
             password = ""
             if cfg.smtp_password_key_id:
                 password = await reveal_api_key(config, cfg.smtp_password_key_id) or ""
             if not password:
-                password = os.environ.get("SMTP_PASSWORD", "")
+                password = settings.graphs.SMTP_PASSWORD
 
-            from_addr = (
-                resolve_templates(cfg.smtp_from, data)
-                if cfg.smtp_from
-                else os.environ.get("SMTP_FROM", "")
-            )
+            from_addr = resolve_templates(cfg.smtp_from, data) if cfg.smtp_from else settings.graphs.SMTP_FROM
 
             if not user or not password:
                 return {

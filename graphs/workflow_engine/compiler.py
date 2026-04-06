@@ -23,10 +23,10 @@ from langgraph.graph import END, START, StateGraph, add_messages
 from graphs.workflow_engine.nodes import (
     NODE_REGISTRY,
     build_condition_router,
-    build_switch_router,
-    build_tag_condition_router,
     build_list_condition_router,
     build_source_condition_router,
+    build_switch_router,
+    build_tag_condition_router,
 )
 from graphs.workflow_engine.nodes.base import compare, resolve_field
 from graphs.workflow_engine.schema import ConditionConfig, NodeType, SwitchConfig, WorkflowDefinition
@@ -68,11 +68,7 @@ def _wrap_with_step_tracking(
                 cfg = ConditionConfig(**condition_config)
                 data = state.get("data", {})
                 actual = resolve_field(data, cfg.field)
-                branch = (
-                    "yes"
-                    if compare(actual, cfg.operator.value, cfg.value)
-                    else "no"
-                )
+                branch = "yes" if compare(actual, cfg.operator.value, cfg.value) else "no"
                 step["branch"] = branch
             elif node_type == "switch" and condition_config:
                 sw_cfg = SwitchConfig(**condition_config)
@@ -86,11 +82,7 @@ def _wrap_with_step_tracking(
                 step["branch"] = matched
             elif "data" in result:
                 current_data = state.get("data", {})
-                changed = {
-                    k: v
-                    for k, v in result["data"].items()
-                    if k not in current_data or current_data[k] != v
-                }
+                changed = {k: v for k, v in result["data"].items() if k not in current_data or current_data[k] != v}
                 if changed:
                     step["data"] = changed
 
@@ -98,11 +90,7 @@ def _wrap_with_step_tracking(
             if has_error_edge and "data" in result:
                 current_data = state.get("data", {})
                 for key, val in result["data"].items():
-                    if (
-                        key not in current_data
-                        and isinstance(val, dict)
-                        and val.get("ok") is False
-                    ):
+                    if key not in current_data and isinstance(val, dict) and val.get("ok") is False:
                         error_msg = val.get("error", "Node returned ok: false")
                         step["status"] = "failed"
                         step["error"] = str(error_msg)[:500]
@@ -200,7 +188,13 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
         raw_fn = executor_cls.create(node_def.config)
 
         condition_config = None
-        if node_def.type in (NodeType.CONDITION, NodeType.SWITCH, NodeType.TAG_CONDITION, NodeType.LIST_CONDITION, NodeType.SOURCE_CONDITION):
+        if node_def.type in (
+            NodeType.CONDITION,
+            NodeType.SWITCH,
+            NodeType.TAG_CONDITION,
+            NodeType.LIST_CONDITION,
+            NodeType.SOURCE_CONDITION,
+        ):
             condition_config = node_def.config
 
         node_fn = _wrap_with_step_tracking(
@@ -244,6 +238,7 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
                         if err and isinstance(err, dict) and err.get("node") == node_id:
                             return "__error__"
                         return "__normal__"
+
                     return route
 
                 builder.add_conditional_edges(
@@ -262,9 +257,7 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
         elif edge.type == "conditional":
             condition_node = definition.get_node(edge.from_node)
             if condition_node is None:
-                raise ValueError(
-                    f"Conditional edge references non-existent node: '{edge.from_node}'"
-                )
+                raise ValueError(f"Conditional edge references non-existent node: '{edge.from_node}'")
 
             if condition_node.type == NodeType.TAG_CONDITION:
                 route_fn = build_tag_condition_router(condition_node.config)
@@ -286,9 +279,7 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
         elif edge.type == "switch":
             switch_node = definition.get_node(edge.from_node)
             if switch_node is None:
-                raise ValueError(
-                    f"Switch edge references non-existent node: '{edge.from_node}'"
-                )
+                raise ValueError(f"Switch edge references non-existent node: '{edge.from_node}'")
 
             route_fn = build_switch_router(switch_node.config)
 

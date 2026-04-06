@@ -1,13 +1,13 @@
 """Utility functions and helpers for the Deep Research agent."""
 
 import asyncio
+import contextlib
 import json
 import logging
-import os
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-import aiohttp
+import httpx
 from firecrawl import AsyncFirecrawlApp
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
@@ -21,16 +21,12 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import InjectedToolArg, tool
 from tavily import AsyncTavilyClient
 
+from aegra_api.settings import settings
 from graphs.open_deep_research.configuration import AgentMode, Configuration, SearchAPI
 from graphs.open_deep_research.prompts import summarize_webpage_prompt
 from graphs.open_deep_research.state import ResearchComplete, Summary
 
-RAG_URL = os.getenv("RAG_API_URL", "")
-
-if not RAG_URL:
-    raise RuntimeError("RAG_API_URL is not set")
-
-
+RAG_URL = settings.graphs.RAG_API_URL
 
 ##########################
 # Agent Mode utils (RAG = RAG-only, ONLINE = Web)
@@ -73,50 +69,23 @@ async def rag_search(
     """Search for documents in the collection based on the query"""
 
     configurable = (config or {}).get("configurable", {})
-    authorization = (
-        configurable
-        .get("langgraph_auth_user", {})
-        .get("permissions")[0]
-        .replace("authz:", "")
-    )
+    authorization = configurable.get("langgraph_auth_user", {}).get("authorization")
     system_prompt = configurable.get("rag_system_prompt") or None
     retrieval_mode = configurable.get("rag_retrieval_mode") or None
     embedding_model = configurable.get("rag_embedding_model") or None
     llm_temperature = configurable.get("rag_llm_temperature")
     llm_max_tokens = configurable.get("rag_llm_max_tokens")
-    rag_retrieval_context_token_budget = configurable.get(
-        "rag_retrieval_context_token_budget"
-    )
-    rag_retrieval_text_unit_ratio = configurable.get(
-        "rag_retrieval_text_unit_ratio"
-    )
-    rag_retrieval_community_ratio = configurable.get(
-        "rag_retrieval_community_ratio"
-    )
-    rag_retrieval_entity_ratio = configurable.get(
-        "rag_retrieval_entity_ratio"
-    )
-    rag_retrieval_relationship_ratio = configurable.get(
-        "rag_retrieval_relationship_ratio"
-    )
-    rag_retrieval_top_k_relationships = configurable.get(
-        "rag_retrieval_top_k_relationships"
-    )
-    rag_retrieval_top_k_entities = configurable.get(
-        "rag_retrieval_top_k_entities"
-    )
-    rag_retrieval_chunk_top_k_per_entity = configurable.get(
-        "rag_retrieval_chunk_top_k_per_entity"
-    )
-    rag_retrieval_chunk_ranking_overfetch = configurable.get(
-        "rag_retrieval_chunk_ranking_overfetch"
-    )
-    rag_retrieval_chunk_rank_weight_similarity = configurable.get(
-        "rag_retrieval_chunk_rank_weight_similarity"
-    )
-    rag_retrieval_chunk_rank_weight_entity = configurable.get(
-        "rag_retrieval_chunk_rank_weight_entity"
-    )
+    rag_retrieval_context_token_budget = configurable.get("rag_retrieval_context_token_budget")
+    rag_retrieval_text_unit_ratio = configurable.get("rag_retrieval_text_unit_ratio")
+    rag_retrieval_community_ratio = configurable.get("rag_retrieval_community_ratio")
+    rag_retrieval_entity_ratio = configurable.get("rag_retrieval_entity_ratio")
+    rag_retrieval_relationship_ratio = configurable.get("rag_retrieval_relationship_ratio")
+    rag_retrieval_top_k_relationships = configurable.get("rag_retrieval_top_k_relationships")
+    rag_retrieval_top_k_entities = configurable.get("rag_retrieval_top_k_entities")
+    rag_retrieval_chunk_top_k_per_entity = configurable.get("rag_retrieval_chunk_top_k_per_entity")
+    rag_retrieval_chunk_ranking_overfetch = configurable.get("rag_retrieval_chunk_ranking_overfetch")
+    rag_retrieval_chunk_rank_weight_similarity = configurable.get("rag_retrieval_chunk_rank_weight_similarity")
+    rag_retrieval_chunk_rank_weight_entity = configurable.get("rag_retrieval_chunk_rank_weight_entity")
     summarization_model = configurable.get("summarization_model") or None
 
     llm_provider = configurable.get("llm_provider", "openai")
@@ -129,7 +98,7 @@ async def rag_search(
         llm_temperature = None
         llm_max_tokens = None
 
-    search_endpoint = f"{RAG_URL}/query"
+    search_endpoint = f"{settings.graphs.RAG_API_URL}/query"
     body = {
         "question": query,
         "system_prompt": system_prompt,
@@ -155,14 +124,10 @@ async def rag_search(
     headers = {"authorization": authorization}
 
     try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                search_endpoint, json=body, headers=headers
-            ) as search_response,
-        ):
-            search_response.raise_for_status()
-            data = await search_response.json()
+        async with httpx.AsyncClient() as client:
+            search_response = await client.post(search_endpoint, json=body, headers=headers)
+        search_response.raise_for_status()
+        data = search_response.json()
 
         out = {
             "response": data.get("response", "") or "",
@@ -172,9 +137,7 @@ async def rag_search(
 
         return json.dumps(out, ensure_ascii=False)
     except Exception as e:
-        return json.dumps(
-            {"error": f"RAG tool call failed: {str(e)}"}, ensure_ascii=False
-        )
+        return json.dumps({"error": f"RAG tool call failed: {str(e)}"}, ensure_ascii=False)
 
 
 ##########################
@@ -225,16 +188,8 @@ async def firecrawl_search(
                 continue
             seen_urls.add(url)
 
-            title = (
-                getattr(item, "title", "")
-                or getattr(metadata, "title", "")
-                or "No title"
-            )
-            summary_text = (
-                getattr(item, "description", "")
-                or getattr(metadata, "description", "")
-                or "No description"
-            )
+            title = getattr(item, "title", "") or getattr(metadata, "title", "") or "No title"
+            summary_text = getattr(item, "description", "") or getattr(metadata, "description", "") or "No description"
             raw_md = getattr(item, "markdown", "")
             content_for_analysis = raw_md if raw_md else summary_text
 
@@ -258,9 +213,7 @@ async def firecrawl_search(
 
     configurable = Configuration.from_runnable_config(config)
     max_char_to_include = configurable.max_content_length
-    model_api_key = await get_api_key_for_model(
-        configurable.summarization_model, config
-    )
+    model_api_key = await get_api_key_for_model(configurable.summarization_model, config)
     summarization_model = (
         init_chat_model(
             model=configurable.summarization_model,
@@ -275,22 +228,16 @@ async def firecrawl_search(
     async def summarize_or_none(res: dict[str, str]):
         if not res.get("raw_content"):
             return None
-        return await summarize_webpage(
-            summarization_model, res["raw_content"][:max_char_to_include]
-        )
+        return await summarize_webpage(summarization_model, res["raw_content"][:max_char_to_include])
 
-    summaries = await asyncio.gather(
-        *[summarize_or_none(r) for r in unique_results.values()]
-    )
+    summaries = await asyncio.gather(*[summarize_or_none(r) for r in unique_results.values()])
 
     summarized_results = {
         url: {
             "title": result["title"],
             "content": result["content"] if summary is None else summary,
         }
-        for (url, result), summary in zip(
-            unique_results.items(), summaries, strict=False
-        )
+        for (url, result), summary in zip(unique_results.items(), summaries, strict=False)
     }
 
     formatted_output = "Search results:\n\n"
@@ -315,9 +262,7 @@ TAVILY_SEARCH_DESCRIPTION = (
 async def tavily_search(
     queries: list[str],
     max_results: Annotated[int, InjectedToolArg] = 5,
-    topic: Annotated[
-        Literal["general", "news", "finance"], InjectedToolArg
-    ] = "general",
+    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
     config: RunnableConfig = None,
 ) -> str:
     """Fetch and summarize search results from Tavily search API.
@@ -355,9 +300,7 @@ async def tavily_search(
     max_char_to_include = configurable.max_content_length
 
     # Initialize summarization model with retry logic
-    model_api_key = await get_api_key_for_model(
-        configurable.summarization_model, config
-    )
+    model_api_key = await get_api_key_for_model(configurable.summarization_model, config)
     summarization_model = (
         init_chat_model(
             model=configurable.summarization_model,
@@ -377,9 +320,7 @@ async def tavily_search(
     summarization_tasks = [
         noop()
         if not result.get("raw_content")
-        else summarize_webpage(
-            summarization_model, result["raw_content"][:max_char_to_include]
-        )
+        else summarize_webpage(summarization_model, result["raw_content"][:max_char_to_include])
         for result in unique_results.values()
     ]
 
@@ -392,9 +333,7 @@ async def tavily_search(
             "title": result["title"],
             "content": result["content"] if summary is None else summary,
         }
-        for url, result, summary in zip(
-            unique_results.keys(), unique_results.values(), summaries, strict=False
-        )
+        for url, result, summary in zip(unique_results.keys(), unique_results.values(), summaries, strict=False)
     }
 
     # Step 7: Format the final output
@@ -462,9 +401,7 @@ async def summarize_webpage(model: BaseChatModel, webpage_content: str) -> str:
     """
     try:
         # Create prompt with current date context
-        prompt_content = summarize_webpage_prompt.format(
-            webpage_content=webpage_content, date=get_today_str()
-        )
+        prompt_content = summarize_webpage_prompt.format(webpage_content=webpage_content, date=get_today_str())
 
         # Execute summarization with timeout to prevent hanging
         summary = await asyncio.wait_for(
@@ -474,23 +411,18 @@ async def summarize_webpage(model: BaseChatModel, webpage_content: str) -> str:
 
         # Format the summary with structured sections
         formatted_summary = (
-            f"<summary>\n{summary.summary}\n</summary>\n\n"
-            f"<key_excerpts>\n{summary.key_excerpts}\n</key_excerpts>"
+            f"<summary>\n{summary.summary}\n</summary>\n\n<key_excerpts>\n{summary.key_excerpts}\n</key_excerpts>"
         )
 
         return formatted_summary
 
     except TimeoutError:
         # Timeout during summarization - return original content
-        logging.warning(
-            "Summarization timed out after 60 seconds, returning original content"
-        )
+        logging.warning("Summarization timed out after 60 seconds, returning original content")
         return webpage_content
     except Exception as e:
         # Other errors during summarization - log and return original content
-        logging.warning(
-            f"Summarization failed with error: {str(e)}, returning original content"
-        )
+        logging.warning(f"Summarization failed with error: {str(e)}, returning original content")
         return webpage_content
 
 
@@ -607,7 +539,8 @@ async def get_all_tools(config: RunnableConfig):
         tools.extend(search_tools)
         logging.info(
             "ODR get_all_tools: Added %s search tool(s). model=%s",
-            search_api.value, configurable.research_model,
+            search_api.value,
+            configurable.research_model,
         )
 
     elif search_api == SearchAPI.GOOGLE:
@@ -621,7 +554,8 @@ async def get_all_tools(config: RunnableConfig):
             logging.warning(
                 "ODR get_all_tools: search_api=GOOGLE but model provider is '%s' (model=%s). "
                 "Skipping Google native search — use a Google model or switch search_api.",
-                model_provider, configurable.research_model,
+                model_provider,
+                configurable.research_model,
             )
 
     elif search_api == SearchAPI.OPENAI:
@@ -635,7 +569,8 @@ async def get_all_tools(config: RunnableConfig):
             logging.warning(
                 "ODR get_all_tools: search_api=OPENAI but model provider is '%s' (model=%s). "
                 "Skipping OpenAI native search — use an OpenAI model or switch search_api.",
-                model_provider, configurable.research_model,
+                model_provider,
+                configurable.research_model,
             )
 
     elif search_api == SearchAPI.ANTHROPIC:
@@ -649,7 +584,8 @@ async def get_all_tools(config: RunnableConfig):
             logging.warning(
                 "ODR get_all_tools: search_api=ANTHROPIC but model provider is '%s' (model=%s). "
                 "Skipping Anthropic native search — use an Anthropic model or switch search_api.",
-                model_provider, configurable.research_model,
+                model_provider,
+                configurable.research_model,
             )
 
     elif search_api == SearchAPI.NONE:
@@ -666,9 +602,7 @@ async def get_all_tools(config: RunnableConfig):
 
 def get_notes_from_tool_calls(messages: list[MessageLikeRepresentation]):
     """Extract notes from tool call messages."""
-    return [
-        tool_msg.content for tool_msg in filter_messages(messages, include_types="tool")
-    ]
+    return [tool_msg.content for tool_msg in filter_messages(messages, include_types="tool")]
 
 
 ##########################
@@ -724,11 +658,7 @@ def openai_websearch_called(response):
         return False
 
     # Look for web search calls in the tool outputs
-    for tool_output in tool_outputs:
-        if tool_output.get("type") == "web_search_call":
-            return True
-
-    return False
+    return any(tool_output.get("type") == "web_search_call" for tool_output in tool_outputs)
 
 
 def gemini_websearch_called(response):
@@ -817,9 +747,7 @@ def _check_openai_token_limit(exception: Exception, error_str: str) -> bool:
     module_name = getattr(exception.__class__, "__module__", "")
 
     # Check if this is an OpenAI exception
-    is_openai_exception = (
-        "openai" in exception_type.lower() or "openai" in module_name.lower()
-    )
+    is_openai_exception = "openai" in exception_type.lower() or "openai" in module_name.lower()
 
     # Check for typical OpenAI token limit error types
     is_request_error = class_name in ["BadRequestError", "InvalidRequestError"]
@@ -835,10 +763,7 @@ def _check_openai_token_limit(exception: Exception, error_str: str) -> bool:
         error_code = getattr(exception, "code", "")
         error_type = getattr(exception, "type", "")
 
-        if (
-            error_code == "context_length_exceeded"
-            or error_type == "invalid_request_error"
-        ):
+        if error_code == "context_length_exceeded" or error_type == "invalid_request_error":
             return True
 
     return False
@@ -852,19 +777,13 @@ def _check_anthropic_token_limit(exception: Exception, error_str: str) -> bool:
     module_name = getattr(exception.__class__, "__module__", "")
 
     # Check if this is an Anthropic exception
-    is_anthropic_exception = (
-        "anthropic" in exception_type.lower() or "anthropic" in module_name.lower()
-    )
+    is_anthropic_exception = "anthropic" in exception_type.lower() or "anthropic" in module_name.lower()
 
     # Check for Anthropic-specific error patterns
     is_bad_request = class_name == "BadRequestError"
 
-    if is_anthropic_exception and is_bad_request:
-        # Anthropic uses specific error messages for token limits
-        if "prompt is too long" in error_str:
-            return True
-
-    return False
+    # Anthropic uses specific error messages for token limits
+    return bool(is_anthropic_exception and is_bad_request and "prompt is too long" in error_str)
 
 
 def _check_gemini_token_limit(exception: Exception, error_str: str) -> bool:
@@ -875,9 +794,7 @@ def _check_gemini_token_limit(exception: Exception, error_str: str) -> bool:
     module_name = getattr(exception.__class__, "__module__", "")
 
     # Check if this is a Google/Gemini exception
-    is_google_exception = (
-        "google" in exception_type.lower() or "google" in module_name.lower()
-    )
+    is_google_exception = "google" in exception_type.lower() or "google" in module_name.lower()
 
     # Check for Google-specific resource exhaustion errors
     is_resource_exhausted = class_name in [
@@ -889,10 +806,7 @@ def _check_gemini_token_limit(exception: Exception, error_str: str) -> bool:
         return True
 
     # Check for specific Google API resource exhaustion patterns
-    if "google.api_core.exceptions.resourceexhausted" in exception_type.lower():
-        return True
-
-    return False
+    return "google.api_core.exceptions.resourceexhausted" in exception_type.lower()
 
 
 # NOTE: This may be out of date or not applicable to your models. Please update this as needed.
@@ -997,7 +911,7 @@ def get_config_value(value):
     """Extract value from configuration, handling enums and None values."""
     if value is None:
         return None
-    if isinstance(value, str) or isinstance(value, dict):
+    if isinstance(value, (str, dict)):
         return value
     else:
         return value.value
@@ -1034,9 +948,7 @@ def _non_empty(v: str | None) -> str | None:
 async def get_api_key_for_model(model_name: str, config: RunnableConfig):
     model_name_lower = model_name.lower()
     model_prefixes = ["openai", "anthropic", "google"]
-    provider = next(
-        (prefix for prefix in model_prefixes if model_name_lower.startswith(prefix)), None
-    )
+    provider = next((prefix for prefix in model_prefixes if model_name_lower.startswith(prefix)), None)
     if not provider:
         return None
 
@@ -1060,28 +972,21 @@ async def get_api_key(
     name: str | None = None,
 ):
     """Get API key from environment or config by key name."""
-    authorization = (
-        config.get("configurable", {})
-        .get("langgraph_auth_user", {})
-        .get("permissions")[0]
-        .replace("authz:", "")
-    )
+    authorization = config.get("configurable", {}).get("langgraph_auth_user", {}).get("authorization")
     if not authorization or not key_id:
         return None
 
     search_params = f"provider={provider}&name={name}" if provider and name else ""
     search_endpoint = (
-        f"{RAG_URL}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
+        f"{settings.graphs.RAG_API_URL}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
     )
     headers = {"authorization": authorization, "Accept": "text/plain"}
 
     try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(search_endpoint, headers=headers) as search_response,
-        ):
-            search_response.raise_for_status()
-            key = await search_response.text()
+        async with httpx.AsyncClient() as client:
+            search_response = await client.get(search_endpoint, headers=headers)
+        search_response.raise_for_status()
+        key = search_response.text
 
         return key
     except Exception as e:
@@ -1112,22 +1017,14 @@ def normalize_placeholders(payload):
 
 
 async def resolve_artifact_placeholders(placeholders: list, config: RunnableConfig = None) -> list:
-    """Resolve artifact-type placeholder values by fetching content from pengAIM-RAG.
-    """
+    """Resolve artifact-type placeholder values by fetching content from pengAIM-RAG."""
     logging.info(f"[ARTIFACT-RESOLVE] Starting resolution for {len(placeholders)} placeholder(s)")
 
     # Extract auth token from config (same pattern as rag_search)
     authorization = None
     if config:
-        try:
-            authorization = (
-                config.get("configurable", {})
-                .get("langgraph_auth_user", {})
-                .get("permissions")[0]
-                .replace("authz:", "")
-            )
-        except (TypeError, IndexError, AttributeError):
-            pass
+        with contextlib.suppress(TypeError, IndexError, AttributeError):
+            authorization = config.get("configurable", {}).get("langgraph_auth_user", {}).get("authorization")
     for i, p in enumerate(placeholders):
         field_name = p.get("field", "?") if isinstance(p, dict) else "?"
         value_preview = str(p.get("value", ""))[:100] if isinstance(p, dict) else str(p)[:100]
@@ -1180,15 +1077,12 @@ async def resolve_artifact_placeholders(placeholders: list, config: RunnableConf
                 )
                 content_parts.append(f"--- {artifact.get('file_name', 'Document')} ---\n{text}")
             except RuntimeError as e:
-                raise ValueError(
-                    f"Failed to load artifact '{artifact_name}' for variable '{p['field']}': {e}"
-                ) from e
+                raise ValueError(f"Failed to load artifact '{artifact_name}' for variable '{p['field']}': {e}") from e
 
         combined = "\n\n".join(content_parts)
         resolved.append({"field": p["field"], "value": combined})
         logging.info(
-            f"[ARTIFACT-RESOLVE] Resolved '{p['field']}' with {len(content_parts)} doc(s), "
-            f"total {len(combined)} chars"
+            f"[ARTIFACT-RESOLVE] Resolved '{p['field']}' with {len(content_parts)} doc(s), total {len(combined)} chars"
         )
 
     logging.info(f"[ARTIFACT-RESOLVE] Done. Resolved {len(resolved)} placeholder(s)")
@@ -1209,44 +1103,36 @@ async def _fetch_artifact_content(
         raise RuntimeError(f"No auth token for fetching artifact '{file_name}'")
 
     download_url_endpoint = (
-        f"{RAG_URL}/api/v1/artifact-collections/{collection_id}"
-        f"/documents/{document_uuid}/download-url"
+        f"{RAG_URL}/api/v1/artifact-collections/{collection_id}/documents/{document_uuid}/download-url"
     )
     headers = {"authorization": authorization}
 
-    async with aiohttp.ClientSession() as session:
+    async with httpx.AsyncClient() as client:
         # Step 1: Get presigned URL from RAG
-        async with session.get(
+        resp = await client.get(
             download_url_endpoint,
             headers=headers,
             params={"as_attachment": "false"},
-            timeout=aiohttp.ClientTimeout(total=30),
-        ) as resp:
-            if resp.status != 200:
-                body = await resp.text()
-                raise RuntimeError(
-                    f"Failed to get presigned URL for '{file_name}': "
-                    f"status={resp.status}, body={body[:500]}"
-                )
-            presigned_data = await resp.json()
-            presigned_url = presigned_data["url"]
+            timeout=30.0,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Failed to get presigned URL for '{file_name}': status={resp.status_code}, body={resp.text[:500]}"
+            )
+        presigned_data = resp.json()
+        presigned_url = presigned_data["url"]
 
         # Step 2: Fetch content directly from S3
-        async with session.get(
-            presigned_url, timeout=aiohttp.ClientTimeout(total=60)
-        ) as resp:
-            if resp.status != 200:
-                raise RuntimeError(
-                    f"Failed to download artifact '{file_name}' from S3: "
-                    f"status={resp.status}"
-                )
-            content_type = resp.headers.get("content-type", "")
-            if any(t in content_type for t in ["text/", "application/json", "application/xml"]):
-                return await resp.text()
-            raise RuntimeError(
-                f"Unsupported content type '{content_type}' for artifact '{file_name}'. "
-                f"Only text-based formats are supported by the LLM."
-            )
+        resp = await client.get(presigned_url, timeout=60.0)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Failed to download artifact '{file_name}' from S3: status={resp.status_code}")
+        content_type = resp.headers.get("content-type", "")
+        if any(t in content_type for t in ["text/", "application/json", "application/xml"]):
+            return resp.text
+        raise RuntimeError(
+            f"Unsupported content type '{content_type}' for artifact '{file_name}'. "
+            f"Only text-based formats are supported by the LLM."
+        )
 
 
 def apply_placeholders(text: str, placeholders: list) -> str:
@@ -1278,10 +1164,7 @@ def truncate_result(text: str, limit: int = 1000) -> str:
 def normalize_branch_name(name: str | None, used: set[str]) -> str:
     """Return a deterministic, unique branch name safe for state keys"""
     base = (
-        "".join(
-            ch if (ch.isalnum() or ch in ("_", "-")) else "_"
-            for ch in (name or "subprompt")
-        ).strip("_")
+        "".join(ch if (ch.isalnum() or ch in ("_", "-")) else "_" for ch in (name or "subprompt")).strip("_")
         or "subprompt"
     )
     nm = base

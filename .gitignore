@@ -17,7 +17,9 @@ wheels/
 
 # Pycharm
 .idea/
-.DS_Store
+
+# VSCode
+.vscode/
 
 # Testing
 .coverage
@@ -32,5 +34,10 @@ htmlcov/
 # Pre-commit
 .pre-commit-cache/
 
+# MacOS
+.DS_Store
+
 # Claude local settings
 .claude/settings.local.json
+
+celerybeat-schedule.db

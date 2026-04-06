@@ -4,9 +4,7 @@ UNEDITABLE_SYSTEM_PROMPT = (
     "Markdown link to the authentication page and prompt them to authenticate."
 )
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful assistant that has access to a variety of tools."
-)
+DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant that has access to a variety of tools."
 
 RAG_RETRIEVAL_POLICY = """[RAG RETRIEVAL POLICY]
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 import httpx
@@ -12,13 +11,11 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
 from graphs.workflow_engine.schema import ICPScoreConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
-DEFAULT_LLM_MODEL = os.getenv("WORKFLOW_LLM_MODEL", "openai:gpt-4o-mini")
 
 ICP_SCORING_PROMPT = """You are an ICP (Ideal Customer Profile) scoring assistant.
 
@@ -64,9 +61,7 @@ class ICPScoreExecutor(NodeExecutor):
                 account_data = data
 
             if not account_data:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "No account data found"
-                }}}
+                return {"data": {**data, cfg.response_key: {"ok": False, "error": "No account data found"}}}
 
             # 2. Fetch team context (ICP + buyer personas) from backend
             icp = ""
@@ -74,7 +69,7 @@ class ICPScoreExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
                     resp = await client.get(
-                        f"{REVY_API_URL}/api/v1/team-context",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/team-context",
                         headers=headers,
                     )
                     if resp.status_code == 200:
@@ -95,7 +90,7 @@ class ICPScoreExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                llm_model = cfg.model or DEFAULT_LLM_MODEL
+                llm_model = cfg.model or settings.graphs.WORKFLOW_LLM_MODEL
                 model = init_chat_model(
                     llm_model,
                     temperature=0,

@@ -70,7 +70,6 @@ class PromptDetailCheck(BaseModel):
     )
 
 
-
 ###################
 # State Definitions
 ###################

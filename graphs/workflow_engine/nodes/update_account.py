@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
 from graphs.workflow_engine.schema import UpdateAccountConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class UpdateAccountExecutor(NodeExecutor):
@@ -33,9 +32,12 @@ class UpdateAccountExecutor(NodeExecutor):
 
             account_id = resolve_field(data, cfg.account_id_key)
             if not account_id:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": f"Account ID not found at '{cfg.account_id_key}'"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "error": f"Account ID not found at '{cfg.account_id_key}'"},
+                    }
+                }
 
             # Resolve template values in updates
             updates: dict[str, Any] = {}
@@ -43,22 +45,18 @@ class UpdateAccountExecutor(NodeExecutor):
                 resolved = resolve_templates(template, data)
                 # Try to parse numbers for score
                 if key == "score":
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         resolved = int(resolved)
-                    except (ValueError, TypeError):
-                        pass
                 updates[key] = resolved
 
             if not updates:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "No updates specified"
-                }}}
+                return {"data": {**data, cfg.response_key: {"ok": False, "error": "No updates specified"}}}
 
             result: dict[str, Any]
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.put(
-                        f"{REVY_API_URL}/api/v1/accounts/{account_id}",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/accounts/{account_id}",
                         json=updates,
                         headers=headers,
                     )

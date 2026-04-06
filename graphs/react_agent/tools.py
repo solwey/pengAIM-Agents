@@ -1,13 +1,12 @@
-import asyncio
 import json
 from typing import Annotated
 
-import aiohttp
+import httpx
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import ValidationError
 
-from graphs.react_agent.rag_models import RagToolResponse, RagToolError, SourceDocument, DocumentCollectionInfo
+from graphs.react_agent.rag_models import DocumentCollectionInfo, RagToolError, RagToolResponse, SourceDocument
 
 
 def _is_openai_gpt5_model(model_name: str | None) -> bool:
@@ -52,12 +51,9 @@ async def create_rag_tool(rag_url: str):
                     configurable = config.get("configurable", {}) if config else {}
 
                     # Extract auth token with validation
-                    auth_user = configurable.get("langgraph_auth_user", {})
-                    permissions = auth_user.get("permissions", [])
-                    if not permissions:
-                        raise ValueError("No permissions found in auth user context")
-
-                    authorization = permissions[0].replace("authz:", "")
+                    authorization = configurable.get("langgraph_auth_user", {}).get("authorization")
+                    if not authorization:
+                        raise ValueError("No authorization found in auth user context")
 
                     # Extract optional parameters
                     system_prompt = configurable.get("rag_system_prompt")
@@ -65,45 +61,23 @@ async def create_rag_tool(rag_url: str):
                     embedding_model = configurable.get("rag_embedding_model")
                     llm_temperature = configurable.get("rag_llm_temperature")
                     llm_max_tokens = configurable.get("rag_llm_max_tokens")
-                    rag_retrieval_context_token_budget = configurable.get(
-                        "rag_retrieval_context_token_budget"
-                    )
-                    rag_retrieval_text_unit_ratio = configurable.get(
-                        "rag_retrieval_text_unit_ratio"
-                    )
-                    rag_retrieval_community_ratio = configurable.get(
-                        "rag_retrieval_community_ratio"
-                    )
-                    rag_retrieval_entity_ratio = configurable.get(
-                        "rag_retrieval_entity_ratio"
-                    )
-                    rag_retrieval_relationship_ratio = configurable.get(
-                        "rag_retrieval_relationship_ratio"
-                    )
-                    rag_retrieval_top_k_relationships = configurable.get(
-                        "rag_retrieval_top_k_relationships"
-                    )
-                    rag_retrieval_top_k_entities = configurable.get(
-                        "rag_retrieval_top_k_entities"
-                    )
-                    rag_retrieval_chunk_top_k_per_entity = configurable.get(
-                        "rag_retrieval_chunk_top_k_per_entity"
-                    )
-                    rag_retrieval_chunk_ranking_overfetch = configurable.get(
-                        "rag_retrieval_chunk_ranking_overfetch"
-                    )
+                    rag_retrieval_context_token_budget = configurable.get("rag_retrieval_context_token_budget")
+                    rag_retrieval_text_unit_ratio = configurable.get("rag_retrieval_text_unit_ratio")
+                    rag_retrieval_community_ratio = configurable.get("rag_retrieval_community_ratio")
+                    rag_retrieval_entity_ratio = configurable.get("rag_retrieval_entity_ratio")
+                    rag_retrieval_relationship_ratio = configurable.get("rag_retrieval_relationship_ratio")
+                    rag_retrieval_top_k_relationships = configurable.get("rag_retrieval_top_k_relationships")
+                    rag_retrieval_top_k_entities = configurable.get("rag_retrieval_top_k_entities")
+                    rag_retrieval_chunk_top_k_per_entity = configurable.get("rag_retrieval_chunk_top_k_per_entity")
+                    rag_retrieval_chunk_ranking_overfetch = configurable.get("rag_retrieval_chunk_ranking_overfetch")
                     rag_retrieval_chunk_rank_weight_similarity = configurable.get(
                         "rag_retrieval_chunk_rank_weight_similarity"
                     )
-                    rag_retrieval_chunk_rank_weight_entity = configurable.get(
-                        "rag_retrieval_chunk_rank_weight_entity"
-                    )
+                    rag_retrieval_chunk_rank_weight_entity = configurable.get("rag_retrieval_chunk_rank_weight_entity")
 
                     # Select appropriate RAG API key based on model provider
                     model_name = configurable.get("model_name", "")
-                    is_google_model = model_name.lower().startswith(
-                        "google"
-                    ) or model_name.lower().startswith("gemini")
+                    is_google_model = model_name.lower().startswith("google") or model_name.lower().startswith("gemini")
 
                     if is_google_model:
                         key_data = configurable.get("rag_google_api_key", {})
@@ -118,11 +92,7 @@ async def create_rag_tool(rag_url: str):
                     error = RagToolError(
                         error=f"Configuration extraction failed: {str(e)}",
                         error_type="config_error",
-                        details={
-                            "config_keys": list(configurable.keys())
-                            if "configurable" in locals()
-                            else []
-                        },
+                        details={"config_keys": list(configurable.keys()) if "configurable" in locals() else []},
                     )
                     return json.dumps(error.model_dump(), ensure_ascii=False)
 
@@ -157,41 +127,40 @@ async def create_rag_tool(rag_url: str):
 
                 # === STEP 3: Make HTTP request with proper error handling ===
                 try:
-                    timeout = aiohttp.ClientTimeout(total=90)  # 90 second timeout
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.post(
-                            search_endpoint, json=body, headers=headers
-                        ) as response:
-                            # Check HTTP status
-                            if response.status == 401:
-                                error = RagToolError(
-                                    error="Authentication failed. Please check your credentials.",
-                                    error_type="auth_error",
-                                    details={"status_code": 401},
-                                )
-                                return json.dumps(error.model_dump(), ensure_ascii=False)
+                    timeout = httpx.Timeout(90.0)  # 90 second timeout
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        response = await client.post(search_endpoint, json=body, headers=headers)
 
-                            if response.status == 404:
-                                error = RagToolError(
-                                    error="RAG endpoint not found. Check RAG_API_URL configuration.",
-                                    error_type="endpoint_error",
-                                    details={"status_code": 404, "url": search_endpoint},
-                                )
-                                return json.dumps(error.model_dump(), ensure_ascii=False)
+                    # Check HTTP status
+                    if response.status_code == 401:
+                        error = RagToolError(
+                            error="Authentication failed. Please check your credentials.",
+                            error_type="auth_error",
+                            details={"status_code": 401},
+                        )
+                        return json.dumps(error.model_dump(), ensure_ascii=False)
 
-                            response.raise_for_status()
+                    if response.status_code == 404:
+                        error = RagToolError(
+                            error="RAG endpoint not found. Check RAG_API_URL configuration.",
+                            error_type="endpoint_error",
+                            details={"status_code": 404, "url": search_endpoint},
+                        )
+                        return json.dumps(error.model_dump(), ensure_ascii=False)
 
-                            # Parse response
-                            data = await response.json()
+                    response.raise_for_status()
 
-                except asyncio.TimeoutError:
+                    # Parse response
+                    data = response.json()
+
+                except httpx.TimeoutException:
                     error = RagToolError(
                         error="RAG request timed out after 90 seconds",
                         error_type="timeout_error",
                     )
                     return json.dumps(error.model_dump(), ensure_ascii=False)
 
-                except aiohttp.ClientError as e:
+                except httpx.HTTPError as e:
                     error = RagToolError(
                         error=f"Network error: {str(e)}",
                         error_type="network_error",
@@ -254,11 +223,7 @@ async def create_rag_tool(rag_url: str):
                     error = RagToolError(
                         error=f"Response validation failed: {str(e)}",
                         error_type="validation_error",
-                        details={
-                            "raw_data_keys": list(data.keys())
-                            if isinstance(data, dict)
-                            else []
-                        },
+                        details={"raw_data_keys": list(data.keys()) if isinstance(data, dict) else []},
                     )
                     return json.dumps(error.model_dump(), ensure_ascii=False)
 

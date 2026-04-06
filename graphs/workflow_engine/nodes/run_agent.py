@@ -33,9 +33,7 @@ class RunAgentExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(cfg.timeout_seconds)
-                ) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(cfg.timeout_seconds)) as client:
                     # 1. Create thread
                     thread_resp = await client.post(
                         f"{base_url}/threads",
@@ -60,9 +58,7 @@ class RunAgentExecutor(NodeExecutor):
                                 "messages": [
                                     {
                                         "type": "human",
-                                        "content": [
-                                            {"type": "text", "text": resolved_prompt}
-                                        ],
+                                        "content": [{"type": "text", "text": resolved_prompt}],
                                     }
                                 ]
                             },
@@ -82,10 +78,7 @@ class RunAgentExecutor(NodeExecutor):
                     # Extract final message from output
                     agent_output = None
                     # Try values.messages first (LangGraph format), then messages
-                    messages = (
-                        output.get("values", {}).get("messages", [])
-                        or output.get("messages", [])
-                    )
+                    messages = output.get("values", {}).get("messages", []) or output.get("messages", [])
                     if messages:
                         last_msg = messages[-1]
                         if isinstance(last_msg, dict):
@@ -93,7 +86,8 @@ class RunAgentExecutor(NodeExecutor):
                             # content can be a string or list of {type, text}
                             if isinstance(content, list):
                                 agent_output = "\n".join(
-                                    part.get("text", "") for part in content
+                                    part.get("text", "")
+                                    for part in content
                                     if isinstance(part, dict) and part.get("text")
                                 )
                             elif isinstance(content, str):

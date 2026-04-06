@@ -39,9 +39,7 @@ DEFAULT_QUESTION_CATEGORIES: list[dict] = [
 
 
 class DefaultQuestion(BaseModel):
-    text: str = Field(
-        ..., description="Question text that will be suggested to the user."
-    )
+    text: str = Field(..., description="Question text that will be suggested to the user.")
 
 
 class DefaultQuestionsCategory(BaseModel):

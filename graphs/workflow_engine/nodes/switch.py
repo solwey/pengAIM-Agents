@@ -14,10 +14,8 @@ class SwitchExecutor(NodeExecutor):
     """Switch nodes are pass-through — routing happens via conditional edges."""
 
     @staticmethod
-    def create(config: dict[str, Any]):
-        async def switch_node(
-            state: dict[str, Any], config: RunnableConfig
-        ) -> dict[str, Any]:
+    def create(_config: dict[str, Any]):
+        async def switch_node(state: dict[str, Any], config: RunnableConfig) -> dict[str, Any]:
             return {}
 
         return switch_node

@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Literal
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
 from graphs.workflow_engine.schema import TagConditionConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class TagConditionExecutor(NodeExecutor):
@@ -36,21 +34,24 @@ class TagConditionExecutor(NodeExecutor):
 
             entity_id = resolve_field(data, cfg.entity_id_key)
             if not entity_id or not cfg.tag_names:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "match": False, "error": "Missing entity_id or tag_names"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "match": False, "error": "Missing entity_id or tag_names"},
+                    }
+                }
 
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     entity_plural = f"{cfg.entity_type}s"
                     resp = await client.get(
-                        f"{REVY_API_URL}/api/v1/{entity_plural}/{entity_id}",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}",
                         headers=headers,
                     )
                     if resp.status_code != 200:
-                        return {"data": {**data, cfg.response_key: {
-                            "ok": False, "match": False, "error": resp.text[:300]
-                        }}}
+                        return {
+                            "data": {**data, cfg.response_key: {"ok": False, "match": False, "error": resp.text[:300]}}
+                        }
 
                     entity = resp.json()
                     entity_tags = {t["name"] for t in entity.get("tags", [])}
@@ -61,8 +62,14 @@ class TagConditionExecutor(NodeExecutor):
                         match = any(tn in entity_tags for tn in cfg.tag_names)
 
                     result = {"ok": True, "match": match, "entity_tags": list(entity_tags)}
-                    logger.info("Tag check %s %s: match=%s (mode=%s, tags=%s)",
-                                cfg.entity_type, entity_id, match, cfg.match_mode, cfg.tag_names)
+                    logger.info(
+                        "Tag check %s %s: match=%s (mode=%s, tags=%s)",
+                        cfg.entity_type,
+                        entity_id,
+                        match,
+                        cfg.match_mode,
+                        cfg.tag_names,
+                    )
 
             except httpx.TimeoutException:
                 result = {"ok": False, "match": False, "error": "Request timed out"}

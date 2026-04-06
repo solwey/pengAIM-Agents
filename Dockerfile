@@ -1,4 +1,6 @@
-FROM python:3.11-slim-bookworm AS base
+ARG PY_VERSION=3.12
+FROM python:${PY_VERSION}-slim-bookworm AS base
+ARG PY_VERSION
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -15,41 +17,51 @@ RUN addgroup --system app && adduser --system --ingroup app app
 # Builder stage
 # -----------------------------
 FROM base AS builder
+
+# Retrieve the uv binary directly from the official image.
+COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /bin/uv
+
+# Install system build dependencies required for compiling Python extensions.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project metadata and source
-COPY pyproject.toml ./
+# Copy aegra-api package files and workspace lockfile
+COPY libs/aegra-api/pyproject.toml libs/aegra-api/README.md ./
 COPY uv.lock ./
-COPY README.md ./
-COPY src/ ./src/
 
-# Install runtime deps from lock, then install project package without re-resolving deps
-RUN python -m pip install --upgrade pip uv && \
-    uv export --frozen --format requirements.txt --no-dev --no-emit-project -o requirements.lock.txt && \
-    uv pip sync --system requirements.lock.txt && \
-    pip install --no-cache-dir --no-deps .
+# Install dependencies from lockfile (includes dev deps for example agents).
+RUN uv export --frozen --no-emit-project --format=requirements-txt > requirements.txt && \
+    uv pip install --system --compile-bytecode -r requirements.txt && \
+    rm requirements.txt
+
+# Copy the actual project source code and forced includes (alembic).
+COPY libs/aegra-api/src/ ./src/
+COPY libs/aegra-api/alembic.ini ./alembic.ini
+COPY libs/aegra-api/alembic/ ./alembic/
+
+# Install the project package itself.
+RUN uv pip install --system --compile-bytecode --no-deps .
 
 # -----------------------------
 # Final, minimal runtime image
 # -----------------------------
 FROM base AS final
 
-# Install only minimal runtime libs (psycopg[binary] used, so libpq not required at runtime)
+# Install only minimal runtime libs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed Python packages and console scripts from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
+# Copy installed Python packages from the builder stage.
+COPY --from=builder /usr/local/lib/python${PY_VERSION}/site-packages/ /usr/local/lib/python${PY_VERSION}/site-packages/
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Copy runtime assets required by the app and alembic
-COPY alembic.ini ./alembic.ini
-COPY migrations/ ./migrations/
+COPY libs/aegra-api/alembic.ini ./alembic.ini
+COPY libs/aegra-api/alembic/ ./alembic/
 COPY aegra.json ./aegra.json
 COPY auth.py ./auth.py
 COPY graphs/ ./graphs/
@@ -68,5 +80,5 @@ EXPOSE 8000
 # Run as non-root
 USER app
 
-# Leave default CMD empty so docker-compose command can run migrations then start uvicorn
-# CMD ["uvicorn", "src.agent_server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command - can be overridden by docker-compose
+CMD ["aegra", "serve"]

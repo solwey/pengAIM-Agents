@@ -1,6 +1,7 @@
 """Pydantic models for RAG tool structured output."""
 
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -18,15 +19,13 @@ class SourceDocument(BaseModel):
     title: str = Field(..., description="Document title or entity name")
     content: str = Field(..., description="Document content snippet or description")
     source_type: str = Field(..., description="Source type: text_unit, community_report, entity, relationship")
-    chunk_id: Optional[str] = Field(None, description="Chunk ID for text_unit sources")
-    relevance_score: Optional[float] = Field(None, description="Relevance score (0-1)")
-    metadata: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Additional metadata (entity type, relationship type, etc.)"
+    chunk_id: str | None = Field(None, description="Chunk ID for text_unit sources")
+    relevance_score: float | None = Field(None, description="Relevance score (0-1)")
+    metadata: dict[str, Any] | None = Field(
+        None, description="Additional metadata (entity type, relationship type, etc.)"
     )
-    last_human_message_id: Optional[str] = Field(
-        None,
-        description="ID of the last human message when this source was retrieved"
+    last_human_message_id: str | None = Field(
+        None, description="ID of the last human message when this source was retrieved"
     )
 
 
@@ -39,11 +38,10 @@ class DocumentCollectionInfo(BaseModel):
 
     document_id: str = Field(..., description="Document UUID")
     collection_id: str = Field(..., description="Collection ID the document belongs to")
-    document_title: Optional[str] = Field(None, description="Document title (file name)")
+    document_title: str | None = Field(None, description="Document title (file name)")
     relevance_score: float | None = None
-    last_human_message_id: Optional[str] = Field(
-        None,
-        description="ID of the last human message when this collection was retrieved"
+    last_human_message_id: str | None = Field(
+        None, description="ID of the last human message when this collection was retrieved"
     )
 
 
@@ -57,21 +55,15 @@ class RagToolResponse(BaseModel):
     - document_collections: Mapping of documents to their collections
     """
 
-    context_text: str = Field(
-        ...,
-        description="Full retrieved context as a single string"
+    context_text: str = Field(..., description="Full retrieved context as a single string")
+    sources: list[SourceDocument] = Field(
+        default_factory=list, description="List of source documents with metadata and relevance scores"
     )
-    sources: List[SourceDocument] = Field(
-        default_factory=list,
-        description="List of source documents with metadata and relevance scores"
+    retrieval_metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Metadata about the retrieval process (mode, timing, counts, etc.)"
     )
-    retrieval_metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Metadata about the retrieval process (mode, timing, counts, etc.)"
-    )
-    document_collections: List[DocumentCollectionInfo] = Field(
-        default_factory=list,
-        description="List of documents with their collection mappings"
+    document_collections: list[DocumentCollectionInfo] = Field(
+        default_factory=list, description="List of documents with their collection mappings"
     )
 
     def format_for_llm(self) -> str:
@@ -86,7 +78,7 @@ class RagToolResponse(BaseModel):
             # Use the dedicated source_type field
             relevance_str = f"{src.relevance_score:.2f}" if src.relevance_score is not None else "N/A"
             source_text = (
-                f"Source {i+1} [{src.source_type}] (relevance: {relevance_str}):\n"
+                f"Source {i + 1} [{src.source_type}] (relevance: {relevance_str}):\n"
                 f"Title: {src.title}\n"
                 f"Content: {src.content}"
             )
@@ -121,10 +113,6 @@ class RagToolError(BaseModel):
 
     error: str = Field(..., description="Human-readable error message")
     error_type: str = Field(
-        default="unknown",
-        description="Error type (auth_error, network_error, timeout_error, etc.)"
+        default="unknown", description="Error type (auth_error, network_error, timeout_error, etc.)"
     )
-    details: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Additional error details for debugging"
-    )
+    details: dict[str, Any] | None = Field(default=None, description="Additional error details for debugging")

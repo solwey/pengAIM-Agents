@@ -3,7 +3,7 @@ from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
-from pydantic import ConfigDict, BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from graphs.react_agent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -20,9 +20,7 @@ from graphs.shared import (
 )
 
 
-def merge_sources(
-    existing: list[SourceDocument], incoming: list[SourceDocument]
-) -> list[SourceDocument]:
+def merge_sources(existing: list[SourceDocument], incoming: list[SourceDocument]) -> list[SourceDocument]:
     """Merge source documents, keeping only those with matching last_human_message_id.
 
     Filters out existing sources whose last_human_message_id differs from the
@@ -32,9 +30,7 @@ def merge_sources(
         return existing
 
     # Get the last_human_message_id from incoming sources
-    incoming_message_ids = {
-        src.last_human_message_id for src in incoming if src.last_human_message_id
-    }
+    incoming_message_ids = {src.last_human_message_id for src in incoming if src.last_human_message_id}
 
     # If no incoming sources have a message ID, just append
     if not incoming_message_ids:
@@ -44,8 +40,7 @@ def merge_sources(
     filtered_existing = [
         src
         for src in existing
-        if src.last_human_message_id in incoming_message_ids
-        or src.last_human_message_id is None
+        if src.last_human_message_id in incoming_message_ids or src.last_human_message_id is None
     ]
 
     return filtered_existing + incoming
@@ -64,9 +59,7 @@ def merge_document_collections(
         return existing
 
     # Get the last_human_message_id from incoming collections
-    incoming_message_ids = {
-        col.last_human_message_id for col in incoming if col.last_human_message_id
-    }
+    incoming_message_ids = {col.last_human_message_id for col in incoming if col.last_human_message_id}
 
     # If no incoming collections have a message ID, just append
     if not incoming_message_ids:
@@ -76,8 +69,7 @@ def merge_document_collections(
         filtered_existing = [
             col
             for col in existing
-            if col.last_human_message_id in incoming_message_ids
-            or col.last_human_message_id is None
+            if col.last_human_message_id in incoming_message_ids or col.last_human_message_id is None
         ]
         combined = filtered_existing + incoming
 
@@ -150,10 +142,7 @@ class Context(BaseModel, McpConfigMixin):
                 "type": "select",
                 "required": True,
                 "default": AgentMode.RAG.value,
-                "description": (
-                    "Select how the agent retrieves information: "
-                    "from local RAG data or online sources."
-                ),
+                "description": ("Select how the agent retrieves information: from local RAG data or online sources."),
                 "options": [
                     {"label": "Rag only", "value": AgentMode.RAG.value},
                     {"label": "Online only", "value": AgentMode.WEB_SEARCH.value},
@@ -211,9 +200,7 @@ class Context(BaseModel, McpConfigMixin):
                 "type": "password",
                 "required": True,
                 "placeholder": "Enter your custom OpenAI API key for this agent...",
-                "description": (
-                    "Provide a dedicated OpenAI API key to be used only by this agent. "
-                ),
+                "description": ("Provide a dedicated OpenAI API key to be used only by this agent. "),
                 "default": {},
             }
         },
@@ -242,9 +229,7 @@ class Context(BaseModel, McpConfigMixin):
                 "type": "password",
                 "required": True,
                 "placeholder": "Enter your Google API key for Gemini models...",
-                "description": (
-                    "Provide a Google API key to be used when selecting Gemini models."
-                ),
+                "description": ("Provide a Google API key to be used when selecting Gemini models."),
                 "default": {},
             }
         },
@@ -257,10 +242,7 @@ class Context(BaseModel, McpConfigMixin):
                 "type": "password",
                 "required": True,
                 "placeholder": "Enter your Google API key for RAG operations...",
-                "description": (
-                    "Specify a separate Google API key to be used for RAG tasks "
-                    "if using Gemini models."
-                ),
+                "description": ("Specify a separate Google API key to be used for RAG tasks if using Gemini models."),
                 "default": {},
             }
         },
@@ -358,9 +340,7 @@ class Context(BaseModel, McpConfigMixin):
             "x_oap_ui_config": {
                 "type": "select",
                 "default": ToolCallsVisibility.ALWAYS_OFF.value,
-                "description": (
-                    "Controls visibility and behavior of tool call toggles for this agent."
-                ),
+                "description": ("Controls visibility and behavior of tool call toggles for this agent."),
                 "options": [
                     {
                         "label": "User preference",
@@ -854,7 +834,6 @@ class Context(BaseModel, McpConfigMixin):
             return RetrievalMode.RRF
         return v
 
-
     @field_validator("default_questions", mode="before")
     @classmethod
     def validate_default_questions(cls, v):
@@ -903,13 +882,11 @@ class Context(BaseModel, McpConfigMixin):
     def validate_embedding_model(self):
         if self.rag_embedding_model is None or self.rag_embedding_model == "":
             self.rag_embedding_model = (
-                "gemini-embedding-001"
-                if self.llm_provider == LLMProvider.GOOGLE
-                else "text-embedding-3-small"
+                "gemini-embedding-001" if self.llm_provider == LLMProvider.GOOGLE else "text-embedding-3-small"
             )
             return self
 
-        if self.llm_provider == LLMProvider.GOOGLE  and self.rag_embedding_model == "text-embedding-3-small":
+        if self.llm_provider == LLMProvider.GOOGLE and self.rag_embedding_model == "text-embedding-3-small":
             self.rag_embedding_model = "gemini-embedding-001"
             return self
 
@@ -921,10 +898,7 @@ class Context(BaseModel, McpConfigMixin):
 
     @model_validator(mode="after")
     def validate_rag_llm_overrides_for_reasoning_models(self):
-        if (
-            self.llm_provider != LLMProvider.OPENAI
-            or not _is_openai_gpt5_model(self.model_name)
-        ):
+        if self.llm_provider != LLMProvider.OPENAI or not _is_openai_gpt5_model(self.model_name):
             self.rag_llm_temperature = None
             self.rag_llm_max_tokens = None
         return self

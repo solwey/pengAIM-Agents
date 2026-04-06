@@ -1,6 +1,10 @@
 {
+  "dependencies": ["./graphs"],
   "graphs": {
     "Deep Researcher": "./graphs/open_deep_research/deep_researcher.py:deep_researcher",
     "ReAct Agent": "./graphs/react_agent/graph.py:graph"
+  },
+  "auth": {
+    "path": "./auth.py:auth"
   }
 }

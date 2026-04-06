@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class NodeType(str, Enum):
+class NodeType(StrEnum):
     API_REQUEST = "api_request"
     CONDITION = "condition"
     TRANSFORM = "transform"
@@ -34,7 +34,7 @@ class NodeType(str, Enum):
     SOURCE_CONDITION = "source_condition"
 
 
-class ComparisonOperator(str, Enum):
+class ComparisonOperator(StrEnum):
     EQ = "eq"
     NE = "ne"
     GT = "gt"
@@ -302,25 +302,17 @@ class WorkflowDefinition(BaseModel):
         # Validate edges reference existing nodes
         for edge in self.edges:
             if edge.from_node not in valid_ids:
-                raise ValueError(
-                    f"Edge 'from' references unknown node: '{edge.from_node}'"
-                )
+                raise ValueError(f"Edge 'from' references unknown node: '{edge.from_node}'")
 
             if edge.type == "sequential":
                 if edge.to_node is None:
-                    raise ValueError(
-                        f"Sequential edge from '{edge.from_node}' must have a 'to' field"
-                    )
+                    raise ValueError(f"Sequential edge from '{edge.from_node}' must have a 'to' field")
                 if edge.to_node not in valid_ids:
-                    raise ValueError(
-                        f"Edge 'to' references unknown node: '{edge.to_node}'"
-                    )
+                    raise ValueError(f"Edge 'to' references unknown node: '{edge.to_node}'")
 
             elif edge.type == "conditional":
                 if not edge.branches:
-                    raise ValueError(
-                        f"Conditional edge from '{edge.from_node}' must have 'branches'"
-                    )
+                    raise ValueError(f"Conditional edge from '{edge.from_node}' must have 'branches'")
                 if set(edge.branches.keys()) != {"yes", "no"}:
                     raise ValueError(
                         f"Conditional edge from '{edge.from_node}' must have exactly "
@@ -328,63 +320,45 @@ class WorkflowDefinition(BaseModel):
                     )
                 for label, target in edge.branches.items():
                     if target not in valid_ids:
-                        raise ValueError(
-                            f"Branch '{label}' references unknown node: '{target}'"
-                        )
+                        raise ValueError(f"Branch '{label}' references unknown node: '{target}'")
 
             elif edge.type == "switch":
                 if not edge.branches:
-                    raise ValueError(
-                        f"Switch edge from '{edge.from_node}' must have 'branches'"
-                    )
+                    raise ValueError(f"Switch edge from '{edge.from_node}' must have 'branches'")
                 for label, target in edge.branches.items():
                     if target not in valid_ids:
-                        raise ValueError(
-                            f"Switch branch '{label}' references unknown node: '{target}'"
-                        )
+                        raise ValueError(f"Switch branch '{label}' references unknown node: '{target}'")
 
             elif edge.type == "on_error":
                 if edge.to_node is None:
-                    raise ValueError(
-                        f"on_error edge from '{edge.from_node}' must have a 'to' field"
-                    )
+                    raise ValueError(f"on_error edge from '{edge.from_node}' must have a 'to' field")
                 if edge.to_node not in valid_ids:
-                    raise ValueError(
-                        f"on_error edge 'to' references unknown node: '{edge.to_node}'"
-                    )
+                    raise ValueError(f"on_error edge 'to' references unknown node: '{edge.to_node}'")
 
         # Conditional edges must originate from condition nodes
         for edge in self.edges:
             if edge.type == "conditional":
-                source_node = next(
-                    (n for n in self.nodes if n.id == edge.from_node), None
-                )
-                conditional_types = {NodeType.CONDITION, NodeType.TAG_CONDITION, NodeType.LIST_CONDITION, NodeType.SOURCE_CONDITION}
+                source_node = next((n for n in self.nodes if n.id == edge.from_node), None)
+                conditional_types = {
+                    NodeType.CONDITION,
+                    NodeType.TAG_CONDITION,
+                    NodeType.LIST_CONDITION,
+                    NodeType.SOURCE_CONDITION,
+                }
                 if source_node is None or source_node.type not in conditional_types:
-                    raise ValueError(
-                        f"Conditional edge from '{edge.from_node}' must originate "
-                        f"from a 'condition' node"
-                    )
+                    raise ValueError(f"Conditional edge from '{edge.from_node}' must originate from a 'condition' node")
 
         # Switch edges must originate from switch nodes
         for edge in self.edges:
             if edge.type == "switch":
-                source_node = next(
-                    (n for n in self.nodes if n.id == edge.from_node), None
-                )
+                source_node = next((n for n in self.nodes if n.id == edge.from_node), None)
                 if source_node is None or source_node.type != NodeType.SWITCH:
-                    raise ValueError(
-                        f"Switch edge from '{edge.from_node}' must originate "
-                        f"from a 'switch' node"
-                    )
+                    raise ValueError(f"Switch edge from '{edge.from_node}' must originate from a 'switch' node")
 
         # Must have exactly one edge from __start__
         start_edges = [e for e in self.edges if e.from_node == "__start__"]
         if len(start_edges) != 1:
-            raise ValueError(
-                f"Workflow must have exactly one edge from '__start__', "
-                f"found {len(start_edges)}"
-            )
+            raise ValueError(f"Workflow must have exactly one edge from '__start__', found {len(start_edges)}")
 
         # Detect cycles via DFS
         adj: dict[str, list[str]] = {}
@@ -415,9 +389,7 @@ class WorkflowDefinition(BaseModel):
 
         for start in adj:
             if start not in visited and _has_cycle(start):
-                raise ValueError(
-                    "Workflow contains a cycle — remove circular connections"
-                )
+                raise ValueError("Workflow contains a cycle — remove circular connections")
 
         return self
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -20,9 +19,7 @@ class ReadGoogleSheetExecutor(NodeExecutor):
     def create(config: dict[str, Any]):
         cfg = ReadGoogleSheetConfig(**config)
 
-        async def read_google_sheet_node(
-            state: dict, config: RunnableConfig
-        ) -> dict:
+        async def read_google_sheet_node(state: dict, config: RunnableConfig) -> dict:
             data = state.get("data", {})
 
             # Retrieve Google SA key from api_keys table (encrypted storage)
@@ -36,8 +33,7 @@ class ReadGoogleSheetExecutor(NodeExecutor):
                         **data,
                         cfg.response_key: {
                             "ok": False,
-                            "error": "Google Service Account key not configured. "
-                            "Save your key via the node settings.",
+                            "error": "Google Service Account key not configured. Save your key via the node settings.",
                         },
                     }
                 }
@@ -53,18 +49,10 @@ class ReadGoogleSheetExecutor(NodeExecutor):
                 )
                 service = build("sheets", "v4", credentials=creds)
 
-                range_str = (
-                    f"{cfg.sheet_name}!{cfg.range}"
-                    if cfg.sheet_name
-                    else cfg.range
-                )
+                range_str = f"{cfg.sheet_name}!{cfg.range}" if cfg.sheet_name else cfg.range
 
                 sheet = service.spreadsheets()
-                result_data = (
-                    sheet.values()
-                    .get(spreadsheetId=cfg.spreadsheet_id, range=range_str)
-                    .execute()
-                )
+                result_data = sheet.values().get(spreadsheetId=cfg.spreadsheet_id, range=range_str).execute()
 
                 values = result_data.get("values", [])
                 if not values:

@@ -20,13 +20,13 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools as _adapter_load_mcp_tools
 from pydantic import BaseModel, Field, field_validator
 
-
 logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------
 # MCP server config model
 # ------------------------------------------------------------------
+
 
 class McpServerConfig(BaseModel):
     """Configuration for a single MCP server."""
@@ -38,6 +38,7 @@ class McpServerConfig(BaseModel):
 # ------------------------------------------------------------------
 # Mixin — any graph config_schema that inherits this gets MCP support
 # ------------------------------------------------------------------
+
 
 class McpConfigMixin:
     """Mixin for graph config schemas that support MCP tools.
@@ -72,16 +73,14 @@ class McpConfigMixin:
         if v is None:
             return []
         if isinstance(v, list):
-            return [
-                McpServerConfig(**item) if isinstance(item, dict) else item
-                for item in v
-            ]
+            return [McpServerConfig(**item) if isinstance(item, dict) else item for item in v]
         return v
 
 
 # ------------------------------------------------------------------
 # Client helpers
 # ------------------------------------------------------------------
+
 
 def build_mcp_client(
     mcp_servers: list[McpServerConfig],
@@ -119,14 +118,10 @@ async def load_tools_with_sessions(
     for server_name in server_names:
         try:
             session = await stack.enter_async_context(client.session(server_name))
-            server_tools = await _adapter_load_mcp_tools(
-                session, server_name=server_name
-            )
+            server_tools = await _adapter_load_mcp_tools(session, server_name=server_name)
             tools.extend(server_tools)
         except Exception as e:
-            logger.exception(
-                "Failed to load MCP tools from server '%s': %s", server_name, e
-            )
+            logger.exception("Failed to load MCP tools from server '%s': %s", server_name, e)
 
     return tools
 

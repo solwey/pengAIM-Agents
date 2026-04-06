@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Literal
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
 from graphs.workflow_engine.schema import ListConditionConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class ListConditionExecutor(NodeExecutor):
@@ -37,9 +35,12 @@ class ListConditionExecutor(NodeExecutor):
             list_id = cfg.list_id or resolve_field(data, "list_id")
 
             if not entity_id or not list_id:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "match": False, "error": "Missing entity_id or list_id"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "match": False, "error": "Missing entity_id or list_id"},
+                    }
+                }
 
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
@@ -49,14 +50,17 @@ class ListConditionExecutor(NodeExecutor):
                     page = 1
                     while True:
                         resp = await client.get(
-                            f"{REVY_API_URL}/api/v1/lists/{list_id}/members",
+                            f"{settings.graphs.REVY_API_URL}/api/v1/lists/{list_id}/members",
                             params={"page": page, "page_size": 100},
                             headers=headers,
                         )
                         if resp.status_code != 200:
-                            return {"data": {**data, cfg.response_key: {
-                                "ok": False, "match": False, "error": resp.text[:300]
-                            }}}
+                            return {
+                                "data": {
+                                    **data,
+                                    cfg.response_key: {"ok": False, "match": False, "error": resp.text[:300]},
+                                }
+                            }
 
                         body = resp.json()
                         items = body.get("items", [])

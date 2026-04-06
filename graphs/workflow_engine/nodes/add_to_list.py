@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
 from graphs.workflow_engine.schema import AddToListConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class AddToListExecutor(NodeExecutor):
@@ -35,13 +33,14 @@ class AddToListExecutor(NodeExecutor):
             list_id = cfg.list_id or resolve_field(data, "list_id")
 
             if not entity_id:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": f"No entity_id found at '{cfg.entity_id_key}'"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "error": f"No entity_id found at '{cfg.entity_id_key}'"},
+                    }
+                }
             if not list_id:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "No list_id configured"
-                }}}
+                return {"data": {**data, cfg.response_key: {"ok": False, "error": "No list_id configured"}}}
 
             # Support single ID or array
             entity_ids = entity_id if isinstance(entity_id, list) else [entity_id]
@@ -50,7 +49,7 @@ class AddToListExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.post(
-                        f"{REVY_API_URL}/api/v1/lists/{list_id}/members",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/lists/{list_id}/members",
                         json={"entity_ids": entity_ids},
                         headers=headers,
                     )

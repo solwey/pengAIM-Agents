@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
 from graphs.workflow_engine.schema import CreateAccountConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 # Auto-mapping for common webhook fields (RB2B, etc.)
 # List of (source_key, target_key) — allows one source to map to multiple targets.
@@ -55,9 +53,9 @@ class CreateAccountExecutor(NodeExecutor):
             elif isinstance(source, dict):
                 items = [source]
             else:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": f"No data found at '{cfg.data_key}'"
-                }}}
+                return {
+                    "data": {**data, cfg.response_key: {"ok": False, "error": f"No data found at '{cfg.data_key}'"}}
+                }
 
             # Map fields for each item
             accounts = []
@@ -89,25 +87,25 @@ class CreateAccountExecutor(NodeExecutor):
                     accounts.append(account)
 
             if not accounts:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "No valid accounts to create (name is required)"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "error": "No valid accounts to create (name is required)"},
+                    }
+                }
 
             result: dict[str, Any]
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.post(
-                        f"{REVY_API_URL}/api/v1/accounts/bulk",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/accounts/bulk",
                         json={"items": accounts},
                         headers=headers,
                     )
                     if resp.status_code in (200, 201):
                         body = resp.json()
                         results_list = body.get("results", [])
-                        success_ids = [
-                            r["item_id"] for r in results_list
-                            if r.get("success") and r.get("item_id")
-                        ]
+                        success_ids = [r["item_id"] for r in results_list if r.get("success") and r.get("item_id")]
                         result = {
                             "ok": True,
                             "total": body.get("total", len(accounts)),

@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
 from graphs.workflow_engine.schema import RemoveTagConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class RemoveTagExecutor(NodeExecutor):
@@ -35,35 +33,36 @@ class RemoveTagExecutor(NodeExecutor):
             tag_name = resolve_templates(cfg.tag_name, data)
 
             if not entity_id or not tag_name:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "Missing entity_id or tag_name"
-                }}}
+                return {"data": {**data, cfg.response_key: {"ok": False, "error": "Missing entity_id or tag_name"}}}
 
             result: dict[str, Any]
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     # Find tag by name
                     resp = await client.get(
-                        f"{REVY_API_URL}/api/v1/tags",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/tags",
                         headers=headers,
                     )
                     if resp.status_code != 200:
-                        return {"data": {**data, cfg.response_key: {
-                            "ok": False, "error": f"Failed to list tags: {resp.text[:300]}"
-                        }}}
+                        return {
+                            "data": {
+                                **data,
+                                cfg.response_key: {"ok": False, "error": f"Failed to list tags: {resp.text[:300]}"},
+                            }
+                        }
 
                     tags = resp.json()
                     tag = next((t for t in tags if t["name"] == tag_name), None)
                     if not tag:
-                        return {"data": {**data, cfg.response_key: {
-                            "ok": False, "error": f"Tag '{tag_name}' not found"
-                        }}}
+                        return {
+                            "data": {**data, cfg.response_key: {"ok": False, "error": f"Tag '{tag_name}' not found"}}
+                        }
 
                     # Remove tag from entity
                     entity_plural = f"{cfg.entity_type}s"
                     resp = await client.request(
                         "DELETE",
-                        f"{REVY_API_URL}/api/v1/{entity_plural}/{entity_id}/tags",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}/tags",
                         json={"tag_ids": [tag["id"]]},
                         headers=headers,
                     )

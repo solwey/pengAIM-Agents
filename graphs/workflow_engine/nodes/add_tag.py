@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
 from graphs.workflow_engine.schema import AddTagConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class AddTagExecutor(NodeExecutor):
@@ -36,21 +34,22 @@ class AddTagExecutor(NodeExecutor):
             tag_name = resolve_templates(cfg.tag_name, data)
 
             if not entity_id:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": f"No entity_id found at '{cfg.entity_id_key}'"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "error": f"No entity_id found at '{cfg.entity_id_key}'"},
+                    }
+                }
 
             if not tag_name:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "tag_name is empty"
-                }}}
+                return {"data": {**data, cfg.response_key: {"ok": False, "error": "tag_name is empty"}}}
 
             result: dict[str, Any]
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     # Step 1: Ensure tag exists (create if needed)
                     resp = await client.post(
-                        f"{REVY_API_URL}/api/v1/tags/ensure",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/tags/ensure",
                         json={"name": tag_name, "color": cfg.tag_color},
                         headers=headers,
                     )
@@ -63,7 +62,7 @@ class AddTagExecutor(NodeExecutor):
                     # Step 2: Assign tag to entity
                     entity_plural = f"{cfg.entity_type}s"
                     resp = await client.post(
-                        f"{REVY_API_URL}/api/v1/{entity_plural}/{entity_id}/tags",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}/tags",
                         json={"tag_ids": [tag["id"]]},
                         headers=headers,
                     )

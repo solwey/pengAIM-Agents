@@ -18,10 +18,8 @@ class ConditionExecutor(NodeExecutor):
     """Condition nodes are pass-through — routing happens via conditional edges."""
 
     @staticmethod
-    def create(config: dict[str, Any]):
-        async def condition_node(
-            state: dict[str, Any], config: RunnableConfig
-        ) -> dict[str, Any]:
+    def create(_config: dict[str, Any]):
+        async def condition_node(state: dict[str, Any], config: RunnableConfig) -> dict[str, Any]:
             # No state mutation — routing is handled by the edge router
             return {}
 
