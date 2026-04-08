@@ -14,6 +14,7 @@ import pytest
 from fastapi import HTTPException
 
 from aegra_api.models import Assistant, AssistantCreate, AssistantUpdate
+from aegra_api.models.auth import User
 from aegra_api.services.assistant_service import AssistantService, to_pydantic
 
 
@@ -869,7 +870,7 @@ class TestAssistantServiceSchemas:
         assistant_service.session.scalar.return_value = mock_assistant
         assistant_service.langgraph_service.get_graph_for_validation.return_value = mock_graph
 
-        result = await assistant_service.get_assistant_schemas("test-id", "user-123")
+        result = await assistant_service.get_assistant_schemas("test-id", User(identity="user-123"))
 
         assert "graph_id" in result
         assert "input_schema" in result
@@ -882,7 +883,7 @@ class TestAssistantServiceSchemas:
         assistant_service.session.scalar.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
-            await assistant_service.get_assistant_schemas("nonexistent", "user-123")
+            await assistant_service.get_assistant_schemas("nonexistent", User(identity="user-123"))
 
         assert exc_info.value.status_code == 404
         assert "not found" in str(exc_info.value.detail)
@@ -904,7 +905,7 @@ class TestAssistantServiceSchemas:
         assistant_service.langgraph_service.get_graph_for_validation.side_effect = Exception("Graph load failed")
 
         with pytest.raises(HTTPException) as exc_info:
-            await assistant_service.get_assistant_schemas("test-id", "user-123")
+            await assistant_service.get_assistant_schemas("test-id", User(identity="user-123"))
 
         assert exc_info.value.status_code == 400
         assert "Failed to extract schemas" in str(exc_info.value.detail)
@@ -936,7 +937,7 @@ class TestAssistantServiceGraph:
         assistant_service.session.scalar.return_value = mock_assistant
         assistant_service.langgraph_service.get_graph_for_validation.return_value = mock_graph
 
-        result = await assistant_service.get_assistant_graph("test-id", False, "user-123")
+        result = await assistant_service.get_assistant_graph("test-id", False, User(identity="user-123"))
 
         assert "nodes" in result
         # Verify id was removed from node data
@@ -963,7 +964,7 @@ class TestAssistantServiceGraph:
         assistant_service.langgraph_service.get_graph_for_validation.return_value = mock_graph
 
         with pytest.raises(HTTPException) as exc_info:
-            await assistant_service.get_assistant_graph("test-id", -1, "user-123")
+            await assistant_service.get_assistant_graph("test-id", -1, User(identity="user-123"))
 
         assert exc_info.value.status_code == 422
         assert "Invalid xray value" in str(exc_info.value.detail)
@@ -989,7 +990,7 @@ class TestAssistantServiceGraph:
         assistant_service.langgraph_service.get_graph_for_validation.return_value = mock_graph
 
         with pytest.raises(HTTPException) as exc_info:
-            await assistant_service.get_assistant_graph("test-id", False, "user-123")
+            await assistant_service.get_assistant_graph("test-id", False, User(identity="user-123"))
 
         assert exc_info.value.status_code == 422
         assert "does not support visualization" in str(exc_info.value.detail)
@@ -1030,7 +1031,9 @@ class TestAssistantServiceSubgraphs:
         assistant_service.session.scalar.return_value = mock_assistant
         assistant_service.langgraph_service.get_graph_for_validation.return_value = mock_graph
 
-        result = await assistant_service.get_assistant_subgraphs("test-id", "namespace1", True, "user-123")
+        result = await assistant_service.get_assistant_subgraphs(
+            "test-id", "namespace1", True, User(identity="user-123")
+        )
 
         assert "subgraph1" in result
         assert "input_schema" in result["subgraph1"]
@@ -1056,7 +1059,7 @@ class TestAssistantServiceSubgraphs:
         assistant_service.langgraph_service.get_graph_for_validation.return_value = mock_graph
 
         with pytest.raises(HTTPException) as exc_info:
-            await assistant_service.get_assistant_subgraphs("test-id", "namespace1", True, "user-123")
+            await assistant_service.get_assistant_subgraphs("test-id", "namespace1", True, User(identity="user-123"))
 
         assert exc_info.value.status_code == 422
         assert "does not support subgraphs" in str(exc_info.value.detail)

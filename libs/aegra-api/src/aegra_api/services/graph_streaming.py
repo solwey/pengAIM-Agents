@@ -335,6 +335,12 @@ def _process_stream_event(
     # Handle messages mode
     if mode == "messages":
         if "messages-tuple" in stream_mode:
+            # In tuple mode, chunk is expected as (message, metadata). Respect no-stream tags.
+            if isinstance(chunk, (tuple, list)) and len(chunk) >= 2 and isinstance(chunk[1], dict):
+                tags = chunk[1].get("tags", [])
+                if isinstance(tags, list) and "langsmith:nostream" in tags:
+                    return None
+
             # Pass through raw tuple format
             if subgraphs and namespace:
                 ns_str = "|".join(namespace) if isinstance(namespace, (list, tuple)) else str(namespace)
@@ -344,6 +350,11 @@ def _process_stream_event(
         else:
             # Accumulate and yield messages/partial or messages/complete
             msg_, meta = cast("tuple[BaseMessage | dict, dict[str, Any]]", chunk)
+
+            # Suppress internal model emissions explicitly marked as no-stream.
+            tags = meta.get("tags", []) if isinstance(meta, dict) else []
+            if isinstance(tags, list) and "langsmith:nostream" in tags:
+                return None
 
             # Handle dict-to-message conversion
             is_chunk_type = False
@@ -397,11 +408,12 @@ def _process_stream_event(
 
     # Handle other stream modes
     elif mode in stream_mode:
+        payload = chunk
         if subgraphs and namespace:
             ns_str = "|".join(namespace) if isinstance(namespace, (list, tuple)) else str(namespace)
-            results.append((f"{mode}|{ns_str}", chunk))
+            results.append((f"{mode}|{ns_str}", payload))
         else:
-            results.append((mode, chunk))
+            results.append((mode, payload))
 
     # Special handling for interrupt events when updates mode not explicitly requested
     elif mode == "updates" and only_interrupt_updates:

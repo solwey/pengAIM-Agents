@@ -16,6 +16,20 @@ from ..models.auth import User
 router = APIRouter(tags=["Workflow Schedules"], dependencies=auth_dependency)
 
 
+def _scope_workflow_query(query, user: User):
+    query = query.where(Workflow.team_id == user.team_id)
+    if not user.is_admin:
+        query = query.where(Workflow.user_id == user.id)
+    return query
+
+
+def _scope_schedule_query(query, user: User):
+    query = query.where(WorkflowSchedule.team_id == user.team_id)
+    if not user.is_admin:
+        query = query.where(WorkflowSchedule.user_id == user.id)
+    return query
+
+
 # ---------------------------------------------------------------------------
 # Request / Response schemas
 # ---------------------------------------------------------------------------
@@ -101,11 +115,13 @@ def _to_response(schedule: WorkflowSchedule) -> ScheduleResponse:
     )
 
 
-async def _get_schedule_or_404(session: AsyncSession, schedule_id: str, team_id: str) -> WorkflowSchedule:
+async def _get_schedule_or_404(session: AsyncSession, schedule_id: str, user: User) -> WorkflowSchedule:
     result = await session.execute(
-        select(WorkflowSchedule).where(
-            WorkflowSchedule.id == schedule_id,
-            WorkflowSchedule.team_id == team_id,
+        _scope_schedule_query(
+            select(WorkflowSchedule).where(
+                WorkflowSchedule.id == schedule_id,
+            ),
+            user,
         )
     )
     schedule = result.scalar_one_or_none()
@@ -131,10 +147,12 @@ async def create_schedule(
 
     # Verify workflow exists and belongs to team
     result = await session.execute(
-        select(Workflow).where(
-            Workflow.id == body.workflow_id,
-            Workflow.team_id == user.team_id,
-            Workflow.deleted_at.is_(None),
+        _scope_workflow_query(
+            select(Workflow).where(
+                Workflow.id == body.workflow_id,
+                Workflow.deleted_at.is_(None),
+            ),
+            user,
         )
     )
     workflow = result.scalar_one_or_none()
@@ -179,7 +197,7 @@ async def list_schedules(
     workflow_id: str | None = None,
 ):
     """List workflow schedules for the current team."""
-    query = select(WorkflowSchedule).where(WorkflowSchedule.team_id == user.team_id)
+    query = _scope_schedule_query(select(WorkflowSchedule), user)
     if workflow_id:
         query = query.where(WorkflowSchedule.workflow_id == workflow_id)
 
@@ -195,7 +213,7 @@ async def get_schedule(
     session: AsyncSession = Depends(get_session),
 ):
     """Get a single schedule by ID."""
-    schedule = await _get_schedule_or_404(session, schedule_id, user.team_id)
+    schedule = await _get_schedule_or_404(session, schedule_id, user)
     return _to_response(schedule)
 
 
@@ -207,7 +225,7 @@ async def update_schedule(
     session: AsyncSession = Depends(get_session),
 ):
     """Update a workflow schedule."""
-    schedule = await _get_schedule_or_404(session, schedule_id, user.team_id)
+    schedule = await _get_schedule_or_404(session, schedule_id, user)
 
     if body.cron_expression is not None:
         _validate_cron(body.cron_expression)
@@ -243,6 +261,6 @@ async def delete_schedule(
     session: AsyncSession = Depends(get_session),
 ):
     """Delete a workflow schedule."""
-    schedule = await _get_schedule_or_404(session, schedule_id, user.team_id)
+    schedule = await _get_schedule_or_404(session, schedule_id, user)
     await session.delete(schedule)
     await session.commit()

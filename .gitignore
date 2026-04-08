@@ -37,7 +37,7 @@ htmlcov/
 # MacOS
 .DS_Store
 
-# Claude local settings
-.claude/settings.local.json
-
 celerybeat-schedule.db
+
+# Claude
+.claude/

@@ -1,6 +1,5 @@
 """FastAPI application for Aegra (Agent Protocol Server)"""
 
-import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -15,6 +14,7 @@ from fastapi.routing import APIRoute, APIRouter
 from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 
+from aegra_api import __version__
 from aegra_api.api.assistants import router as assistants_router
 from aegra_api.api.control_plane import router as control_plane_router
 from aegra_api.api.runs import router as runs_router
@@ -31,6 +31,7 @@ from aegra_api.core.auth_deps import auth_dependency
 from aegra_api.core.database import db_manager
 from aegra_api.core.health import router as health_router
 from aegra_api.core.migrations import run_migrations_async
+from aegra_api.core.redis_manager import redis_manager
 from aegra_api.core.route_merger import (
     merge_exception_handlers,
     merge_lifespans,
@@ -39,14 +40,12 @@ from aegra_api.middleware import ContentTypeFixMiddleware, StructLogMiddleware
 from aegra_api.models.errors import AgentProtocolError, get_error_type
 from aegra_api.observability.setup import setup_observability
 from aegra_api.services import heartbeat_service as hb_module
-from aegra_api.services.event_store import event_store
-from aegra_api.services.heartbeat_service import HeartbeatService
+from aegra_api.services.broker import broker_manager
+from aegra_api.services.executor import executor
 from aegra_api.services.langgraph_service import get_langgraph_service
+from aegra_api.services.lease_reaper import lease_reaper
 from aegra_api.settings import settings
 from aegra_api.utils.setup_logging import setup_logging
-
-# Task management for run cancellation
-active_runs: dict[str, asyncio.Task] = {}
 
 OPENAPI_TAGS: list[dict[str, Any]] = [
     {"name": "Assistants", "description": "A configured instance of a graph."},
@@ -112,26 +111,50 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     langgraph_service = get_langgraph_service()
     await langgraph_service.initialize()
 
-    # Initialize event store cleanup task
-    await event_store.start_cleanup_task()
+    # Initialize Redis broker (if enabled)
+    if settings.redis.REDIS_BROKER_ENABLED:
+        try:
+            await redis_manager.initialize()
+        except (ConnectionError, OSError) as e:
+            logger.error(
+                "Cannot connect to Redis. "
+                "Set REDIS_BROKER_ENABLED=false for single-instance mode without Redis, "
+                "or ensure Redis is running at REDIS_URL.",
+                redis_url=settings.redis.redis_url,
+                error=str(e),
+            )
+            raise
+    else:
+        logger.warning(
+            "Running without Redis broker. Background runs have no crash recovery "
+            "or horizontal scaling. Set REDIS_BROKER_ENABLED=true and configure "
+            "REDIS_URL for production use.",
+        )
 
-    # Start heartbeat service
-    hb_module.heartbeat_service = HeartbeatService(active_runs)
-    await hb_module.heartbeat_service.start()
+    # Start broker manager (cleanup task for in-memory, cancel listener for Redis)
+    await broker_manager.start()
+
+    # Start executor (spawns worker coroutines when Redis is enabled)
+    await executor.start()
+
+    # Start lease reaper (recovers crashed worker runs, Redis mode only)
+    if settings.redis.REDIS_BROKER_ENABLED:
+        await lease_reaper.start()
 
     yield
 
+    # Shutdown order: reaper → executor (drains jobs) → broker → Redis → DB
+    if settings.redis.REDIS_BROKER_ENABLED:
+        await lease_reaper.stop()
+    await executor.stop()
+    await broker_manager.stop()
     # Shutdown: Stop heartbeat
     if hb_module.heartbeat_service:
         await hb_module.heartbeat_service.stop()
 
-    # Clean up connections and cancel active runs
-    for task in active_runs.values():
-        if not task.done():
-            task.cancel()
-
-    # Stop event store cleanup task
-    await event_store.stop_cleanup_task()
+    # Close Redis broker (if enabled)
+    if settings.redis.REDIS_BROKER_ENABLED:
+        await redis_manager.close()
 
     await db_manager.close()
 
@@ -172,7 +195,7 @@ async def root_handler() -> dict[str, str]:
     """Root endpoint"""
     return {
         "message": settings.app.PROJECT_NAME,
-        "version": settings.app.VERSION,
+        "version": __version__,
         "status": "running",
     }
 

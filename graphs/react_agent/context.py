@@ -645,7 +645,9 @@ class Context(BaseModel, McpConfigMixin):
     )
 
     default_questions: list[DefaultQuestionsCategory] = Field(
-        default=DEFAULT_QUESTION_CATEGORIES,
+        default_factory=lambda: [
+            DefaultQuestionsCategory.model_validate(category) for category in DEFAULT_QUESTION_CATEGORIES
+        ],
         metadata={
             "x_oap_ui_config": {
                 "type": "repeatable_group",
@@ -838,8 +840,8 @@ class Context(BaseModel, McpConfigMixin):
     @classmethod
     def validate_default_questions(cls, v):
         if not v:
-            return DEFAULT_QUESTION_CATEGORIES
-        return v
+            return [DefaultQuestionsCategory.model_validate(category) for category in DEFAULT_QUESTION_CATEGORIES]
+        return [DefaultQuestionsCategory.model_validate(category) for category in v]
 
     @field_validator("llm_provider", mode="before")
     @classmethod

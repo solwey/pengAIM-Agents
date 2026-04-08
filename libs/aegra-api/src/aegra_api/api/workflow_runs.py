@@ -12,6 +12,20 @@ from ..models.auth import User
 router = APIRouter(tags=["Workflow Runs"], dependencies=auth_dependency)
 
 
+def _scope_workflow_query(query, user: User):
+    query = query.where(Workflow.team_id == user.team_id)
+    if not user.is_admin:
+        query = query.where(Workflow.user_id == user.id)
+    return query
+
+
+def _scope_run_query(query, user: User):
+    query = query.where(WorkflowRun.team_id == user.team_id)
+    if not user.is_admin:
+        query = query.where(WorkflowRun.user_id == user.id)
+    return query
+
+
 # ---------------------------------------------------------------------------
 # Request / Response schemas
 # ---------------------------------------------------------------------------
@@ -60,9 +74,11 @@ async def create_workflow_run(
     """Create a workflow run and queue it for execution via Celery."""
     # Verify workflow exists and belongs to team
     result = await session.execute(
-        select(Workflow).where(
-            Workflow.id == body.workflow_id,
-            Workflow.team_id == user.team_id,
+        _scope_workflow_query(
+            select(Workflow).where(
+                Workflow.id == body.workflow_id,
+            ),
+            user,
         )
     )
     workflow = result.scalar_one_or_none()
@@ -105,7 +121,7 @@ async def list_workflow_runs(
     page_size: int = Query(50, ge=1, le=100),
 ):
     """List workflow runs for the current team."""
-    query = select(WorkflowRun).where(WorkflowRun.team_id == user.team_id)
+    query = _scope_run_query(select(WorkflowRun), user)
 
     if workflow_id:
         query = query.where(WorkflowRun.workflow_id == workflow_id)
@@ -138,7 +154,7 @@ async def get_workflow_run(
     session: AsyncSession = Depends(get_session),
 ):
     """Get a single workflow run by ID (used for polling)."""
-    run = await _get_run_or_404(session, run_id, user.team_id)
+    run = await _get_run_or_404(session, run_id, user)
     return _to_response(run)
 
 
@@ -154,7 +170,7 @@ async def cancel_workflow_run(
     Sets status to 'cancelled' in DB. The Celery task polls this field
     and cancels itself gracefully. Use force=true for emergency termination.
     """
-    run = await _get_run_or_404(session, run_id, user.team_id)
+    run = await _get_run_or_404(session, run_id, user)
 
     if run.status not in ("pending", "running"):
         raise HTTPException(
@@ -182,7 +198,7 @@ async def delete_workflow_run(
     session: AsyncSession = Depends(get_session),
 ):
     """Delete a workflow run record."""
-    run = await _get_run_or_404(session, run_id, user.team_id)
+    run = await _get_run_or_404(session, run_id, user)
     await session.delete(run)
     await session.commit()
 
@@ -192,11 +208,13 @@ async def delete_workflow_run(
 # ---------------------------------------------------------------------------
 
 
-async def _get_run_or_404(session: AsyncSession, run_id: str, team_id: str) -> WorkflowRun:
+async def _get_run_or_404(session: AsyncSession, run_id: str, user: User) -> WorkflowRun:
     result = await session.execute(
-        select(WorkflowRun).where(
-            WorkflowRun.id == run_id,
-            WorkflowRun.team_id == team_id,
+        _scope_run_query(
+            select(WorkflowRun).where(
+                WorkflowRun.id == run_id,
+            ),
+            user,
         )
     )
     run = result.scalar_one_or_none()

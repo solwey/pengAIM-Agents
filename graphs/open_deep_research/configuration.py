@@ -772,7 +772,9 @@ class Configuration(BaseModel):
     )
 
     default_questions: list[DefaultQuestionsCategory] = Field(
-        default=DEFAULT_QUESTION_CATEGORIES,
+        default_factory=lambda: [
+            DefaultQuestionsCategory.model_validate(category) for category in DEFAULT_QUESTION_CATEGORIES
+        ],
         metadata={
             "x_oap_ui_config": {
                 "type": "repeatable_group",
@@ -1044,8 +1046,8 @@ class Configuration(BaseModel):
     @classmethod
     def _validate_default_questions(cls, v):
         if not v:
-            return DEFAULT_QUESTION_CATEGORIES
-        return v
+            return [DefaultQuestionsCategory.model_validate(category) for category in DEFAULT_QUESTION_CATEGORIES]
+        return [DefaultQuestionsCategory.model_validate(category) for category in v]
 
     @field_validator("steps", mode="before")
     @classmethod

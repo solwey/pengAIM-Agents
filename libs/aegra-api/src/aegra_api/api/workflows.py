@@ -92,6 +92,14 @@ def _build_webhook_url(webhook_path: str) -> str:
     return f"{settings.app.SERVER_URL.rstrip('/')}/webhook/{webhook_path}"
 
 
+def _scope_workflow_query(query, user: User):
+    """Apply team + owner scope (admins can access whole team)."""
+    query = query.where(Workflow.team_id == user.team_id)
+    if not user.is_admin:
+        query = query.where(Workflow.user_id == user.id)
+    return query
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -129,7 +137,7 @@ async def list_workflows(
     show_deleted: bool = False,
 ):
     """List workflows for the current team."""
-    query = select(Workflow).where(Workflow.team_id == user.team_id)
+    query = _scope_workflow_query(select(Workflow), user)
 
     if not show_deleted:
         query = query.where(Workflow.deleted_at.is_(None))
@@ -163,7 +171,7 @@ async def get_workflow(
     session: AsyncSession = Depends(get_session),
 ):
     """Get a single workflow by ID."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    workflow = await _get_workflow_or_404(session, workflow_id, user)
     return _to_response(workflow)
 
 
@@ -178,7 +186,7 @@ async def update_workflow(
 
     When the definition changes, a new version snapshot is created automatically.
     """
-    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    workflow = await _get_workflow_or_404(session, workflow_id, user)
 
     definition_changed = False
     if body.definition is not None:
@@ -221,10 +229,12 @@ async def restore_workflow(
 ):
     """Restore a soft-deleted workflow."""
     result = await session.execute(
-        select(Workflow).where(
-            Workflow.id == workflow_id,
-            Workflow.team_id == user.team_id,
-            Workflow.deleted_at.is_not(None),
+        _scope_workflow_query(
+            select(Workflow).where(
+                Workflow.id == workflow_id,
+                Workflow.deleted_at.is_not(None),
+            ),
+            user,
         )
     )
     workflow = result.scalar_one_or_none()
@@ -244,7 +254,7 @@ async def delete_workflow(
     session: AsyncSession = Depends(get_session),
 ):
     """Soft-delete a workflow by setting deleted_at."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    workflow = await _get_workflow_or_404(session, workflow_id, user)
     workflow.deleted_at = datetime.now(UTC)
     await session.commit()
 
@@ -273,7 +283,7 @@ async def list_workflow_versions(
     session: AsyncSession = Depends(get_session),
 ):
     """List all versions of a workflow."""
-    await _get_workflow_or_404(session, workflow_id, user.team_id)
+    await _get_workflow_or_404(session, workflow_id, user)
 
     result = await session.execute(
         select(WorkflowVersion)
@@ -307,7 +317,7 @@ async def restore_workflow_version(
     session: AsyncSession = Depends(get_session),
 ):
     """Restore a workflow to a previous version."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    workflow = await _get_workflow_or_404(session, workflow_id, user)
 
     result = await session.execute(
         select(WorkflowVersion).where(
@@ -361,7 +371,7 @@ async def enable_webhook(
     Generates a unique webhook URL and secret.  The secret is returned
     only in this response — store it securely.
     """
-    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    workflow = await _get_workflow_or_404(session, workflow_id, user)
 
     if workflow.webhook_enabled and workflow.webhook_path:
         raise HTTPException(
@@ -395,7 +405,7 @@ async def disable_webhook(
     session: AsyncSession = Depends(get_session),
 ):
     """Disable webhook trigger for a workflow."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    workflow = await _get_workflow_or_404(session, workflow_id, user)
 
     workflow.webhook_enabled = False
     workflow.webhook_path = None
@@ -415,7 +425,7 @@ async def regenerate_webhook_secret(
     session: AsyncSession = Depends(get_session),
 ):
     """Regenerate the webhook secret.  Keeps the same URL path."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    workflow = await _get_workflow_or_404(session, workflow_id, user)
 
     if not workflow.webhook_enabled or not workflow.webhook_path:
         raise HTTPException(status_code=400, detail="Webhook is not enabled")
@@ -440,12 +450,14 @@ async def regenerate_webhook_secret(
 # ---------------------------------------------------------------------------
 
 
-async def _get_workflow_or_404(session: AsyncSession, workflow_id: str, team_id: str) -> Workflow:
+async def _get_workflow_or_404(session: AsyncSession, workflow_id: str, user: User) -> Workflow:
     result = await session.execute(
-        select(Workflow).where(
-            Workflow.id == workflow_id,
-            Workflow.team_id == team_id,
-            Workflow.deleted_at.is_(None),
+        _scope_workflow_query(
+            select(Workflow).where(
+                Workflow.id == workflow_id,
+                Workflow.deleted_at.is_(None),
+            ),
+            user,
         )
     )
     workflow = result.scalar_one_or_none()

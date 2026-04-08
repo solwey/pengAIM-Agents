@@ -3,13 +3,15 @@
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.auth_deps import auth_dependency, get_current_user
 from ..core.orm import Assistant as AssistantORM
 from ..core.orm import Run as RunORM
 from ..core.orm import WorkerHeartbeat, get_session
+from ..models.auth import User
 from ..models.control_plane import (
     ActiveRun,
     CeleryWorkerStatus,
@@ -19,7 +21,7 @@ from ..models.control_plane import (
 )
 
 logger = structlog.getLogger(__name__)
-router = APIRouter(prefix="/control-plane", tags=["Control Plane"])
+router = APIRouter(prefix="/control-plane", tags=["Control Plane"], dependencies=auth_dependency)
 
 HEARTBEAT_TIMEOUT_SECONDS = 45
 
@@ -35,12 +37,16 @@ def _worker_effective_status(hb: WorkerHeartbeat) -> str:
 
 
 @router.get("/overview", response_model=ControlPlaneOverview)
-async def get_overview(session: AsyncSession = Depends(get_session)):
+async def get_overview(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
     """Combined dashboard snapshot: workers + active runs + 24h stats."""
+    _require_admin(user)
     workers = await _get_workers(session)
     celery_workers = await _get_celery_workers()
-    active = await _get_active_runs(session)
-    stats = await _get_stats(session)
+    active = await _get_active_runs(session, team_id=None if user.is_superadmin else user.team_id)
+    stats = await _get_stats(session, team_id=None if user.is_superadmin else user.team_id)
     return ControlPlaneOverview(
         workers=workers,
         celery_workers=celery_workers,
@@ -53,7 +59,11 @@ async def get_overview(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/workers", response_model=list[WorkerStatus])
-async def list_workers(session: AsyncSession = Depends(get_session)):
+async def list_workers(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    _require_admin(user)
     return await _get_workers(session)
 
 
@@ -79,8 +89,12 @@ async def _get_workers(session: AsyncSession) -> list[WorkerStatus]:
 
 
 @router.delete("/workers/cleanup")
-async def cleanup_offline_workers(session: AsyncSession = Depends(get_session)):
+async def cleanup_offline_workers(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
     """Delete all offline worker heartbeat records."""
+    _require_admin(user)
     result = await session.execute(delete(WorkerHeartbeat).where(WorkerHeartbeat.status == "offline"))
     await session.commit()
     removed = result.rowcount
@@ -93,8 +107,9 @@ async def cleanup_offline_workers(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/celery-workers", response_model=list[CeleryWorkerStatus])
-async def list_celery_workers():
+async def list_celery_workers(user: User = Depends(get_current_user)):
     """List Celery workers and their status."""
+    _require_admin(user)
     return await _get_celery_workers()
 
 
@@ -159,7 +174,7 @@ async def _get_celery_workers() -> list[CeleryWorkerStatus]:
 # ---------- Active Runs ----------
 
 
-async def _get_active_runs(session: AsyncSession) -> list[ActiveRun]:
+async def _get_active_runs(session: AsyncSession, team_id: str | None = None) -> list[ActiveRun]:
     now = datetime.now(UTC)
     stmt = (
         select(RunORM, AssistantORM.name)
@@ -167,6 +182,8 @@ async def _get_active_runs(session: AsyncSession) -> list[ActiveRun]:
         .where(RunORM.status.in_(["pending", "running", "streaming"]))
         .order_by(RunORM.created_at.desc())
     )
+    if team_id is not None:
+        stmt = stmt.where(RunORM.team_id == team_id)
     rows = (await session.execute(stmt)).all()
     return [
         ActiveRun(
@@ -187,31 +204,33 @@ async def _get_active_runs(session: AsyncSession) -> list[ActiveRun]:
 # ---------- 24h Stats ----------
 
 
-async def _get_stats(session: AsyncSession) -> DashboardStats:
+async def _get_stats(session: AsyncSession, team_id: str | None = None) -> DashboardStats:
     since = datetime.now(UTC) - timedelta(hours=24)
 
-    total = await session.scalar(select(func.count()).select_from(RunORM).where(RunORM.created_at >= since)) or 0
+    total_stmt = select(func.count()).select_from(RunORM).where(RunORM.created_at >= since)
+    if team_id is not None:
+        total_stmt = total_stmt.where(RunORM.team_id == team_id)
+    total = await session.scalar(total_stmt) or 0
 
-    completed = (
-        await session.scalar(
-            select(func.count()).select_from(RunORM).where(RunORM.created_at >= since, RunORM.status == "completed")
-        )
-        or 0
+    completed_stmt = (
+        select(func.count()).select_from(RunORM).where(RunORM.created_at >= since, RunORM.status == "completed")
     )
+    if team_id is not None:
+        completed_stmt = completed_stmt.where(RunORM.team_id == team_id)
+    completed = await session.scalar(completed_stmt) or 0
 
-    failed = (
-        await session.scalar(
-            select(func.count()).select_from(RunORM).where(RunORM.created_at >= since, RunORM.status == "failed")
-        )
-        or 0
-    )
+    failed_stmt = select(func.count()).select_from(RunORM).where(RunORM.created_at >= since, RunORM.status == "failed")
+    if team_id is not None:
+        failed_stmt = failed_stmt.where(RunORM.team_id == team_id)
+    failed = await session.scalar(failed_stmt) or 0
 
-    avg_dur = await session.scalar(
-        select(func.avg(RunORM.duration_ms)).where(
-            RunORM.created_at >= since,
-            RunORM.duration_ms.isnot(None),
-        )
+    avg_stmt = select(func.avg(RunORM.duration_ms)).where(
+        RunORM.created_at >= since,
+        RunORM.duration_ms.isnot(None),
     )
+    if team_id is not None:
+        avg_stmt = avg_stmt.where(RunORM.team_id == team_id)
+    avg_dur = await session.scalar(avg_stmt)
 
     return DashboardStats(
         total_runs_24h=total,
@@ -219,3 +238,8 @@ async def _get_stats(session: AsyncSession) -> DashboardStats:
         failed_24h=failed,
         avg_duration_ms=float(avg_dur) if avg_dur else None,
     )
+
+
+def _require_admin(user: User) -> None:
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")

@@ -47,6 +47,10 @@ _SENSITIVE_KEYS: set[str] = {
 }
 
 _DROP_MESSAGE_CLASSNAMES: set[str] = {"SystemMessage"}
+_INTERNAL_STATE_KEYS: set[str] = {
+    "notes",
+    "raw_notes",
+}
 
 
 def _is_message_like(obj: object) -> bool:
@@ -69,23 +73,33 @@ def _sanitize_message_obj(obj: object) -> object | None:
     return obj
 
 
+def _is_override_wrapper(value: object) -> bool:
+    return isinstance(value, dict) and value.get("type") == "override" and "value" in value
+
+
 def _sanitize_dict(d: dict) -> dict:
     safe: dict[str, object] = {}
     for k, v in d.items():
         if k in _SENSITIVE_KEYS:
             continue
-        if k == "supervisor_messages" and isinstance(v, list):
-            filtered = [msg for msg in v if not (isinstance(msg, dict) and msg.get("type") == "human")]
-            if filtered:
-                safe[k] = _sanitize_any(filtered)
+        if k in _INTERNAL_STATE_KEYS:
             continue
-        elif k == "supervisor_messages" and isinstance(v, dict) and isinstance(v.get("value"), list):
+        if k == "research_brief" and _is_override_wrapper(v):
+            # Keep response shape stable but unwrap internal override payload.
+            safe[k] = _sanitize_any(v.get("value"))
+            continue
+        if k == "supervisor_messages" and isinstance(v, list):
+            filtered = [msg for msg in v if not (isinstance(msg, dict) and msg.get("type") in {"human", "system"})]
+            safe[k] = _sanitize_any(filtered) or []
+            continue
+        if k == "supervisor_messages" and isinstance(v, dict) and isinstance(v.get("value"), list):
             inner = v.get("value")
-            filtered_inner = [msg for msg in inner if not (isinstance(msg, dict) and msg.get("type") == "human")]
-            if filtered_inner:
-                wrapper = dict(v)
-                wrapper["value"] = _sanitize_any(filtered_inner)
-                safe[k] = wrapper
+            filtered_inner = [
+                msg for msg in inner if not (isinstance(msg, dict) and msg.get("type") in {"human", "system"})
+            ]
+            wrapper = dict(v)
+            wrapper["value"] = _sanitize_any(filtered_inner) or []
+            safe[k] = wrapper
             continue
         if _is_message_like(v):
             reduced = _sanitize_message_obj(v)
@@ -136,6 +150,7 @@ def get_sse_headers() -> dict[str, str]:
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
         "Content-Type": "text/event-stream",
+        "X-Accel-Buffering": "no",
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Last-Event-ID",
     }
@@ -171,9 +186,17 @@ def format_sse_message(
                 if isinstance(message_chunk, (SystemMessage, HumanMessage)):
                     message_chunk.content = ""
                     message_chunk.id = f"do-not-render-{message_chunk.id}"
+                elif isinstance(message_chunk, dict):
+                    msg_type = str(message_chunk.get("type", "")).lower()
+                    if msg_type in {"human", "system"}:
+                        message_chunk = {
+                            **message_chunk,
+                            "content": "",
+                            "id": f"do-not-render-{message_chunk.get('id', '')}",
+                        }
                 payload = [message_chunk, _sanitize_any(metadata)]
             else:
-                payload = data
+                payload = _sanitize_any(data)
         else:
             payload = _sanitize_any(data)
         data_str = json.dumps(payload, default=default_serializer, separators=(",", ":"), ensure_ascii=False)
@@ -231,12 +254,9 @@ def create_debug_event(debug_data: dict[str, Any], event_id: str | None = None) 
     return format_sse_message("debug", debug_data, event_id)
 
 
-def create_end_event(event_id: str | None = None) -> str:
-    """Create end event - signals completion of stream
-
-    Uses standard status: "success" instead of "completed"
-    """
-    return format_sse_message("end", {"status": "success"}, event_id)
+def create_end_event(event_id: str | None = None, status: str = "success") -> str:
+    """Create end event — signals completion of stream."""
+    return format_sse_message("end", {"status": status}, event_id)
 
 
 def create_error_event(error: str | dict[str, Any], event_id: str | None = None) -> str:

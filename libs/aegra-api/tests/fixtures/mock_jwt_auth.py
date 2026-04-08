@@ -102,7 +102,7 @@ async def filter_threads_by_team(ctx, value):
             return {"metadata": {"team_id": team_id}}
     except (KeyError, AttributeError):
         pass
-    return {"user_id": ctx.user.identity}
+    return {"user_id": ctx.user.id}
 
 
 @auth.on.assistants.delete
@@ -123,7 +123,7 @@ async def allow_assistant_create(ctx, value):
     # Ensure metadata exists (handle None case)
     if value.get("metadata") is None:
         value["metadata"] = {}
-    value["metadata"]["created_by"] = ctx.user.identity
+    value["metadata"]["created_by"] = ctx.user.id
     try:
         team_id = ctx.user["team_id"] if "team_id" in ctx.user else getattr(ctx.user, "team_id", None)
         if team_id:

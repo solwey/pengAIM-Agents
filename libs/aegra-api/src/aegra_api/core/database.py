@@ -41,6 +41,7 @@ class DatabaseManager:
             sync_sqlalchemy_url,
             pool_pre_ping=True,
             echo=settings.db.DB_ECHO_LOG,
+            connect_args={"prepared_statement_cache_size": 0},  # PgBouncer compatibility
         )
 
     def ensure_sync_engine(self) -> None:
@@ -82,7 +83,7 @@ class DatabaseManager:
         lg_max = settings.pool.LANGGRAPH_MAX_POOL_SIZE
         lg_kwargs = {
             "autocommit": True,
-            "prepare_threshold": 0,  # Optimization for PgBouncer/Kubernetes compatibility
+            "prepare_threshold": None,  # Disable prepared statements for PgBouncer compatibility
             "row_factory": dict_row,  # LangGraph requires dictionary rows, not tuples
         }
 

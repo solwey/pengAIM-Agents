@@ -56,6 +56,12 @@ class AppSettings(EnvBase):
     SERVER_URL: str | None = None
 
     @model_validator(mode="after")
+    def _validate_keepalive_interval(self) -> "AppSettings":
+        if self.KEEPALIVE_INTERVAL_SECS <= 0:
+            raise ValueError(f"KEEPALIVE_INTERVAL_SECS must be greater than 0, got {self.KEEPALIVE_INTERVAL_SECS}")
+        return self
+
+    @model_validator(mode="after")
     def _derive_server_url(self) -> "AppSettings":
         """Derive SERVER_URL from HOST/PORT when not explicitly set."""
         if self.SERVER_URL is None:
@@ -65,6 +71,7 @@ class AppSettings(EnvBase):
 
     # App logic
     AEGRA_CONFIG: str = "aegra.json"  # Default config file path
+    KEEPALIVE_INTERVAL_SECS: float = 5  # Heartbeat interval for join/wait endpoints
     AUTH_TYPE: LowerStr = "noop"
     ENV_MODE: UpperStr = "LOCAL"
     DEBUG: BoolStr = False
@@ -90,6 +97,10 @@ class RedisSettings(EnvBase):
     REDIS_PASSWORD: str = ""
     REDIS_PROTOCOL: LowerStr = "redis"  # redis | rediss
     REDIS_USE_CREDENTIALS: BoolStr = False
+
+    REDIS_BROKER_ENABLED: BoolStr = False
+    REDIS_CHANNEL_PREFIX: str = "aegra:run:"
+    REDIS_MAX_CONNECTIONS: int = 250
 
     @computed_field
     @property
@@ -155,11 +166,11 @@ class DatabaseSettings(EnvBase):
 class PoolSettings(EnvBase):
     """Connection pool settings for SQLAlchemy and LangGraph."""
 
-    SQLALCHEMY_POOL_SIZE: int = 2
-    SQLALCHEMY_MAX_OVERFLOW: int = 0
+    SQLALCHEMY_POOL_SIZE: int = 10
+    SQLALCHEMY_MAX_OVERFLOW: int = 20
 
-    LANGGRAPH_MIN_POOL_SIZE: int = 1
-    LANGGRAPH_MAX_POOL_SIZE: int = 6
+    LANGGRAPH_MIN_POOL_SIZE: int = 5
+    LANGGRAPH_MAX_POOL_SIZE: int = 20
 
 
 class ObservabilitySettings(EnvBase):
@@ -191,6 +202,44 @@ class ObservabilitySettings(EnvBase):
     PHOENIX_API_KEY: str | None = None
 
 
+class WorkerSettings(EnvBase):
+    """Worker configuration for background graph execution.
+
+    When REDIS_BROKER_ENABLED is True, runs are dispatched to worker
+    coroutines via a Redis List job queue instead of local asyncio tasks.
+    Each worker loop dequeues run_ids from Redis and spawns up to
+    N_JOBS_PER_WORKER concurrent asyncio tasks for graph execution.
+    """
+
+    WORKER_COUNT: int = 3
+    N_JOBS_PER_WORKER: int = 10
+    WORKER_QUEUE_KEY: str = "aegra:jobs"
+    WORKER_DRAIN_TIMEOUT: float = 30.0
+    BG_JOB_TIMEOUT_SECS: int = 3600
+    BG_JOB_MAX_RETRIES: int = 3
+
+    # Lease-based crash recovery.
+    # The lease must be long enough that a healthy worker NEVER loses it.
+    # Safety margin = LEASE / HEARTBEAT = 30/10 = 3 missed heartbeats
+    # before expiry (industry standard — matches Kubernetes liveness probes).
+    # Worst-case recovery: ~30s lease expiry + ~20s reaper interval = ~50s.
+    LEASE_DURATION_SECONDS: int = 30
+    HEARTBEAT_INTERVAL_SECONDS: int = 10
+    REAPER_INTERVAL_SECONDS: int = 15
+    STUCK_PENDING_THRESHOLD_SECONDS: int = 120
+    POSTGRES_POLL_INTERVAL_SECONDS: int = 5
+
+    @model_validator(mode="after")
+    def _validate_lease_timing(self) -> "WorkerSettings":
+        if self.LEASE_DURATION_SECONDS <= 2 * self.HEARTBEAT_INTERVAL_SECONDS:
+            raise ValueError(
+                f"LEASE_DURATION_SECONDS ({self.LEASE_DURATION_SECONDS}) must be "
+                f"greater than 2 * HEARTBEAT_INTERVAL_SECONDS ({self.HEARTBEAT_INTERVAL_SECONDS}). "
+                f"A worker must survive at least 2 missed heartbeats before its lease expires."
+            )
+        return self
+
+
 class GraphsSettings(EnvBase):
     """Graph runtime settings shared by graph modules."""
 
@@ -208,10 +257,11 @@ class GraphsSettings(EnvBase):
 class Settings:
     def __init__(self) -> None:
         self.app = AppSettings()
-        self.redis = RedisSettings()
         self.db = DatabaseSettings()
         self.pool = PoolSettings()
         self.observability = ObservabilitySettings()
+        self.redis = RedisSettings()
+        self.worker = WorkerSettings()
         self.graphs = GraphsSettings()
 
 

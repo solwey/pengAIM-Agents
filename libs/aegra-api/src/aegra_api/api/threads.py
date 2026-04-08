@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aegra_api.api.runs import active_runs
+from aegra_api.core.active_runs import active_runs
 from aegra_api.core.auth_deps import auth_dependency, get_current_user
 from aegra_api.core.auth_handlers import build_auth_context, handle_event
 from aegra_api.core.orm import Run as RunORM
@@ -87,6 +87,10 @@ def _serialize_thread(thread_orm: ThreadORM, default_metadata: dict[str, Any] | 
     if meta_source is None and default_metadata is not None:
         meta_source = default_metadata
     metadata = _coerce_dict(meta_source, {})
+    assistant_id = _coerce_str(getattr(thread_orm, "assistant_id", None), "")
+    if not assistant_id:
+        assistant_id = _coerce_str(metadata.get("assistant_id"), "")
+    is_shared = bool(getattr(thread_orm, "is_shared", False))
 
     # 5. Timestamps (Default to NOW if None/Mock fails)
     c_at = getattr(thread_orm, "created_at", None)
@@ -105,6 +109,8 @@ def _serialize_thread(thread_orm: ThreadORM, default_metadata: dict[str, Any] | 
             "metadata": metadata,
             "user_id": u_id,
             "team_id": team_id,
+            "assistant_id": assistant_id or None,
+            "is_shared": is_shared,
             "created_at": c_at,
             "updated_at": u_at,
         }
@@ -176,19 +182,18 @@ async def create_thread(
                 raise HTTPException(409, f"Thread '{thread_id}' already exists")
 
     metadata = request.metadata or {}
-    metadata.update(
-        {
-            "owner": user.id,
-            "assistant_id": None,
-            "graph_id": None,
-            "thread_name": metadata.get("thread_name", ""),
-        }
-    )
+    # Always enforce owner from authenticated user
+    metadata["owner"] = user.id
+    # Preserve client-provided values; only set defaults if missing.
+    metadata.setdefault("assistant_id", None)
+    metadata.setdefault("graph_id", None)
+    metadata.setdefault("thread_name", "")
 
     thread_orm = ThreadORM(
         thread_id=thread_id,
         status="idle",
         metadata_json=metadata,
+        assistant_id=metadata.get("assistant_id"),
         user_id=user.id,
         team_id=user.team_id,
     )
@@ -260,11 +265,9 @@ async def get_thread(
         ThreadORM.thread_id == thread_id,
         ThreadORM.team_id == user.team_id,
         ThreadORM.deleted_at.is_(None),
-        or_(
-            ThreadORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
-        ),
     )
+    if not user.is_admin:
+        stmt = stmt.where(ThreadORM.user_id == user.id)
     thread = await session.scalar(stmt)
     if not thread:
         raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -344,11 +347,9 @@ async def get_thread_state(
             ThreadORM.thread_id == thread_id,
             ThreadORM.team_id == user.team_id,
             ThreadORM.deleted_at.is_(None),
-            or_(
-                ThreadORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            ),
         )
+        if not user.is_admin:
+            stmt = stmt.where(ThreadORM.user_id == user.id)
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -384,7 +385,7 @@ async def get_thread_state(
         )
 
         langgraph_service = get_langgraph_service()
-        config: dict[str, Any] = create_thread_config(thread_id, user, {})
+        config: dict[str, Any] = create_thread_config(thread_id, user)
         if checkpoint_ns:
             config["configurable"]["checkpoint_ns"] = checkpoint_ns
 
@@ -486,7 +487,7 @@ async def update_thread_state(
         )
 
         langgraph_service = get_langgraph_service()
-        config: dict[str, Any] = create_thread_config(thread_id, user, {})
+        config: dict[str, Any] = create_thread_config(thread_id, user)
 
         if request.checkpoint_id:
             config["configurable"]["checkpoint_id"] = request.checkpoint_id
@@ -619,7 +620,7 @@ async def get_thread_state_at_checkpoint(
 
         langgraph_service = get_langgraph_service()
 
-        config: dict[str, Any] = create_thread_config(thread_id, user, {})
+        config: dict[str, Any] = create_thread_config(thread_id, user)
         config["configurable"]["checkpoint_id"] = checkpoint_id
         if checkpoint_ns:
             config["configurable"]["checkpoint_ns"] = checkpoint_ns
@@ -748,7 +749,7 @@ async def get_thread_history_post(
 
         langgraph_service = get_langgraph_service()
 
-        config: dict[str, Any] = create_thread_config(thread_id, user, {})
+        config: dict[str, Any] = create_thread_config(thread_id, user)
         if checkpoint:
             cfg_cp = checkpoint.copy()
             if checkpoint_ns is not None:
@@ -757,10 +758,22 @@ async def get_thread_history_post(
         elif checkpoint_ns is not None:
             config["configurable"]["checkpoint_ns"] = checkpoint_ns
 
+        # Convert `before` to a RunnableConfig for aget_state_history.
+        # The SDK sends `before` as either a checkpoint ID string, a raw
+        # checkpoint dict, or a full RunnableConfig with a "configurable" key.
+        before_config: dict[str, Any] | None = None
+        if isinstance(before, str):
+            before_config = {"configurable": {"checkpoint_id": before}}
+        elif isinstance(before, dict):
+            if "configurable" in before:
+                before_config = before
+            else:
+                before_config = {"configurable": before}
+
         state_snapshots = []
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "limit": limit,
-            "before": before,
+            "before": before_config,
         }
         if metadata is not None:
             kwargs["metadata"] = metadata
@@ -853,9 +866,10 @@ async def delete_thread(
     stmt = select(ThreadORM).where(
         ThreadORM.thread_id == thread_id,
         ThreadORM.team_id == user.team_id,
-        ThreadORM.user_id == user.id,
         ThreadORM.deleted_at.is_(None),
     )
+    if not user.is_admin:
+        stmt = stmt.where(ThreadORM.user_id == user.id)
     thread = await session.scalar(stmt)
     if not thread:
         raise HTTPException(404, f"Thread '{thread_id}' not found")
