@@ -21,6 +21,8 @@ from .tag_condition import TagConditionExecutor, build_tag_condition_router
 from .list_condition import ListConditionExecutor, build_list_condition_router
 from .source_condition import SourceConditionExecutor, build_source_condition_router
 from .set_source import SetSourceExecutor
+from .create_campaign import CreateCampaignExecutor
+from .add_to_campaign import AddToCampaignExecutor
 
 NODE_REGISTRY: dict[str, type] = {
     "api_request": ApiRequestExecutor,
@@ -46,6 +48,8 @@ NODE_REGISTRY: dict[str, type] = {
     "list_condition": ListConditionExecutor,
     "source_condition": SourceConditionExecutor,
     "set_source": SetSourceExecutor,
+    "create_campaign": CreateCampaignExecutor,
+    "add_to_campaign": AddToCampaignExecutor,
 }
 
 __all__ = [

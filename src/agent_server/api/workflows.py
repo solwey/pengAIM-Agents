@@ -454,6 +454,69 @@ async def _get_workflow_or_404(
     return workflow
 
 
+# ---------------------------------------------------------------------------
+# Export / Import
+# ---------------------------------------------------------------------------
+
+
+class WorkflowExport(BaseModel):
+    """Portable workflow format for import/export."""
+    name: str
+    description: str | None = None
+    definition: dict
+
+
+class WorkflowImport(BaseModel):
+    """Import a workflow from JSON."""
+    name: str | None = None  # Override name, or use from JSON
+    description: str | None = None
+    definition: dict
+
+
+@router.get("/workflows/{workflow_id}/export", response_model=WorkflowExport)
+async def export_workflow(
+    workflow_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Export a workflow as portable JSON (can be imported into another workspace)."""
+    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    return WorkflowExport(
+        name=workflow.name,
+        description=workflow.description,
+        definition=workflow.definition,
+    )
+
+
+@router.post("/workflows/import", response_model=WorkflowResponse, status_code=201)
+async def import_workflow(
+    body: WorkflowImport,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Import a workflow from JSON. Creates a new workflow in the current team."""
+    _validate_definition(body.definition)
+
+    workflow = Workflow(
+        team_id=user.team_id,
+        user_id=user.id,
+        name=body.name or body.definition.get("name", "Imported Workflow"),
+        description=body.description,
+        definition=body.definition,
+    )
+    session.add(workflow)
+    await session.commit()
+    await session.refresh(workflow)
+    return _to_response(workflow)
+
+
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
 def _to_response(workflow: Workflow) -> WorkflowResponse:
     webhook_url = None
     if workflow.webhook_enabled and workflow.webhook_path:
