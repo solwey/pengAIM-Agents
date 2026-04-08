@@ -32,6 +32,8 @@ class NodeType(StrEnum):
     REMOVE_FROM_LIST = "remove_from_list"
     LIST_CONDITION = "list_condition"
     SOURCE_CONDITION = "source_condition"
+    CREATE_CAMPAIGN = "create_campaign"
+    ADD_TO_CAMPAIGN = "add_to_campaign"
 
 
 class ComparisonOperator(StrEnum):
@@ -219,6 +221,21 @@ class SourceConditionConfig(BaseModel):
     response_key: str = "source_check_result"
 
 
+class CreateCampaignConfig(BaseModel):
+    name: str = ""  # supports {{template}}
+    channels: list[str] = Field(default_factory=lambda: ["email"])
+    description: str = ""  # supports {{template}}
+    target_persona: str = ""
+    response_key: str = "created_campaign"
+
+
+class AddToCampaignConfig(BaseModel):
+    campaign_id: str = ""  # direct campaign ID
+    campaign_id_key: str = ""  # or dot-path to campaign ID in state
+    account_id_key: str = "created_accounts.account_id"  # dot-path to account ID(s)
+    response_key: str = "campaign_add_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -255,6 +272,8 @@ class NodeDef(BaseModel):
             NodeType.REMOVE_FROM_LIST: RemoveFromListConfig,
             NodeType.LIST_CONDITION: ListConditionConfig,
             NodeType.SOURCE_CONDITION: SourceConditionConfig,
+            NodeType.CREATE_CAMPAIGN: CreateCampaignConfig,
+            NodeType.ADD_TO_CAMPAIGN: AddToCampaignConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
