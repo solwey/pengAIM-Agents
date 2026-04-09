@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 
+from aegra_api.core.orm import Tenant
 from aegra_api.core.sse import create_error_event
 from aegra_api.models import Run
 from aegra_api.services.broker import broker_manager
@@ -51,6 +52,7 @@ class StreamingService:
 
     async def store_event_from_raw(
         self,
+        tenant: Tenant,
         run_id: str,
         event_id: str,
         raw_event: Any,
@@ -78,6 +80,7 @@ class StreamingService:
         # Store based on stream mode
         if stream_mode_label == "messages":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "messages",
@@ -94,6 +97,7 @@ class StreamingService:
             )
         elif stream_mode_label == "messages/partial":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "messages/partial",
@@ -105,6 +109,7 @@ class StreamingService:
             )
         elif stream_mode_label == "messages/complete":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "messages/complete",
@@ -116,6 +121,7 @@ class StreamingService:
             )
         elif stream_mode_label == "messages/metadata":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "messages/metadata",
@@ -127,6 +133,7 @@ class StreamingService:
             )
         elif stream_mode_label == "events":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "events",
@@ -137,6 +144,7 @@ class StreamingService:
             )
         elif stream_mode_label == "values":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "values",
@@ -144,6 +152,7 @@ class StreamingService:
             )
         elif stream_mode_label == "updates":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "updates",
@@ -151,6 +160,7 @@ class StreamingService:
             )
         elif stream_mode_label == "debug":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "debug",
@@ -158,6 +168,7 @@ class StreamingService:
             )
         elif stream_mode_label == "custom":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "custom",
@@ -165,6 +176,7 @@ class StreamingService:
             )
         elif stream_mode_label == "metadata":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "metadata",
@@ -172,6 +184,7 @@ class StreamingService:
             )
         elif stream_mode_label == "end":
             await store_sse_event(
+                tenant,
                 run_id,
                 event_id,
                 "end",
@@ -195,7 +208,13 @@ class StreamingService:
 
         broker_manager.cleanup_broker(run_id)
 
-    async def signal_run_error(self, run_id: str, error_message: str, error_type: str = "Error"):
+    async def signal_run_error(
+        self,
+        tenant: Tenant,
+        run_id: str,
+        error_message: str,
+        error_type: str = "Error",
+    ):
         """Signal that a run encountered an error.
 
         Sends a proper 'error' event to the broker and stores it for replay.
@@ -220,6 +239,7 @@ class StreamingService:
 
             # Store error event for replay support
             await store_sse_event(
+                tenant,
                 run_id,
                 error_event_id,
                 "error",
@@ -240,6 +260,7 @@ class StreamingService:
 
     async def stream_run_execution(
         self,
+        tenant: Tenant,
         run: Run,
         last_event_id: str | None = None,
         cancel_on_disconnect: bool = False,
@@ -252,7 +273,7 @@ class StreamingService:
             if last_event_id:
                 last_sent_sequence = self._extract_event_sequence(last_event_id)
 
-            async for sse_event in self._replay_stored_events(run_id, last_event_id):
+            async for sse_event in self._replay_stored_events(tenant, run_id, last_event_id):
                 yield sse_event
 
             # Stream live events if run is still active
@@ -268,12 +289,14 @@ class StreamingService:
             logger.error(f"Error in stream_run_execution for run {run_id}: {e}")
             yield create_error_event(str(e))
 
-    async def _replay_stored_events(self, run_id: str, last_event_id: str | None) -> AsyncIterator[str]:
+    async def _replay_stored_events(
+        self, tenant: Tenant, run_id: str, last_event_id: str | None
+    ) -> AsyncIterator[str]:
         """Replay stored events"""
         if last_event_id:
-            stored_events = await event_store.get_events_since(run_id, last_event_id)
+            stored_events = await event_store.get_events_since(tenant, run_id, last_event_id)
         else:
-            stored_events = await event_store.get_all_events(run_id)
+            stored_events = await event_store.get_all_events(tenant, run_id)
 
         for ev in stored_events:
             sse_event = self._stored_event_to_sse(run_id, ev)

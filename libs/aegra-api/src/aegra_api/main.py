@@ -8,7 +8,7 @@ from typing import Any
 import sentry_sdk
 import structlog
 from asgi_correlation_id import CorrelationIdMiddleware
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute, APIRouter
@@ -29,6 +29,7 @@ from aegra_api.config import HttpConfig, get_config_dir, load_http_config
 from aegra_api.core.app_loader import load_custom_app
 from aegra_api.core.auth_deps import auth_dependency
 from aegra_api.core.database import db_manager
+from aegra_api.core.tenant import validate_tenant
 from aegra_api.core.health import router as health_router
 from aegra_api.core.migrations import run_migrations_async
 from aegra_api.core.route_merger import (
@@ -288,17 +289,26 @@ def _include_core_routers(app: FastAPI) -> None:
     Args:
         app: FastAPI application instance
     """
+    # Health is not tenant-scoped.
+
     app.include_router(health_router)
-    app.include_router(assistants_router)
-    app.include_router(threads_router)
-    app.include_router(runs_router)
-    app.include_router(stateless_runs_router)
-    app.include_router(store_router)
-    app.include_router(control_plane_router)
-    app.include_router(workflows_router)
-    app.include_router(workflow_runs_router)
-    app.include_router(workflow_schedules_router)
-    app.include_router(webhooks_router, prefix="/webhook")
+    # All other routes live under /tenant/{tenant_uuid} and are guarded by
+    # validate_tenant so unknown/disabled tenants fail fast with 404/403.
+    tenant_router = APIRouter(
+        prefix="/tenant/{tenant_uuid}",
+        dependencies=[Depends(validate_tenant)],
+    )
+    tenant_router.include_router(assistants_router)
+    tenant_router.include_router(threads_router)
+    tenant_router.include_router(runs_router)
+    tenant_router.include_router(stateless_runs_router)
+    tenant_router.include_router(store_router)
+    tenant_router.include_router(control_plane_router)
+    tenant_router.include_router(webhooks_router, prefix="/webhook")
+    tenant_router.include_router(workflows_router)
+    tenant_router.include_router(workflow_runs_router)
+    tenant_router.include_router(workflow_schedules_router)
+    app.include_router(tenant_router)
 
 
 def create_app() -> FastAPI:

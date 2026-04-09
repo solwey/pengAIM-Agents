@@ -156,45 +156,71 @@ class LangGraphService:
         to the same assistant_id across restarts. Idempotent.
         """
         from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import AsyncSession
 
+        from aegra_api.core.database import db_manager
         from aegra_api.core.orm import Assistant as AssistantORM
         from aegra_api.core.orm import AssistantVersion as AssistantVersionORM
-        from aegra_api.core.orm import get_session
+        from aegra_api.core.orm import Tenant, _get_session_maker
 
-        # Fixed namespace used to derive assistant IDs from graph IDs
         NS = ASSISTANT_NAMESPACE_UUID
-        session_gen = get_session()
-        session = await anext(session_gen)
-        try:
-            for graph_id in self._graph_registry:
-                assistant_id = str(uuid5(NS, graph_id))
-                existing = await session.scalar(select(AssistantORM).where(AssistantORM.assistant_id == assistant_id))
-                if existing:
-                    continue
-                session.add(
-                    AssistantORM(
-                        assistant_id=assistant_id,
-                        name=graph_id,
-                        description=f"Default assistant for graph '{graph_id}'",
-                        graph_id=graph_id,
-                        config={},
-                        user_id="system",
-                        metadata_dict={"created_by": "system"},
+
+        # 1. Load the enabled tenants from the public schema.
+        maker = _get_session_maker()
+        async with maker() as public_session:
+            result = await public_session.execute(
+                select(Tenant).where(Tenant.enabled.is_(True))
+            )
+            tenants = result.scalars().all()
+
+        if not tenants:
+            logger.info("No enabled tenants found; skipping default assistant seeding")
+            return
+
+        engine = db_manager.get_engine()
+
+        # 2. For each tenant, open a session bound to its schema and seed.
+        for tenant in tenants:
+            tenant_engine = engine.execution_options(
+                schema_translate_map={None: tenant.schema}
+            )
+            async with AsyncSession(tenant_engine, expire_on_commit=False) as session:
+                for graph_id in self._graph_registry:
+                    assistant_id = str(uuid5(NS, graph_id))
+                    existing = await session.scalar(
+                        select(AssistantORM).where(
+                            AssistantORM.assistant_id == assistant_id
+                        )
                     )
-                )
-                session.add(
-                    AssistantVersionORM(
-                        assistant_id=assistant_id,
-                        version=1,
-                        name=graph_id,
-                        description=f"Default assistant for graph '{graph_id}'",
-                        graph_id=graph_id,
-                        metadata_dict={"created_by": "system"},
+                    if existing:
+                        continue
+                    session.add(
+                        AssistantORM(
+                            assistant_id=assistant_id,
+                            name=graph_id,
+                            description=f"Default assistant for graph '{graph_id}'",
+                            graph_id=graph_id,
+                            config={},
+                            team_id="system",
+                            metadata_dict={"created_by": "system"},
+                        )
                     )
-                )
-            await session.commit()
-        finally:
-            await session.close()
+                    session.add(
+                        AssistantVersionORM(
+                            assistant_id=assistant_id,
+                            version=1,
+                            name=graph_id,
+                            description=f"Default assistant for graph '{graph_id}'",
+                            graph_id=graph_id,
+                            metadata_dict={"created_by": "system"},
+                        )
+                    )
+                await session.commit()
+            logger.info(
+                "Seeded default assistants for tenant %s (schema=%s)",
+                tenant.uuid,
+                tenant.schema,
+            )
 
     async def _get_base_graph(self, graph_id: str) -> Pregel:
         """Get the base compiled graph without checkpointer/store.
