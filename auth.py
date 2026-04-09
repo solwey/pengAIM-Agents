@@ -35,10 +35,16 @@ def decode_jwt_key(v):
         return v
 
 
-async def verify_token_status(token: str) -> tuple[str, str, str]:
+async def verify_token_status(token: str, aud: str) -> tuple[str, str, str]:
     try:
         verification_key = decode_jwt_key(settings.app.JWT_PUBLIC_KEY)
-        payload = jwt.decode(token, verification_key, algorithms=[settings.app.JWT_ALG])
+        payload = jwt.decode(
+            token,
+            verification_key,
+            algorithms=[settings.app.JWT_ALG],
+            audience=aud,
+            options={"verify_aud": True, "require_aud": True}
+        )
 
         # Verify token type
         if payload.get("typ") != "access":
@@ -92,7 +98,7 @@ async def get_current_user(
         raise Auth.exceptions.HTTPException(status_code=401, detail="Invalid authorization header format")
 
     try:
-        user_id, team_id, role = await verify_token_status(token)
+        user_id, team_id, role = await verify_token_status(token, tenant.uuid)
         if not team_id:
             raise ValueError("Team id not found in verification response")
 
