@@ -24,7 +24,10 @@ from starlette.authentication import (
 from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse
 
+from sqlalchemy import select
+
 from aegra_api.config import get_config_dir, load_auth_config
+from aegra_api.core.orm import Tenant, _get_session_maker
 from aegra_api.models.errors import AgentProtocolError
 from aegra_api.settings import settings
 
@@ -207,7 +210,26 @@ class LangGraphAuthBackend(AuthenticationBackend):
             logger.error(f"Error loading auth from {module_path}: {e}", exc_info=True)
             return None
 
-    async def authenticate(self, conn: HTTPConnection) -> tuple[AuthCredentials, BaseUser] | None:
+    async def _resolve_tenant(self, conn: HTTPConnection) -> Tenant | None:
+        """Look up the request's tenant"""
+
+        tenant_uuid = conn.path_params.get("tenant_uuid")
+        if not tenant_uuid:
+            return None
+
+        maker = _get_session_maker()
+        async with maker() as session:
+            result = await session.execute(
+                select(Tenant).where(Tenant.uuid == tenant_uuid)
+            )
+            tenant = result.scalar_one_or_none()
+
+        return tenant
+
+    async def authenticate(
+        self,
+        conn: HTTPConnection,
+    ) -> tuple[AuthCredentials, BaseUser] | None:
         """
         Authenticate request using the configured auth system.
 
@@ -246,8 +268,11 @@ class LangGraphAuthBackend(AuthenticationBackend):
                 for key, value in conn.headers.items()
             }
 
+            tenant = await self._resolve_tenant(conn)
             # Call the authenticate handler
-            user_data = await self.auth_instance._authenticate_handler(headers)
+            user_data = await self.auth_instance._authenticate_handler(
+                headers, tenant=tenant
+            )
 
             if not user_data or not isinstance(user_data, dict):
                 raise AuthenticationError("Invalid user data returned from auth handler")

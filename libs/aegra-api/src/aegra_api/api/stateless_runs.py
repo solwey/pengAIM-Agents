@@ -24,8 +24,10 @@ from aegra_api.api.runs import (
 from aegra_api.core.active_runs import active_runs
 from aegra_api.core.auth_deps import auth_dependency, get_current_user
 from aegra_api.core.orm import Run as RunORM
+from aegra_api.core.orm import Tenant
 from aegra_api.core.orm import Thread as ThreadORM
-from aegra_api.core.orm import _get_session_maker, get_session
+from aegra_api.core.orm import get_session, new_tenant_session
+from aegra_api.core.tenant import get_current_tenant
 from aegra_api.models import Run, RunCreate, User
 from aegra_api.models.errors import CONFLICT, NOT_FOUND, SSE_RESPONSE
 from aegra_api.services.executor import executor
@@ -43,14 +45,14 @@ _background_cleanup_tasks: set[asyncio.Task[None]] = set()
 # ---------------------------------------------------------------------------
 
 
-async def _delete_thread_by_id(thread_id: str, user_id: str) -> None:
+async def _delete_thread_by_id(tenant: Tenant, thread_id: str, user_id: str) -> None:
     """Delete an ephemeral thread and cascade-delete its runs.
 
-    Opens its own DB session so it can be called after the request session has
-    been closed (e.g. in a ``finally`` block or background task).
+    Opens its own DB session bound to ``tenant``'s schema so it can be called
+    after the request session has been closed (e.g. in a ``finally`` block or
+    background task).
     """
-    maker = _get_session_maker()
-    async with maker() as session:
+    async with new_tenant_session(tenant) as session:
         # Cancel any still-active runs on this thread
         active_runs_stmt = select(RunORM).where(
             RunORM.thread_id == thread_id,
@@ -98,7 +100,7 @@ async def _cleanup_after_background_run(run_id: str, thread_id: str, user_id: st
         logger.exception("Error waiting for background run", run_id=run_id)
 
     try:
-        await _delete_thread_by_id(thread_id, user_id)
+        await _delete_thread_by_id(tenant, thread_id, user_id)
     except Exception:
         logger.exception("Failed to delete ephemeral thread", thread_id=thread_id, run_id=run_id)
 
@@ -112,6 +114,7 @@ async def _cleanup_after_background_run(run_id: str, thread_id: str, user_id: st
 async def stateless_wait_for_run(
     request: RunCreate,
     user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> StreamingResponse:
     """Create a stateless run and wait for completion.
 
@@ -123,11 +126,11 @@ async def stateless_wait_for_run(
     should_delete = request.on_completion != "keep"
 
     try:
-        response = await wait_for_run(thread_id, request, user)
+        response = await wait_for_run(thread_id, request, user, tenant)
     except Exception:
         if should_delete:
             try:
-                await _delete_thread_by_id(thread_id, user.id)
+                await _delete_thread_by_id(tenant, thread_id, user.id)
             except Exception:
                 logger.exception(
                     "Failed to delete ephemeral thread after wait error",
@@ -178,6 +181,7 @@ async def stateless_stream_run(
     request: RunCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> StreamingResponse:
     """Create a stateless run and stream its execution.
 
@@ -189,13 +193,13 @@ async def stateless_stream_run(
     should_delete = request.on_completion != "keep"
 
     try:
-        response = await create_and_stream_run(thread_id, request, user, session)
+        response = await create_and_stream_run(thread_id, request, user, session, tenant)
     except Exception:
         # create_and_stream_run may have auto-created the thread via
         # update_thread_metadata before raising; clean up to avoid orphans.
         if should_delete:
             try:
-                await _delete_thread_by_id(thread_id, user.id)
+                await _delete_thread_by_id(tenant, thread_id, user.id)
             except Exception:
                 logger.exception(
                     "Failed to delete ephemeral thread after stream setup error",
@@ -219,7 +223,7 @@ async def stateless_stream_run(
             if aclose is not None:
                 await aclose()
             try:
-                await _delete_thread_by_id(thread_id, user.id)
+                await _delete_thread_by_id(tenant, thread_id, user.id)
             except Exception:
                 logger.exception(
                     "Failed to delete ephemeral thread after stream",
@@ -239,6 +243,7 @@ async def stateless_create_run(
     request: RunCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> Run:
     """Create a stateless background run.
 
@@ -250,13 +255,13 @@ async def stateless_create_run(
     should_delete = request.on_completion != "keep"
 
     try:
-        result = await create_run(thread_id, request, user, session)
+        result = await create_run(thread_id, request, user, session, tenant)
     except Exception:
         # create_run may have auto-created the thread via
         # update_thread_metadata before raising; clean up to avoid orphans.
         if should_delete:
             try:
-                await _delete_thread_by_id(thread_id, user.id)
+                await _delete_thread_by_id(tenant, thread_id, user.id)
             except Exception:
                 logger.exception(
                     "Failed to delete ephemeral thread after create error",
@@ -265,7 +270,7 @@ async def stateless_create_run(
         raise
 
     if should_delete:
-        task = asyncio.create_task(_cleanup_after_background_run(result.run_id, thread_id, user.id))
+        task = asyncio.create_task(_cleanup_after_background_run(tenant, result.run_id, thread_id, user.id))
         _background_cleanup_tasks.add(task)
         task.add_done_callback(_background_cleanup_tasks.discard)
 

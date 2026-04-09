@@ -3,9 +3,11 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
 
 from aegra_api import __version__
 
+load_dotenv()
 
 def parse_lower(v: str) -> str:
     """Converts to lowercase and strips whitespace."""

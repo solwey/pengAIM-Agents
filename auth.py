@@ -4,6 +4,7 @@ from typing import Any
 from jose import JWTError, jwt
 from langgraph_sdk import Auth
 
+from aegra_api.core.orm import Tenant
 from aegra_api.settings import settings
 
 # The "Auth" object is a container that LangGraph will use to mark our authentication function
@@ -57,6 +58,7 @@ async def verify_token_status(token: str) -> tuple[str, str, str]:
 @auth.authenticate
 async def get_current_user(
     headers: dict[str, str] | None,
+    tenant: Tenant | None = None,
 ):
     """Check if the user's JWT token is valid using custom logic"""
     # Extract authorization header

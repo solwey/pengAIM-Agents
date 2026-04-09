@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 
+from aegra_api.core.orm import Tenant
 from aegra_api.core.sse import create_error_event
 from aegra_api.models import Run
 from aegra_api.services.broker import broker_manager
@@ -83,6 +84,7 @@ class StreamingService:
 
     async def stream_run_execution(
         self,
+        tenant: Tenant,
         run: Run,
         last_event_id: str | None = None,
         cancel_on_disconnect: bool = False,
@@ -95,7 +97,7 @@ class StreamingService:
             if last_event_id:
                 last_sent_sequence = extract_event_sequence(last_event_id)
 
-            async for event_id, sse_event in self._replay_stored_events(run_id, last_event_id):
+            async for event_id, sse_event in self._replay_stored_events(tenant, run_id, last_event_id):
                 # Track the highest replayed sequence for live dedup
                 replayed_seq = extract_event_sequence(event_id)
                 if replayed_seq > last_sent_sequence:
@@ -115,7 +117,7 @@ class StreamingService:
             logger.error(f"Error in stream_run_execution for run {run_id}: {e}")
             yield create_error_event(str(e))
 
-    async def _replay_stored_events(self, run_id: str, last_event_id: str | None) -> AsyncIterator[tuple[str, str]]:
+    async def _replay_stored_events(self, tenant: Tenant, run_id: str, last_event_id: str | None) -> AsyncIterator[tuple[str, str]]:
         """Replay stored events from the broker's replay buffer.
 
         Yields (event_id, sse_event) tuples so the caller can track

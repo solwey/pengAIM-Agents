@@ -17,8 +17,10 @@ from aegra_api.core.auth_handlers import build_auth_context, handle_event
 from aegra_api.core.orm import Assistant as AssistantORM
 from aegra_api.core.orm import Run as RunORM
 from aegra_api.core.orm import RunEvent as RunEventORM
-from aegra_api.core.orm import RunStatusHistory, _get_session_maker, get_session
+from aegra_api.core.orm import RunStatusHistory, get_session, new_tenant_session
+from aegra_api.core.orm import Tenant
 from aegra_api.core.orm import Thread as ThreadORM
+from aegra_api.core.tenant import get_current_tenant
 from aegra_api.core.sse import create_end_event, get_sse_headers
 from aegra_api.models import Run, RunCreate, RunStatus, User
 from aegra_api.models.control_plane import (
@@ -51,6 +53,7 @@ async def create_run(
     request: RunCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> Run:
     """Create and execute a new run.
 
@@ -90,6 +93,7 @@ async def create_and_stream_run(
     request: RunCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> StreamingResponse:
     """Create a new run and stream its execution via SSE.
 
@@ -110,6 +114,7 @@ async def create_and_stream_run(
 
     return StreamingResponse(
         streaming_service.stream_run_execution(
+            tenant,
             run,
             None,
             cancel_on_disconnect=cancel_on_disconnect,
@@ -294,10 +299,8 @@ async def join_run(
     Sessions are managed manually (not via ``Depends``) to avoid holding a
     pool connection during the long wait.
     """
-    maker = _get_session_maker()
-
     # Short-lived session: validate run exists and check terminal state
-    async with maker() as session:
+    async for session in get_session(tenant):
         stmt = (
             select(RunORM)
             .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
@@ -386,6 +389,7 @@ async def stream_run(
     _stream_mode: str | None = Query(None, description="Override the stream mode for this connection."),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> StreamingResponse:
     """Stream an existing run's execution via SSE.
 
@@ -446,7 +450,7 @@ async def stream_run(
     run_model = Run.model_validate(run_orm)
 
     return StreamingResponse(
-        streaming_service.stream_run_execution(run_model, last_event_id, cancel_on_disconnect=False),
+        streaming_service.stream_run_execution(tenant, run_model, last_event_id, cancel_on_disconnect=False),
         media_type="text/event-stream",
         headers={
             **get_sse_headers(),
