@@ -9,10 +9,10 @@ import sys
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from ..core.orm import WorkerHeartbeat, _get_session_maker
+from ..core.orm import Tenant, WorkerHeartbeat, _get_session_maker, new_tenant_session
 
 logger = structlog.getLogger(__name__)
 
@@ -44,19 +44,35 @@ class HeartbeatService:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
 
-        try:
-            maker = _get_session_maker()
-            async with maker() as session:
+        now = datetime.now(UTC)
+        async for session in self._iter_tenant_sessions():
+            try:
                 await session.execute(
                     update(WorkerHeartbeat)
                     .where(WorkerHeartbeat.id == self._worker_id)
-                    .values(status="offline", last_heartbeat=datetime.now(UTC))
+                    .values(status="offline", last_heartbeat=now)
                 )
                 await session.commit()
-        except Exception:
-            logger.exception("Failed to mark worker offline", worker_id=self._worker_id)
+            except Exception:
+                logger.exception(
+                    "Failed to mark worker offline", worker_id=self._worker_id
+                )
 
         logger.info("Heartbeat service stopped", worker_id=self._worker_id)
+
+    async def _iter_tenant_sessions(self):
+        """Yield an ``AsyncSession`` bound to each enabled tenant's schema."""
+        maker = _get_session_maker()
+        async with maker() as public_session:
+            tenants = (
+                await public_session.execute(
+                    select(Tenant).where(Tenant.enabled.is_(True))
+                )
+            ).scalars().all()
+
+        for tenant in tenants:
+            async with new_tenant_session(tenant) as session:
+                yield session
 
     async def _heartbeat_loop(self) -> None:
         while True:
@@ -81,27 +97,33 @@ class HeartbeatService:
             "total_runs_processed": sum(1 for t in self._active_runs.values() if t.done()),
         }
 
-        maker = _get_session_maker()
-        async with maker() as session:
-            stmt = pg_insert(WorkerHeartbeat.__table__).values(
-                id=self._worker_id,
-                status="online",
-                started_at=self._started_at,
-                last_heartbeat=now,
-                active_run_count=active_count,
-                metadata=metadata,
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["id"],
-                set_={
-                    "status": "online",
-                    "last_heartbeat": now,
-                    "active_run_count": active_count,
-                    "metadata": metadata,
-                },
-            )
-            await session.execute(stmt)
-            await session.commit()
+        stmt = pg_insert(WorkerHeartbeat.__table__).values(
+            id=self._worker_id,
+            status="online",
+            started_at=self._started_at,
+            last_heartbeat=now,
+            active_run_count=active_count,
+            metadata=metadata,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["id"],
+            set_={
+                "status": "online",
+                "last_heartbeat": now,
+                "active_run_count": active_count,
+                "metadata": metadata,
+            },
+        )
+
+        async for session in self._iter_tenant_sessions():
+            try:
+                await session.execute(stmt)
+                await session.commit()
+            except Exception:
+                logger.exception(
+                    "Heartbeat upsert failed for tenant",
+                    worker_id=self._worker_id,
+                )
 
 
 # Singleton instance — initialized in main.py lifespan

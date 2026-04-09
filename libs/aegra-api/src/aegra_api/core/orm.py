@@ -14,14 +14,60 @@ Nothing is auto-imported by FastAPI yet; routers will `from ...core.db import ge
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextvars import ContextVar
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import TIMESTAMP, Boolean, ForeignKey, Index, Integer, Text, text
+from fastapi import Depends, Path
+from sqlalchemy import select
+from sqlalchemy import (
+    TIMESTAMP,
+    Boolean,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column
 
+if TYPE_CHECKING:
+    pass
+
 Base = declarative_base()
+
+
+# Context variable holding the currently-active tenant for the request.
+# Set by `get_current_tenant` dependency; read by logging / background tasks.
+tenant_var: ContextVar["Tenant | None"] = ContextVar("tenant", default=None)
+
+
+class Tenant(Base):
+    """Tenant registry. Lives in the public schema."""
+
+    __tablename__ = "tenants"
+    __table_args__ = (
+        UniqueConstraint("schema", name="uq_tenant_schema"),
+        UniqueConstraint("kc_realm", name="uq_tenant_kc_realm"),
+        {"schema": "public"},
+    )
+
+    uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True)
+    schema: Mapped[str] = mapped_column(String(63), nullable=False)
+    kc_realm: Mapped[str] = mapped_column(String(255), nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
 
 
 class Assistant(Base):
@@ -302,8 +348,60 @@ def _get_session_maker() -> async_sessionmaker[AsyncSession]:
     return async_session_maker
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency that yields an AsyncSession."""
+async def get_session_public() -> AsyncIterator[AsyncSession]:
+    """Yield an AsyncSession bound to the public schema."""
     maker = _get_session_maker()
     async with maker() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def get_current_tenant(
+    tenant_uuid: str = Path(..., description="Tenant UUID"),
+) -> "Tenant | None":
+    """Resolve the current request's tenant from the path parameter."""
+    cached = tenant_var.get()
+    if cached is not None and cached.uuid == tenant_uuid:
+        return cached
+
+    maker = _get_session_maker()
+    async with maker() as db:
+        result = await db.execute(select(Tenant).where(Tenant.uuid == tenant_uuid))
+        tenant = result.scalar_one_or_none()
+
+    tenant_var.set(tenant)
+    return tenant
+
+
+def new_tenant_session(tenant: "Tenant") -> AsyncSession:
+    """Return a fresh ``AsyncSession`` bound to ``tenant``'s schema."""
+    from aegra_api.core.database import db_manager
+
+    if tenant is None:
+        raise RuntimeError("new_tenant_session requires a Tenant")
+
+    engine = db_manager.get_engine().execution_options(
+        schema_translate_map={None: tenant.schema}
+    )
+    return AsyncSession(bind=engine, expire_on_commit=False)
+
+
+async def get_session(
+    tenant: "Tenant" = Depends(get_current_tenant),
+) -> AsyncIterator[AsyncSession]:
+    """Yield an AsyncSession bound to the current tenant's schema."""
+    if tenant is None:
+        # `validate_tenant` should have already rejected this, but guard
+        # in case a route uses `get_session` without `validate_tenant`.
+        raise RuntimeError("get_session called without a valid tenant")
+
+    session = new_tenant_session(tenant)
+    async with session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise

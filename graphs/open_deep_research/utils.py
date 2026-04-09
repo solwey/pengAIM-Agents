@@ -28,6 +28,17 @@ from graphs.open_deep_research.state import ResearchComplete, Summary
 
 RAG_URL = settings.graphs.RAG_API_URL
 
+
+def _rag_base_url(config: RunnableConfig | None) -> str:
+    """Return the tenant-scoped RAG base URL."""
+    base = settings.graphs.RAG_API_URL
+    if base and base.endswith("/"):
+        base = base[:-1]
+    tenant_id = (config or {}).get("configurable", {}).get("tenant_id")
+    if not tenant_id:
+        raise ValueError("tenant_id missing from RunnableConfig; cannot build RAG URL")
+    return f"{base}/tenant/{tenant_id}"
+
 ##########################
 # Agent Mode utils (RAG = RAG-only, ONLINE = Web)
 ##########################
@@ -98,7 +109,7 @@ async def rag_search(
         llm_temperature = None
         llm_max_tokens = None
 
-    search_endpoint = f"{settings.graphs.RAG_API_URL}/query"
+    search_endpoint = f"{_rag_base_url(config)}/query"
     body = {
         "question": query,
         "system_prompt": system_prompt,
@@ -978,7 +989,7 @@ async def get_api_key(
 
     search_params = f"provider={provider}&name={name}" if provider and name else ""
     search_endpoint = (
-        f"{settings.graphs.RAG_API_URL}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
+        f"{_rag_base_url(config)}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
     )
     headers = {"authorization": authorization, "Accept": "text/plain"}
 
@@ -1034,6 +1045,12 @@ async def resolve_artifact_placeholders(placeholders: list, config: RunnableConf
         logging.warning("[ARTIFACT-RESOLVE] RAG_URL not set, skipping artifact resolution")
         return placeholders
 
+    try:
+        rag_base = _rag_base_url(config)
+    except ValueError as e:
+        logging.warning(f"[ARTIFACT-RESOLVE] {e}; skipping artifact resolution")
+        return placeholders
+
     resolved = []
     for p in placeholders:
         if not isinstance(p, dict):
@@ -1074,6 +1091,7 @@ async def resolve_artifact_placeholders(placeholders: list, config: RunnableConf
                     document_uuid=artifact.get("uuid", ""),
                     file_name=artifact_name,
                     authorization=authorization,
+                    rag_base_url=rag_base,
                 )
                 content_parts.append(f"--- {artifact.get('file_name', 'Document')} ---\n{text}")
             except RuntimeError as e:
@@ -1090,7 +1108,11 @@ async def resolve_artifact_placeholders(placeholders: list, config: RunnableConf
 
 
 async def _fetch_artifact_content(
-    collection_id: str, document_uuid: str, file_name: str, authorization: str | None = None
+    collection_id: str,
+    document_uuid: str,
+    file_name: str,
+    authorization: str | None = None,
+    rag_base_url: str | None = None,
 ) -> str:
     """Fetch artifact content via presigned URL (download directly from S3).
 
@@ -1102,8 +1124,9 @@ async def _fetch_artifact_content(
     if not authorization:
         raise RuntimeError(f"No auth token for fetching artifact '{file_name}'")
 
+    base = rag_base_url or RAG_URL
     download_url_endpoint = (
-        f"{RAG_URL}/api/v1/artifact-collections/{collection_id}/documents/{document_uuid}/download-url"
+        f"{base}/api/v1/artifact-collections/{collection_id}/documents/{document_uuid}/download-url"
     )
     headers = {"authorization": authorization}
 

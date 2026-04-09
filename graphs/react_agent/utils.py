@@ -16,6 +16,17 @@ from graphs.react_agent.tools import create_rag_tool
 logger = logging.getLogger(__name__)
 
 
+def _rag_base_url(config: RunnableConfig | None) -> str:
+    """Return the tenant-scoped RAG base URL."""
+    base = settings.graphs.RAG_API_URL
+    if base.endswith("/"):
+        base = base[:-1]
+    tenant_id = (config or {}).get("configurable", {}).get("tenant_id")
+    if not tenant_id:
+        raise ValueError("tenant_id missing from RunnableConfig; cannot build RAG URL")
+    return f"{base}/tenant/{tenant_id}"
+
+
 def get_today_str() -> str:
     """Get current date formatted for display in prompts and outputs.
 
@@ -100,7 +111,7 @@ async def get_api_key(
 
     search_params = f"provider={provider}&name={name}" if provider and name else ""
     search_endpoint = (
-        f"{settings.graphs.RAG_API_URL}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
+        f"{_rag_base_url(config)}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
     )
     headers = {"authorization": authorization, "Accept": "text/plain"}
 
@@ -253,7 +264,7 @@ async def _build_tools(
 
     # Load RAG tool if in RAG mode
     if cfg.mode == AgentMode.RAG:
-        rag_tool = await create_rag_tool(settings.graphs.RAG_API_URL)
+        rag_tool = await create_rag_tool(_rag_base_url(config))
         tools.append(rag_tool)
 
     if cfg.mode == AgentMode.WEB_SEARCH:

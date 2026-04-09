@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aegra_api.settings import settings
 
 from ..core.auth_deps import auth_dependency, get_current_user
-from ..core.orm import Workflow, WorkflowVersion, get_session
+from ..core.orm import Tenant, Workflow, WorkflowVersion, get_session
+from ..core.tenant import get_current_tenant
 from ..models.auth import User
 from ..services.webhook_security import generate_webhook_path, generate_webhook_secret
 
@@ -87,9 +88,9 @@ def _validate_definition(definition: dict) -> None:
         raise HTTPException(status_code=422, detail=f"Invalid workflow definition: {e}")
 
 
-def _build_webhook_url(webhook_path: str) -> str:
-    """Construct the full public webhook URL."""
-    return f"{settings.app.SERVER_URL.rstrip('/')}/webhook/{webhook_path}"
+def _build_webhook_url(tenant_uuid: str, webhook_path: str) -> str:
+    """Construct the full public webhook URL including tenant prefix."""
+    return f"{settings.app.SERVER_URL.rstrip('/')}/tenant/{tenant_uuid}/webhook/{webhook_path}"
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +103,7 @@ async def create_workflow(
     body: WorkflowCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Create a new workflow. Validates the definition on creation."""
     _validate_definition(body.definition)
@@ -116,13 +118,14 @@ async def create_workflow(
     session.add(workflow)
     await session.commit()
     await session.refresh(workflow)
-    return _to_response(workflow)
+    return _to_response(workflow, tenant.uuid)
 
 
 @router.get("/workflows", response_model=WorkflowListResponse)
 async def list_workflows(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     is_active: bool | None = None,
@@ -149,7 +152,7 @@ async def list_workflows(
     workflows = result.scalars().all()
 
     return WorkflowListResponse(
-        items=[_to_response(w) for w in workflows],
+        items=[_to_response(w, tenant.uuid) for w in workflows],
         total=total,
         page=page,
         page_size=page_size,
@@ -161,10 +164,11 @@ async def get_workflow(
     workflow_id: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Get a single workflow by ID."""
     workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
-    return _to_response(workflow)
+    return _to_response(workflow, tenant.uuid)
 
 
 @router.put("/workflows/{workflow_id}", response_model=WorkflowResponse)
@@ -173,6 +177,7 @@ async def update_workflow(
     body: WorkflowUpdate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Update a workflow. Validates the definition if provided.
 
@@ -210,7 +215,7 @@ async def update_workflow(
     workflow.updated_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(workflow)
-    return _to_response(workflow)
+    return _to_response(workflow, tenant.uuid)
 
 
 @router.post("/workflows/{workflow_id}/restore", response_model=WorkflowResponse)
@@ -218,6 +223,7 @@ async def restore_workflow(
     workflow_id: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Restore a soft-deleted workflow."""
     result = await session.execute(
@@ -234,7 +240,7 @@ async def restore_workflow(
     workflow.updated_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(workflow)
-    return _to_response(workflow)
+    return _to_response(workflow, tenant.uuid)
 
 
 @router.delete("/workflows/{workflow_id}", status_code=204)
@@ -242,6 +248,7 @@ async def delete_workflow(
     workflow_id: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Soft-delete a workflow by setting deleted_at."""
     workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
@@ -271,6 +278,7 @@ async def list_workflow_versions(
     workflow_id: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """List all versions of a workflow."""
     await _get_workflow_or_404(session, workflow_id, user.team_id)
@@ -305,6 +313,7 @@ async def restore_workflow_version(
     version: int,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Restore a workflow to a previous version."""
     workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
@@ -339,7 +348,7 @@ async def restore_workflow_version(
 
     await session.commit()
     await session.refresh(workflow)
-    return _to_response(workflow)
+    return _to_response(workflow, tenant.uuid)
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +364,7 @@ async def enable_webhook(
     workflow_id: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Enable webhook trigger for a workflow.
 
@@ -382,7 +392,7 @@ async def enable_webhook(
 
     return WebhookConfigResponse(
         enabled=True,
-        webhook_url=_build_webhook_url(path),
+        webhook_url=_build_webhook_url(tenant.uuid, path),
         webhook_secret=secret,
         webhook_path=path,
     )
@@ -393,6 +403,7 @@ async def disable_webhook(
     workflow_id: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Disable webhook trigger for a workflow."""
     workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
@@ -413,6 +424,7 @@ async def regenerate_webhook_secret(
     workflow_id: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Regenerate the webhook secret.  Keeps the same URL path."""
     workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
@@ -429,7 +441,7 @@ async def regenerate_webhook_secret(
 
     return WebhookConfigResponse(
         enabled=True,
-        webhook_url=_build_webhook_url(workflow.webhook_path),
+        webhook_url=_build_webhook_url(tenant.uuid, workflow.webhook_path),
         webhook_secret=secret,
         webhook_path=workflow.webhook_path,
     )
@@ -454,10 +466,10 @@ async def _get_workflow_or_404(session: AsyncSession, workflow_id: str, team_id:
     return workflow
 
 
-def _to_response(workflow: Workflow) -> WorkflowResponse:
+def _to_response(workflow: Workflow, tenant_uuid: str) -> WorkflowResponse:
     webhook_url = None
     if workflow.webhook_enabled and workflow.webhook_path:
-        webhook_url = _build_webhook_url(workflow.webhook_path)
+        webhook_url = _build_webhook_url(tenant_uuid, workflow.webhook_path)
 
     return WorkflowResponse(
         id=workflow.id,

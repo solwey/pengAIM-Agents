@@ -80,6 +80,7 @@ async def stream_graph_events(
     config: RunnableConfig,
     *,
     stream_mode: list[str],
+    tenant_id: str,
     context: dict[str, Any] | None = None,
     subgraphs: bool = False,
     output_keys: list[str] | None = None,
@@ -106,6 +107,13 @@ async def stream_graph_events(
     Yields:
         Tuples of (mode, payload) where mode is the stream mode and payload is the event data
     """
+    # Make the tenant available to graph nodes (e.g. RAG HTTP calls that
+    # need to build `{RAG_API_URL}/tenant/{tenant_id}`). Injected here
+    # rather than in `inject_user_context` so the caller passes the
+    # tenant explicitly and there is no reliance on ContextVars.
+    config.setdefault("configurable", {})
+    config["configurable"]["tenant_id"] = tenant_id
+
     run_id = str(config.get("configurable", {}).get("run_id", uuid.uuid4()))
 
     # Prepare stream modes

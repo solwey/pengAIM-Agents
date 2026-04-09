@@ -9,10 +9,22 @@ import structlog
 from psycopg.types.json import Jsonb
 
 from aegra_api.core.database import db_manager
+from aegra_api.core.orm import Tenant, _get_session_maker
 from aegra_api.core.serializers import GeneralSerializer
 from aegra_api.core.sse import SSEEvent
 
 logger = structlog.get_logger(__name__)
+
+
+def _qualified(tenant: Tenant) -> str:
+    """Return the fully-qualified ``"{schema}".run_events`` identifier.
+
+    Quoting is safe because schema names are written into ``public.tenants``
+    by the tenant-provisioning script and constrained to ``VARCHAR(63)`` —
+    standard Postgres identifier characters.
+    """
+    schema = tenant.schema.replace('"', '""')
+    return f'"{schema}".run_events'
 
 
 class EventStore:
@@ -33,7 +45,7 @@ class EventStore:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._cleanup_task
 
-    async def store_event(self, run_id: str, event: SSEEvent) -> None:
+    async def store_event(self, tenant: Tenant, run_id: str, event: SSEEvent) -> None:
         """Persist an event with sequence extracted from id suffix.
 
         We expect event.id format: f"{run_id}_event_{seq}".
@@ -43,15 +55,15 @@ class EventStore:
         except Exception:
             seq = 0
 
-        # USE SHARED POOL
         if not db_manager.lg_pool:
             logger.error("Database pool not initialized!")
             return
 
+        table = _qualified(tenant)
         async with db_manager.lg_pool.connection() as conn, conn.cursor() as cur:
             await cur.execute(
-                """
-                INSERT INTO run_events (id, run_id, seq, event, data, created_at)
+                f"""
+                INSERT INTO {table} (id, run_id, seq, event, data, created_at)
                 VALUES (%(id)s, %(run_id)s, %(seq)s, %(event)s, %(data)s, NOW())
                 ON CONFLICT (id) DO NOTHING
                 """,
@@ -64,7 +76,9 @@ class EventStore:
                 },
             )
 
-    async def get_events_since(self, run_id: str, last_event_id: str) -> list[SSEEvent]:
+    async def get_events_since(
+        self, tenant: Tenant, run_id: str, last_event_id: str
+    ) -> list[SSEEvent]:
         """Fetch all events for run after last_event_id sequence."""
         try:
             last_seq = int(str(last_event_id).split("_event_")[-1])
@@ -74,11 +88,12 @@ class EventStore:
         if not db_manager.lg_pool:
             return []
 
+        table = _qualified(tenant)
         async with db_manager.lg_pool.connection() as conn, conn.cursor() as cur:
             await cur.execute(
-                """
+                f"""
                 SELECT id, event, data, created_at
-                FROM run_events
+                FROM {table}
                 WHERE run_id = %(run_id)s AND seq > %(last_seq)s
                 ORDER BY seq ASC
                 """,
@@ -88,15 +103,16 @@ class EventStore:
 
         return [SSEEvent(id=r["id"], event=r["event"], data=r["data"], timestamp=r["created_at"]) for r in rows]
 
-    async def get_all_events(self, run_id: str) -> list[SSEEvent]:
+    async def get_all_events(self, tenant: Tenant, run_id: str) -> list[SSEEvent]:
         if not db_manager.lg_pool:
             return []
 
+        table = _qualified(tenant)
         async with db_manager.lg_pool.connection() as conn, conn.cursor() as cur:
             await cur.execute(
-                """
+                f"""
                 SELECT id, event, data, created_at
-                FROM run_events
+                FROM {table}
                 WHERE run_id = %(run_id)s
                 ORDER BY seq ASC
                 """,
@@ -106,26 +122,28 @@ class EventStore:
 
         return [SSEEvent(id=r["id"], event=r["event"], data=r["data"], timestamp=r["created_at"]) for r in rows]
 
-    async def cleanup_events(self, run_id: str) -> None:
+    async def cleanup_events(self, tenant: Tenant, run_id: str) -> None:
         if not db_manager.lg_pool:
             return
 
+        table = _qualified(tenant)
         async with db_manager.lg_pool.connection() as conn, conn.cursor() as cur:
             await cur.execute(
-                "DELETE FROM run_events WHERE run_id = %(run_id)s",
+                f"DELETE FROM {table} WHERE run_id = %(run_id)s",
                 {"run_id": run_id},
             )
 
-    async def get_run_info(self, run_id: str) -> dict | None:
+    async def get_run_info(self, tenant: Tenant, run_id: str) -> dict | None:
         if not db_manager.lg_pool:
-            return
+            return None
 
+        table = _qualified(tenant)
         async with db_manager.lg_pool.connection() as conn, conn.cursor() as cur:
             # 1. Fetch sequence range
             await cur.execute(
-                """
+                f"""
                 SELECT MIN(seq) AS first_seq, MAX(seq) AS last_seq
-                FROM run_events
+                FROM {table}
                 WHERE run_id = %(run_id)s
                 """,
                 {"run_id": run_id},
@@ -137,9 +155,9 @@ class EventStore:
 
             # 2. Fetch last event
             await cur.execute(
-                """
+                f"""
                 SELECT id, created_at
-                FROM run_events
+                FROM {table}
                 WHERE run_id = %(run_id)s AND seq = %(last_seq)s
                 LIMIT 1
                 """,
@@ -166,22 +184,46 @@ class EventStore:
                 logger.error(f"Error in event store cleanup: {e}")
 
     async def _cleanup_old_runs(self) -> None:
-        # Retain events for 1 hour by default
+        """Retain events for 1 hour by default, across every tenant schema."""
         if not db_manager.lg_pool:
             return
 
-        try:
-            async with db_manager.lg_pool.connection() as conn, conn.cursor() as cur:
-                await cur.execute("DELETE FROM run_events WHERE created_at < NOW() - INTERVAL '1 hour'")
-        except Exception as e:
-            logger.error(f"Failed to cleanup old runs: {e}")
+        # Load the enabled tenants via SQLAlchemy (public schema) and then
+        # issue one DELETE per tenant schema on the shared LangGraph pool.
+        from sqlalchemy import select
+
+        maker = _get_session_maker()
+        async with maker() as public_session:
+            tenants = (
+                await public_session.execute(
+                    select(Tenant).where(Tenant.enabled.is_(True))
+                )
+            ).scalars().all()
+
+        for tenant in tenants:
+            table = _qualified(tenant)
+            try:
+                async with db_manager.lg_pool.connection() as conn, conn.cursor() as cur:
+                    await cur.execute(
+                        f"DELETE FROM {table} WHERE created_at < NOW() - INTERVAL '1 hour'"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Failed to cleanup old runs for tenant {tenant.uuid}: {e}"
+                )
 
 
 # Global event store instance
 event_store = EventStore()
 
 
-async def store_sse_event(run_id: str, event_id: str, event_type: str, data: dict) -> SSEEvent:
+async def store_sse_event(
+    tenant: Tenant,
+    run_id: str,
+    event_id: str,
+    event_type: str,
+    data: dict,
+) -> SSEEvent:
     """Store SSE event with proper serialization"""
     serializer = GeneralSerializer()
 
@@ -195,5 +237,5 @@ async def store_sse_event(run_id: str, event_id: str, event_type: str, data: dic
         # Fallback to stringifying as a last resort to avoid crashing the run
         safe_data = {"raw": str(data)}
     event = SSEEvent(id=event_id, event=event_type, data=safe_data, timestamp=datetime.now(UTC))
-    await event_store.store_event(run_id, event)
+    await event_store.store_event(tenant, run_id, event)
     return event

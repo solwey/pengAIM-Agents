@@ -1,55 +1,13 @@
-import base64
 from typing import Any
 
-from jose import JWTError, jwt
 from langgraph_sdk import Auth
 
+from aegra_api.core.orm import Tenant
 from aegra_api.settings import settings
+from aegra_api.utils.tokens import decode_keycloak_token
 
 # The "Auth" object is a container that LangGraph will use to mark our authentication function
 auth = Auth()
-
-
-def decode_jwt_key(v):
-    """
-    Decode base64-encoded JWT public key to PEM format.
-    If the value is already in PEM format (starts with -----BEGIN), return as-is.
-    Otherwise, attempt to decode from base64.
-    """
-    if not v or not isinstance(v, str):
-        return v
-
-    v = v.strip()
-
-    # If already in PEM format, return as-is
-    if v.startswith("-----BEGIN"):
-        return v
-
-    # Try to decode from base64
-    try:
-        decoded = base64.b64decode(v).decode("utf-8")
-        return decoded
-    except Exception:
-        # If decoding fails, return original value (might be empty or invalid)
-        return v
-
-
-async def verify_token_status(token: str) -> tuple[str, str, str]:
-    try:
-        verification_key = decode_jwt_key(settings.app.JWT_PUBLIC_KEY)
-        payload = jwt.decode(token, verification_key, algorithms=[settings.app.JWT_ALG])
-
-        # Verify token type
-        if payload.get("typ") != "access":
-            raise ValueError("Invalid token type. Use access token, not refresh token.")
-
-        sub = payload.get("sub")
-        team_id = payload.get("team_id")
-        role = payload.get("role")
-        return sub, team_id, role
-
-    except JWTError:
-        raise ValueError("Invalid or expired token")
 
 
 # The `authenticate` decorator tells LangGraph to call this function as middleware
@@ -57,6 +15,7 @@ async def verify_token_status(token: str) -> tuple[str, str, str]:
 @auth.authenticate
 async def get_current_user(
     headers: dict[str, str] | None,
+    tenant: Tenant | None = None,
 ):
     """Check if the user's JWT token is valid using custom logic"""
     # Extract authorization header
@@ -90,18 +49,30 @@ async def get_current_user(
         raise Auth.exceptions.HTTPException(status_code=401, detail="Invalid authorization header format")
 
     try:
-        user_id, team_id, role = await verify_token_status(token)
-        if not team_id:
+        payload = decode_keycloak_token(token, settings.app.KEYCLOAK_URL)
+        if not payload.team_id:
             raise ValueError("Team id not found in verification response")
 
+        if not payload.role:
+            raise ValueError("Account is not activated. Please contact your administrator")
+
+        # Enforce that the token's Keycloak realm matches the tenant the
+        # request is addressed to. This stops a valid token from one tenant
+        # being used against another tenant's endpoints.
+        if tenant is not None and payload.realm != tenant.kc_realm:
+            raise ValueError(
+                f"Token realm '{payload.realm}' does not match tenant realm "
+                f"'{tenant.kc_realm}'"
+            )
+
         return {
-            "identity": f"{user_id}:{team_id}",
-            "id": user_id,
-            "team_id": team_id,
+            "identity": f"{payload.user_id}:{payload.team_id}",
+            "id": payload.user_id,
+            "team_id": payload.team_id,
             "is_authenticated": True,
             "authorization": authorization,
             "permissions": [
-                f"role:{role}",
+                f"role:{payload.role}",
             ],
         }
     except Exception as e:

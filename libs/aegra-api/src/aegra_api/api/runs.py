@@ -21,8 +21,10 @@ from aegra_api.core.auth_handlers import build_auth_context, handle_event
 from aegra_api.core.orm import Assistant as AssistantORM
 from aegra_api.core.orm import Run as RunORM
 from aegra_api.core.orm import RunEvent as RunEventORM
-from aegra_api.core.orm import RunStatusHistory, _get_session_maker, get_session
+from aegra_api.core.orm import RunStatusHistory, get_session, new_tenant_session
+from aegra_api.core.orm import Tenant
 from aegra_api.core.orm import Thread as ThreadORM
+from aegra_api.core.tenant import get_current_tenant
 from aegra_api.core.serializers import GeneralSerializer
 from aegra_api.core.sse import create_end_event, get_sse_headers
 from aegra_api.models import Run, RunCreate, RunStatus, User
@@ -194,6 +196,7 @@ async def create_run(
     request: RunCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> Run:
     """Create and execute a new run.
 
@@ -329,6 +332,7 @@ async def create_run(
             assistant.graph_id,
             request.input or {},
             user,
+            tenant,
             config,
             context,
             request.stream_mode,
@@ -354,6 +358,7 @@ async def create_and_stream_run(
     request: RunCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> StreamingResponse:
     """Create a new run and stream its execution via SSE.
 
@@ -472,6 +477,7 @@ async def create_and_stream_run(
             assistant.graph_id,
             request.input or {},
             user,
+            tenant,
             config,
             context,
             request.stream_mode,
@@ -501,6 +507,7 @@ async def create_and_stream_run(
 
     return StreamingResponse(
         streaming_service.stream_run_execution(
+            tenant,
             run,
             None,
             cancel_on_disconnect=cancel_on_disconnect,
@@ -670,6 +677,7 @@ async def join_run(
     thread_id: str,
     run_id: str,
     user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Wait for a run to complete and return its output.
 
@@ -680,10 +688,8 @@ async def join_run(
     Sessions are managed manually (not via Depends) to avoid holding a pool
     connection during the long wait, which would starve background tasks.
     """
-    maker = _get_session_maker()
-
     # Short-lived session: validate run exists and check terminal state
-    async with maker() as session:
+    async for session in get_session(tenant):
         stmt = (
             select(RunORM)
             .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
@@ -721,7 +727,7 @@ async def join_run(
             pass
 
     # Short-lived session: read final output
-    async with maker() as session:
+    async for session in get_session(tenant):
         run_orm = await session.scalar(
             select(RunORM).where(
                 RunORM.run_id == run_id,
@@ -739,6 +745,7 @@ async def wait_for_run(
     thread_id: str,
     request: RunCreate,
     user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Create a run, execute it, and wait for completion.
 
@@ -750,10 +757,8 @@ async def wait_for_run(
     Sessions are managed manually (not via Depends) to avoid holding a pool
     connection during the long wait, which would starve background tasks.
     """
-    maker = _get_session_maker()
-
     # Session block 1: all pre-execution DB work (validate, create run, commit)
-    async with maker() as session:
+    async for session in get_session(tenant):
         # Validate resume command requirements early
         await _validate_resume_command(session, thread_id, request.command)
 
@@ -850,6 +855,7 @@ async def wait_for_run(
             graph_id,
             request.input or {},
             user,
+            tenant,
             config,
             context,
             request.stream_mode,
@@ -880,7 +886,7 @@ async def wait_for_run(
         # Exception already handled by execute_run_async
 
     # Session block 2: read final output
-    async with maker() as session:
+    async for session in get_session(tenant):
         run_orm = await session.scalar(
             select(RunORM).where(
                 RunORM.run_id == run_id,
@@ -906,6 +912,7 @@ async def stream_run(
     _stream_mode: str | None = Query(None, description="Override the stream mode for this connection."),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> StreamingResponse:
     """Stream an existing run's execution via SSE.
 
@@ -964,7 +971,7 @@ async def stream_run(
     run_model = Run.model_validate(run_orm)
 
     return StreamingResponse(
-        streaming_service.stream_run_execution(run_model, last_event_id, cancel_on_disconnect=False),
+        streaming_service.stream_run_execution(tenant, run_model, last_event_id, cancel_on_disconnect=False),
         media_type="text/event-stream",
         headers={
             **get_sse_headers(),
@@ -1067,6 +1074,7 @@ async def execute_run_async(
     graph_id: str,
     input_data: dict,
     user: User,
+    tenant: Tenant,
     config: dict | None = None,
     context: dict | None = None,
     stream_mode: str | list[str] | None = None,
@@ -1081,8 +1089,7 @@ async def execute_run_async(
     """Execute run asynchronously in background using streaming to capture all events."""
     owns_session = session is None
     if session is None:
-        maker = _get_session_maker()
-        session = maker()
+        session = new_tenant_session(tenant)
 
     # --- Run metrics tracking ---
     tool_calls_count = 0
@@ -1169,6 +1176,7 @@ async def execute_run_async(
                     input_data=execution_input,
                     config=run_config,
                     stream_mode=stream_mode_list,
+                    tenant_id=tenant.uuid,
                     context=context,
                     subgraphs=subgraphs,
                     on_checkpoint=lambda _: None,  # Can add checkpoint handling if needed
@@ -1206,7 +1214,7 @@ async def execute_run_async(
                             await streaming_service.put_to_broker(run_id, event_id, event_tuple)
 
                             # Store for replay (already filtered by graph_streaming)
-                            await streaming_service.store_event_from_raw(run_id, event_id, event_tuple)
+                            await streaming_service.store_event_from_raw(tenant, run_id, event_id, event_tuple)
 
                         # Check for interrupt
                         if isinstance(event_data, dict) and "__interrupt__" in event_data:
@@ -1271,7 +1279,7 @@ async def execute_run_async(
                         # Error processing individual event - send error to frontend immediately
                         logger.error(f"[execute_run_async] error processing event for run_id={run_id}: {event_error}")
                         error_type = type(event_error).__name__
-                        await streaming_service.signal_run_error(run_id, str(event_error), error_type)
+                        await streaming_service.signal_run_error(tenant, run_id, str(event_error), error_type)
                         raise
 
             except Exception as stream_error:
@@ -1279,7 +1287,7 @@ async def execute_run_async(
                 # Send error to frontend before re-raising
                 logger.error(f"[execute_run_async] streaming error for run_id={run_id}: {stream_error}")
                 error_type = type(stream_error).__name__
-                await streaming_service.signal_run_error(run_id, str(stream_error), error_type)
+                await streaming_service.signal_run_error(tenant, run_id, str(stream_error), error_type)
                 raise
 
         # Save tool metrics
@@ -1303,7 +1311,7 @@ async def execute_run_async(
             event_counter += 1
             end_event_id = f"{run_id}_event_{event_counter}"
             await streaming_service.put_to_broker(run_id, end_event_id, ("end", {"status": "interrupted"}))
-            await streaming_service.store_event_from_raw(run_id, end_event_id, ("end", {"status": "interrupted"}))
+            await streaming_service.store_event_from_raw(tenant, run_id, end_event_id, ("end", {"status": "interrupted"}))
 
         else:
             # Update with results - use standard status
@@ -1317,7 +1325,7 @@ async def execute_run_async(
             event_counter += 1
             end_event_id = f"{run_id}_event_{event_counter}"
             await streaming_service.put_to_broker(run_id, end_event_id, ("end", {"status": "completed"}))
-            await streaming_service.store_event_from_raw(run_id, end_event_id, ("end", {"status": "completed"}))
+            await streaming_service.store_event_from_raw(tenant, run_id, end_event_id, ("end", {"status": "completed"}))
             logger.info("run_completed", run_id=run_id, thread_id=thread_id, event_count=event_counter)
 
     except asyncio.CancelledError:
@@ -1345,7 +1353,7 @@ async def execute_run_async(
         broker = broker_manager.get_broker(run_id)
         if broker and not broker.is_finished():
             error_type = type(e).__name__
-            await streaming_service.signal_run_error(run_id, str(e), error_type)
+            await streaming_service.signal_run_error(tenant, run_id, str(e), error_type)
         # Don't re-raise: this runs as a background task (asyncio.create_task),
         # so re-raising causes "Task exception was never retrieved" warnings.
         # The error is already fully handled (run status, thread status, broker).
@@ -1363,8 +1371,10 @@ async def update_run_status(
     output: Any = None,
     error: str | None = None,
     session: AsyncSession | None = None,
+    tenant: Tenant | None = None,
 ) -> None:
-    """Update run status in database (persisted). If session not provided, opens a short-lived session.
+    """Update run status in database (persisted). If session not provided,
+    opens a short-lived session bound to ``tenant``'s schema.
 
     Status is validated to ensure it conforms to API specification.
     """
@@ -1373,8 +1383,7 @@ async def update_run_status(
 
     owns_session = False
     if session is None:
-        maker = _get_session_maker()
-        session = maker()  # type: ignore[assignment]
+        session = new_tenant_session(tenant)  # type: ignore[assignment]
         owns_session = True
     try:
         now = datetime.now(UTC)
