@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aegra_api.settings import settings
 
-from ..core.orm import Workflow, WorkflowRun, get_session
+from ..core.orm import Workflow, WorkflowRun, get_session, get_current_tenant, Tenant
 from ..services.webhook_security import (
     WebhookVerificationError,
     verify_bearer_token,
@@ -43,7 +43,7 @@ def _decode_jwt_key(v: str | None) -> str | None:
         return v
 
 
-def _create_internal_token(user_id: str, team_id: str) -> str:
+def _create_internal_token(user_id: str, team_id: str, tenant_id: str) -> str:
     """Create a short-lived JWT for internal service calls on behalf of
     the workflow owner.  Uses the same signing key / algorithm that
     pengAIM-RAG uses so the revops-backend accepts it transparently.
@@ -56,6 +56,7 @@ def _create_internal_token(user_id: str, team_id: str) -> str:
 
     now = datetime.now(UTC)
     claims = {
+        "aud": tenant_id,
         "sub": user_id,
         "team_id": team_id,
         "role": "owner",
@@ -71,6 +72,7 @@ async def handle_workflow_webhook(
     webhook_path: str,
     request: Request,
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> dict[str, str]:
     """Receive an incoming webhook and trigger the associated workflow run."""
     # 1. Look up workflow by webhook_path
@@ -148,7 +150,7 @@ async def handle_workflow_webhook(
     # 6. Generate internal auth token for the workflow owner so that
     #    downstream nodes (create_account, create_contact, etc.) can
     #    call the revops-backend on behalf of the workflow creator.
-    internal_token = _create_internal_token(workflow.user_id, workflow.team_id)
+    internal_token = _create_internal_token(workflow.user_id, workflow.team_id, tenant.uuid)
     auth_token = f"Bearer {internal_token}" if internal_token else ""
 
     # 7. Queue Celery task
