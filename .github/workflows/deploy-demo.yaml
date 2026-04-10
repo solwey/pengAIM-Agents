@@ -15,6 +15,5 @@ jobs:
     name: Build and Deploy
     uses: ./.github/workflows/build-and-deploy-images.yaml
     with:
-      envtag: demo
       env: solwey-demo
     secrets: inherit

@@ -10,18 +10,10 @@ on:
         options:
           - solwey-qa
           - solwey-demo
-      envtag:
-        description: "Environment tag"
-        required: true
-        type: string
   workflow_call:
     inputs:
       env:
         description: "Environment to Run"
-        required: true
-        type: string
-      envtag:
-        description: "Environment tag"
         required: true
         type: string
 
@@ -92,7 +84,6 @@ jobs:
 
       - name: Notify in Slack
         run: |
-          ENVIRONMENT="${{ github.event.inputs.envtag || inputs.envtag }}"
-          export SLACK_TITLE="${ENVIRONMENT^^} AGENTS"
+          export SLACK_TITLE="STAGING APP"
           export SLACK_MSG="New version is live."
           ./scripts/_send-slack-msg.sh
