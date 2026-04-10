@@ -49,6 +49,7 @@ class WorkflowResponse(BaseModel):
     version: int = 1
     webhook_enabled: bool = False
     webhook_url: str | None = None
+    webhook_path: str | None = None
     webhook_secret: str | None = None
     created_at: str
     updated_at: str
@@ -519,8 +520,10 @@ async def import_workflow(
 
 def _to_response(workflow: Workflow) -> WorkflowResponse:
     webhook_url = None
+    webhook_path = None
     if workflow.webhook_enabled and workflow.webhook_path:
         webhook_url = _build_webhook_url(workflow.webhook_path)
+        webhook_path = workflow.webhook_path
 
     return WorkflowResponse(
         id=workflow.id,
@@ -533,6 +536,7 @@ def _to_response(workflow: Workflow) -> WorkflowResponse:
         version=workflow.version,
         webhook_enabled=workflow.webhook_enabled,
         webhook_url=webhook_url,
+        webhook_path=webhook_path,
         webhook_secret=workflow.webhook_secret if workflow.webhook_enabled else None,
         created_at=workflow.created_at.isoformat(),
         updated_at=workflow.updated_at.isoformat(),

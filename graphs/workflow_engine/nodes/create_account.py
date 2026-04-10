@@ -20,11 +20,23 @@ REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 # List of (source_key, target_key) — allows one source to map to multiple targets.
 AUTO_FIELD_MAP: list[tuple[str, str]] = [
     ("company_name", "name"),
+    ("company", "name"),
+    ("organization", "name"),
+    ("organization_name", "name"),
+    ("account_name", "name"),
     ("website", "website"),
+    ("domain", "website"),
+    ("company_domain", "website"),
     ("industry", "industry"),
     ("employee_count", "employees"),
     ("employee_count", "size"),
+    ("employees", "employees"),
+    ("company_size", "size"),
     ("estimate_revenue", "revenue"),
+    ("revenue", "revenue"),
+    ("annual_revenue", "revenue"),
+    ("phone", "phone"),
+    ("company_phone", "phone"),
 ]
 
 
@@ -71,11 +83,11 @@ class CreateAccountExecutor(NodeExecutor):
                     for target, template in cfg.field_mapping.items():
                         account[target] = resolve_templates(template, item)
                 else:
-                    # Auto-mapping: preserve original types, let backend coerce
+                    # Auto-mapping: convert values to strings (backend expects string fields)
                     for src_key, dst_key in AUTO_FIELD_MAP:
                         val = item.get(src_key)
                         if val is not None and val != "":
-                            account[dst_key] = val
+                            account[dst_key] = str(val) if not isinstance(val, str) else val
                     # Also copy name directly if present
                     if "name" in item and "name" not in account:
                         account["name"] = item["name"]
@@ -84,6 +96,18 @@ class CreateAccountExecutor(NodeExecutor):
                     st = item.get("state", "")
                     if city or st:
                         account["location"] = f"{city}, {st}".strip(", ")
+
+                # Fallback: try to derive name from other fields
+                if not account.get("name"):
+                    # Try domain from email
+                    email = item.get("email") or item.get("business_email") or ""
+                    if "@" in email:
+                        domain = email.split("@")[1].split(".")[0].capitalize()
+                        account["name"] = domain
+                    # Try first_name + last_name as last resort
+                    elif item.get("first_name") or item.get("last_name"):
+                        parts = [item.get("first_name", ""), item.get("last_name", "")]
+                        account["name"] = " ".join(p for p in parts if p).strip()
 
                 if account.get("name"):
                     accounts.append(account)
