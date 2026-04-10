@@ -129,6 +129,7 @@ class CreateAccountConfig(BaseModel):
     data_key: str = ""  # dot-path to data source (e.g. "sheet_data.rows"), empty = root
     field_mapping: dict[str, str] = Field(default_factory=dict)  # {"name": "{{company_name}}"}
     response_key: str = "created_accounts"
+    dedup_mode: str = "upsert"  # "upsert" | "skip" | "create"
 
 
 class CreateContactConfig(BaseModel):
@@ -136,6 +137,7 @@ class CreateContactConfig(BaseModel):
     data_key: str = ""  # source data key
     field_mapping: dict[str, str] = Field(default_factory=dict)
     response_key: str = "created_contacts"
+    dedup_mode: str = "upsert"  # "upsert" | "skip" | "create"
 
 
 class UpdateAccountConfig(BaseModel):

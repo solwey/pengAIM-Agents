@@ -123,18 +123,22 @@ class CreateAccountExecutor(NodeExecutor):
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.post(
                         f"{settings.graphs.REVY_API_URL}/api/v1/accounts/bulk",
-                        json={"items": accounts},
+                        json={"items": accounts, "dedup_mode": cfg.dedup_mode},
                         headers=headers,
                     )
                     if resp.status_code in (200, 201):
                         body = resp.json()
                         results_list = body.get("results", [])
                         success_ids = [r["item_id"] for r in results_list if r.get("success") and r.get("item_id")]
+                        deduplicated_count = sum(
+                            1 for r in results_list if r.get("deduplicated")
+                        )
                         result = {
                             "ok": True,
                             "total": body.get("total", len(accounts)),
                             "successful": body.get("successful", 0),
                             "failed": body.get("failed", 0),
+                            "deduplicated": deduplicated_count,
                             "results": results_list,
                             "account_id": success_ids[0] if success_ids else None,
                             "account_ids": success_ids,
