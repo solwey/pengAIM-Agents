@@ -20,10 +20,17 @@ AUTO_FIELD_MAP: dict[str, str] = {
     "last_name": "last_name",
     "business_email": "email",
     "email": "email",
+    "work_email": "email",
     "title": "title",
+    "job_title": "title",
+    "position": "title",
     "linkedin_url": "linkedin_url",
+    "linkedin": "linkedin_url",
+    "phone": "phone",
+    "mobile_phone": "phone",
     "city": "city",
     "state": "state",
+    "country": "country",
 }
 
 
