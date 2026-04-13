@@ -29,7 +29,6 @@ from aegra_api.config import HttpConfig, get_config_dir, load_http_config
 from aegra_api.core.app_loader import load_custom_app
 from aegra_api.core.auth_deps import auth_dependency
 from aegra_api.core.database import db_manager
-from aegra_api.core.tenant import validate_tenant
 from aegra_api.core.health import router as health_router
 from aegra_api.core.migrations import run_migrations_async
 from aegra_api.core.redis_manager import redis_manager
@@ -37,6 +36,7 @@ from aegra_api.core.route_merger import (
     merge_exception_handlers,
     merge_lifespans,
 )
+from aegra_api.core.tenant import validate_tenant
 from aegra_api.middleware import ContentTypeFixMiddleware, StructLogMiddleware
 from aegra_api.models.errors import AgentProtocolError, get_error_type
 from aegra_api.observability.setup import setup_observability

@@ -67,19 +67,16 @@ COPY aegra.json ./aegra.json
 COPY auth.py ./auth.py
 COPY graphs/ ./graphs/
 
-# Copy src to keep compatibility with current compose command using 'src.agent_server.main:app'
-# (We can switch compose to 'agent_server.main:app' later and drop this for a smaller image.)
-COPY src/ ./src/
-
 ARG ENV_FILE
 COPY ${ENV_FILE} ./.env
 
 RUN rm -f scripts/.env*
 
 EXPOSE 8000
+EXPOSE 2024
 
 # Run as non-root
 USER app
 
 # Default command - can be overridden by docker-compose
-CMD ["aegra", "serve"]
+CMD ["aegra", "serve", "--port", "2024"]

@@ -48,6 +48,7 @@ async def info(_request: Request) -> InfoResponse:
     )
 
 
+@router.get("/health/health", response_model=HealthResponse, responses={**UNAVAILABLE})
 @router.get("/health", response_model=HealthResponse, responses={**UNAVAILABLE})
 async def health_check(_request: Request) -> HealthResponse:
     """Check the health of all server components.
