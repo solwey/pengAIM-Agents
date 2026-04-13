@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
 from graphs.workflow_engine.schema import ActivateInstantlyConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class ActivateInstantlyExecutor(NodeExecutor):
@@ -47,7 +45,7 @@ class ActivateInstantlyExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.post(
-                        f"{REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/activate",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/activate",
                         headers=headers,
                     )
                     if resp.status_code in (200, 201):

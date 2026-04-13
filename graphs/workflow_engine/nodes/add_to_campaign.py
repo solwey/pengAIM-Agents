@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
 from graphs.workflow_engine.schema import AddToCampaignConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class AddToCampaignExecutor(NodeExecutor):
@@ -32,18 +30,26 @@ class AddToCampaignExecutor(NodeExecutor):
                 headers["Authorization"] = auth_token
 
             # Resolve campaign ID
-            campaign_id = cfg.campaign_id or resolve_field(data, cfg.campaign_id_key) if cfg.campaign_id_key else cfg.campaign_id
+            campaign_id = (
+                cfg.campaign_id or resolve_field(data, cfg.campaign_id_key) if cfg.campaign_id_key else cfg.campaign_id
+            )
             if not campaign_id:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "No campaign_id configured or found in state"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "error": "No campaign_id configured or found in state"},
+                    }
+                }
 
             # Resolve account IDs
             account_id = resolve_field(data, cfg.account_id_key)
             if not account_id:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": f"No account_id found at '{cfg.account_id_key}'"
-                }}}
+                return {
+                    "data": {
+                        **data,
+                        cfg.response_key: {"ok": False, "error": f"No account_id found at '{cfg.account_id_key}'"},
+                    }
+                }
 
             account_ids = account_id if isinstance(account_id, list) else [account_id]
 
@@ -52,7 +58,7 @@ class AddToCampaignExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.put(
-                        f"{REVY_API_URL}/api/v1/campaigns/{campaign_id}",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}",
                         json={"account_ids": account_ids},
                         headers=headers,
                     )

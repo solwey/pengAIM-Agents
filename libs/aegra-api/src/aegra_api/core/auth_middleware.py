@@ -15,6 +15,7 @@ from typing import Any
 import structlog
 from langgraph_sdk import Auth
 from langgraph_sdk.auth.types import MinimalUserDict
+from sqlalchemy import select
 from starlette.authentication import (
     AuthCredentials,
     AuthenticationBackend,
@@ -23,8 +24,6 @@ from starlette.authentication import (
 )
 from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse
-
-from sqlalchemy import select
 
 from aegra_api.config import get_config_dir, load_auth_config
 from aegra_api.core.orm import Tenant, _get_session_maker
@@ -219,9 +218,7 @@ class LangGraphAuthBackend(AuthenticationBackend):
 
         maker = _get_session_maker()
         async with maker() as session:
-            result = await session.execute(
-                select(Tenant).where(Tenant.uuid == tenant_uuid)
-            )
+            result = await session.execute(select(Tenant).where(Tenant.uuid == tenant_uuid))
             tenant = result.scalar_one_or_none()
 
         return tenant
@@ -270,9 +267,7 @@ class LangGraphAuthBackend(AuthenticationBackend):
 
             tenant = await self._resolve_tenant(conn)
             # Call the authenticate handler
-            user_data = await self.auth_instance._authenticate_handler(
-                headers, tenant=tenant
-            )
+            user_data = await self.auth_instance._authenticate_handler(headers, tenant=tenant)
 
             if not user_data or not isinstance(user_data, dict):
                 raise AuthenticationError("Invalid user data returned from auth handler")

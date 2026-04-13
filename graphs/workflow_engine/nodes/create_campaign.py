@@ -5,18 +5,16 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 from typing import Any
 
 import httpx
 from langchain_core.runnables import RunnableConfig
 
+from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_templates
 from graphs.workflow_engine.schema import CreateCampaignConfig
 
 logger = logging.getLogger(__name__)
-
-REVY_API_URL = os.getenv("REVY_API_URL", "http://localhost:8002")
 
 
 class CreateCampaignExecutor(NodeExecutor):
@@ -63,7 +61,7 @@ class CreateCampaignExecutor(NodeExecutor):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
                     resp = await client.post(
-                        f"{REVY_API_URL}/api/v1/campaigns",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns",
                         json=payload,
                         headers=headers,
                     )
