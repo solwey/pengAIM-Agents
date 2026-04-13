@@ -34,6 +34,9 @@ class NodeType(StrEnum):
     SOURCE_CONDITION = "source_condition"
     CREATE_CAMPAIGN = "create_campaign"
     ADD_TO_CAMPAIGN = "add_to_campaign"
+    SYNC_TO_INSTANTLY = "sync_to_instantly"
+    ADD_LEADS_TO_INSTANTLY = "add_leads_to_instantly"
+    ACTIVATE_INSTANTLY = "activate_instantly"
 
 
 class ComparisonOperator(StrEnum):
@@ -238,6 +241,26 @@ class AddToCampaignConfig(BaseModel):
     response_key: str = "campaign_add_result"
 
 
+class SyncToInstantlyConfig(BaseModel):
+    campaign_id: str = ""  # direct campaign ID
+    campaign_id_key: str = ""  # or dot-path to campaign ID in state (e.g. "created_campaign.campaign_id")
+    account_email: str = ""  # sender email, supports {{template}}
+    response_key: str = "instantly_sync_result"
+
+
+class AddLeadsToInstantlyConfig(BaseModel):
+    campaign_id: str = ""  # direct campaign ID
+    campaign_id_key: str = ""  # or dot-path to campaign ID in state
+    contact_ids_key: str = "created_contacts.contact_id"  # dot-path to contact ID(s)
+    response_key: str = "instantly_leads_result"
+
+
+class ActivateInstantlyConfig(BaseModel):
+    campaign_id: str = ""  # direct campaign ID
+    campaign_id_key: str = ""  # or dot-path to campaign ID in state
+    response_key: str = "instantly_activate_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -276,6 +299,9 @@ class NodeDef(BaseModel):
             NodeType.SOURCE_CONDITION: SourceConditionConfig,
             NodeType.CREATE_CAMPAIGN: CreateCampaignConfig,
             NodeType.ADD_TO_CAMPAIGN: AddToCampaignConfig,
+            NodeType.SYNC_TO_INSTANTLY: SyncToInstantlyConfig,
+            NodeType.ADD_LEADS_TO_INSTANTLY: AddLeadsToInstantlyConfig,
+            NodeType.ACTIVATE_INSTANTLY: ActivateInstantlyConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

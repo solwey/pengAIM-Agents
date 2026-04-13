@@ -1,8 +1,12 @@
+from .activate_instantly import ActivateInstantlyExecutor
+from .add_leads_to_instantly import AddLeadsToInstantlyExecutor
 from .add_tag import AddTagExecutor
+from .add_to_campaign import AddToCampaignExecutor
 from .add_to_list import AddToListExecutor
 from .api_request import ApiRequestExecutor
 from .condition import ConditionExecutor, build_condition_router
 from .create_account import CreateAccountExecutor
+from .create_campaign import CreateCampaignExecutor
 from .create_contact import CreateContactExecutor
 from .delay import DelayExecutor
 from .email_message import EmailMessageExecutor
@@ -18,19 +22,10 @@ from .set_source import SetSourceExecutor
 from .slack_message import SlackMessageExecutor
 from .source_condition import SourceConditionExecutor, build_source_condition_router
 from .switch import SwitchExecutor, build_switch_router
+from .sync_to_instantly import SyncToInstantlyExecutor
 from .tag_condition import TagConditionExecutor, build_tag_condition_router
 from .transform import TransformExecutor
 from .update_account import UpdateAccountExecutor
-from .add_tag import AddTagExecutor
-from .remove_tag import RemoveTagExecutor
-from .add_to_list import AddToListExecutor
-from .remove_from_list import RemoveFromListExecutor
-from .tag_condition import TagConditionExecutor, build_tag_condition_router
-from .list_condition import ListConditionExecutor, build_list_condition_router
-from .source_condition import SourceConditionExecutor, build_source_condition_router
-from .set_source import SetSourceExecutor
-from .create_campaign import CreateCampaignExecutor
-from .add_to_campaign import AddToCampaignExecutor
 
 NODE_REGISTRY: dict[str, type] = {
     "api_request": ApiRequestExecutor,
@@ -58,6 +53,9 @@ NODE_REGISTRY: dict[str, type] = {
     "set_source": SetSourceExecutor,
     "create_campaign": CreateCampaignExecutor,
     "add_to_campaign": AddToCampaignExecutor,
+    "sync_to_instantly": SyncToInstantlyExecutor,
+    "add_leads_to_instantly": AddLeadsToInstantlyExecutor,
+    "activate_instantly": ActivateInstantlyExecutor,
 }
 
 __all__ = [

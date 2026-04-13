@@ -1,4 +1,4 @@
-"""Add to Campaign node — links accounts to a campaign on the RevOps platform."""
+"""Activate Instantly node — activates a campaign in Instantly to start sending emails."""
 
 from __future__ import annotations
 
@@ -10,17 +10,17 @@ from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
-from graphs.workflow_engine.schema import AddToCampaignConfig
+from graphs.workflow_engine.schema import ActivateInstantlyConfig
 
 logger = logging.getLogger(__name__)
 
 
-class AddToCampaignExecutor(NodeExecutor):
+class ActivateInstantlyExecutor(NodeExecutor):
     @staticmethod
     def create(config: dict[str, Any]):
-        cfg = AddToCampaignConfig(**config)
+        cfg = ActivateInstantlyConfig(**config)
 
-        async def add_to_campaign_node(state: dict, config: RunnableConfig) -> dict:
+        async def activate_instantly_node(state: dict, config: RunnableConfig) -> dict:
             data = state.get("data", {})
             configurable = config.get("configurable", {})
             auth_token = configurable.get("auth_token", "")
@@ -41,37 +41,22 @@ class AddToCampaignExecutor(NodeExecutor):
                     }
                 }
 
-            # Resolve account IDs
-            account_id = resolve_field(data, cfg.account_id_key)
-            if not account_id:
-                return {
-                    "data": {
-                        **data,
-                        cfg.response_key: {"ok": False, "error": f"No account_id found at '{cfg.account_id_key}'"},
-                    }
-                }
-
-            account_ids = account_id if isinstance(account_id, list) else [account_id]
-
-            # Update campaign to link accounts
             result: dict[str, Any]
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    resp = await client.put(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}",
-                        json={"account_ids": account_ids},
+                    resp = await client.post(
+                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/activate",
                         headers=headers,
                     )
                     if resp.status_code in (200, 201):
                         result = {
                             "ok": True,
                             "campaign_id": campaign_id,
-                            "accounts_added": len(account_ids),
+                            "status": "activated",
                         }
-                        logger.info("Added %d accounts to campaign %s", len(account_ids), campaign_id)
+                        logger.info("Instantly campaign %s activated", campaign_id)
                     else:
-                        result = {"ok": False, "error": resp.text[:300]}
-
+                        result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
                 result = {"ok": False, "error": "Request timed out"}
             except httpx.RequestError as exc:
@@ -79,4 +64,4 @@ class AddToCampaignExecutor(NodeExecutor):
 
             return {"data": {**data, cfg.response_key: result}}
 
-        return add_to_campaign_node
+        return activate_instantly_node

@@ -51,7 +51,10 @@ class SetSourceExecutor(NodeExecutor):
                             }
                         }
 
-                    sources = resp.json()
+                    sources_data = resp.json()
+                    sources = (
+                        sources_data.get("items", sources_data) if isinstance(sources_data, dict) else sources_data
+                    )
                     source = next((s for s in sources if s["name"] == source_name), None)
                     if not source:
                         return {
