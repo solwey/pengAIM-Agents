@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import os
 from typing import Any
@@ -33,14 +35,25 @@ class CreateCampaignExecutor(NodeExecutor):
 
             name = resolve_templates(cfg.name, data) if cfg.name else ""
             if not name:
-                return {"data": {**data, cfg.response_key: {
-                    "ok": False, "error": "Campaign name is required"
-                }}}
+                return {"data": {**data, cfg.response_key: {"ok": False, "error": "Campaign name is required"}}}
+
+            # Extract team_id from JWT for campaign creation
+            team_id = configurable.get("team_id", "")
+            if not team_id and auth_token:
+                try:
+                    token_part = auth_token.replace("Bearer ", "").split(".")[1]
+                    token_part += "=" * (-len(token_part) % 4)
+                    claims = json.loads(base64.b64decode(token_part))
+                    team_id = claims.get("team_id", "")
+                except (ValueError, KeyError, IndexError):
+                    logger.debug("Could not extract team_id from auth token")
 
             payload: dict[str, Any] = {
                 "name": name,
                 "channels": cfg.channels,
             }
+            if team_id:
+                payload["team_id"] = team_id
             if cfg.description:
                 payload["description"] = resolve_templates(cfg.description, data)
             if cfg.target_persona:
