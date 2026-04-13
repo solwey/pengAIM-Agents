@@ -72,9 +72,10 @@ COPY ${ENV_FILE} ./.env
 RUN rm -f scripts/.env*
 
 EXPOSE 8000
+EXPOSE 2024
 
 # Run as non-root
 USER app
 
 # Default command - can be overridden by docker-compose
-CMD ["aegra", "serve"]
+CMD ["aegra", "serve", "--port", "2024"]
