@@ -28,6 +28,8 @@ class RunIdentity(BaseModel):
     run_id: str
     thread_id: str
     graph_id: str
+    tenant_schema: str
+    tenant_id: str = ""
 
 
 class RunExecution(BaseModel):
@@ -77,6 +79,8 @@ class RunJob(BaseModel):
         """
         return {
             "graph_id": self.identity.graph_id,
+            "tenant_schema": self.identity.tenant_schema,
+            "tenant_id": self.identity.tenant_id,
             "user": self.user.model_dump(),
             "execution": self.execution.model_dump(),
             "behavior": self.behavior.model_dump(),
@@ -88,11 +92,16 @@ class RunJob(BaseModel):
         params = run_orm.execution_params
         if params is None:
             raise ValueError(f"Run {run_orm.run_id} has no execution_params")
+        tenant_schema = params.get("tenant_schema")
+        if not isinstance(tenant_schema, str) or not tenant_schema:
+            raise ValueError(f"Run {run_orm.run_id} has no tenant_schema in execution_params")
         return cls(
             identity=RunIdentity(
                 run_id=run_orm.run_id,
                 thread_id=run_orm.thread_id,
                 graph_id=params["graph_id"],
+                tenant_schema=tenant_schema,
+                tenant_id=params.get("tenant_id", tenant_schema),
             ),
             user=User.model_validate(params["user"]),
             execution=RunExecution.model_validate(params["execution"]),

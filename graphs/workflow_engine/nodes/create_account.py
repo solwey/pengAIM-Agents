@@ -130,9 +130,7 @@ class CreateAccountExecutor(NodeExecutor):
                         body = resp.json()
                         results_list = body.get("results", [])
                         success_ids = [r["item_id"] for r in results_list if r.get("success") and r.get("item_id")]
-                        deduplicated_count = sum(
-                            1 for r in results_list if r.get("deduplicated")
-                        )
+                        deduplicated_count = sum(1 for r in results_list if r.get("deduplicated"))
                         result = {
                             "ok": True,
                             "total": body.get("total", len(accounts)),

@@ -486,6 +486,7 @@ async def _get_workflow_or_404(session: AsyncSession, workflow_id: str, user: Us
 
 class WorkflowExport(BaseModel):
     """Portable workflow format for import/export."""
+
     name: str
     description: str | None = None
     definition: dict
@@ -493,6 +494,7 @@ class WorkflowExport(BaseModel):
 
 class WorkflowImport(BaseModel):
     """Import a workflow from JSON."""
+
     name: str | None = None  # Override name, or use from JSON
     description: str | None = None
     definition: dict
@@ -533,8 +535,6 @@ async def import_workflow(
     await session.commit()
     await session.refresh(workflow)
     return _to_response(workflow)
-
-
 
 
 # ---------------------------------------------------------------------------

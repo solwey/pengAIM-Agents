@@ -23,13 +23,14 @@ from sqlalchemy import select, update
 
 from aegra_api.core.active_runs import active_runs
 from aegra_api.core.orm import Run as RunORM
-from aegra_api.core.orm import _get_session_maker
+from aegra_api.core.orm import Tenant, _get_session_maker, new_tenant_session
 from aegra_api.core.redis_manager import redis_manager
 from aegra_api.models.run_job import RunJob
 from aegra_api.observability.span_enrichment import set_trace_context
 from aegra_api.services.base_executor import BaseExecutor
 from aegra_api.services.run_executor import _lease_loss_cancellations, execute_run
 from aegra_api.services.run_status import finalize_run, update_run_status
+from aegra_api.services.worker_queue import decode_queue_payload, encode_queue_payload
 from aegra_api.settings import settings
 
 logger = structlog.getLogger(__name__)
@@ -59,10 +60,15 @@ class WorkerExecutor(BaseExecutor):
 
     async def submit(self, job: RunJob) -> None:
         client = redis_manager.get_client()
-        await client.rpush(settings.worker.WORKER_QUEUE_KEY, job.identity.run_id)  # type: ignore[arg-type]
+        payload = encode_queue_payload(
+            tenant_schema=job.identity.tenant_schema,
+            run_id=job.identity.run_id,
+        )
+        await client.rpush(settings.worker.WORKER_QUEUE_KEY, payload)  # type: ignore[arg-type]
         logger.info(
             "Enqueued run_id to job queue",
             run_id=job.identity.run_id,
+            tenant_schema=job.identity.tenant_schema,
             queue=settings.worker.WORKER_QUEUE_KEY,
         )
 
@@ -70,7 +76,13 @@ class WorkerExecutor(BaseExecutor):
     # Wait for completion (API side)
     # ------------------------------------------------------------------
 
-    async def wait_for_completion(self, run_id: str, *, timeout: float = 300.0) -> None:
+    async def wait_for_completion(
+        self,
+        run_id: str,
+        *,
+        tenant_schema: str,
+        timeout: float = 300.0,
+    ) -> None:
         """Wait for a run to finish by polling a Redis done-key with DB fallback."""
         done_key = f"{settings.redis.REDIS_CHANNEL_PREFIX}done:{run_id}"
         client = redis_manager.get_client()
@@ -86,7 +98,7 @@ class WorkerExecutor(BaseExecutor):
                 pass
 
             poll_count += 1
-            if poll_count % 2 == 0 and await _is_run_terminal(run_id):
+            if poll_count % 2 == 0 and await _is_run_terminal(run_id, tenant_schema):
                 return
 
             await asyncio.sleep(2.0)
@@ -170,17 +182,25 @@ class WorkerExecutor(BaseExecutor):
                     semaphore.release()
                     break
 
-                run_id = await self._dequeue()
-                if run_id is None:
+                item = await self._dequeue()
+                if item is None:
                     semaphore.release()
                     continue
+                tenant_schema, run_id = item
 
                 if not _is_valid_run_id(run_id):
                     logger.warning("Invalid run_id dequeued, discarding", value=run_id[:64])
                     semaphore.release()
                     continue
 
-                task = asyncio.create_task(self._execute_and_release(run_id, worker_name, semaphore))
+                task = asyncio.create_task(
+                    self._execute_and_release(
+                        run_id,
+                        tenant_schema,
+                        worker_name,
+                        semaphore,
+                    )
+                )
                 self._job_tasks.add(task)
                 task.add_done_callback(self._job_tasks.discard)
 
@@ -196,6 +216,7 @@ class WorkerExecutor(BaseExecutor):
     async def _execute_and_release(
         self,
         run_id: str,
+        tenant_schema: str,
         worker_name: str,
         semaphore: asyncio.Semaphore,
     ) -> None:
@@ -207,7 +228,7 @@ class WorkerExecutor(BaseExecutor):
             active_runs[run_id] = current_task
         try:
             await asyncio.wait_for(
-                self._execute_with_lease(run_id, worker_name),
+                self._execute_with_lease(run_id, tenant_schema, worker_name),
                 timeout=settings.worker.BG_JOB_TIMEOUT_SECS,
             )
         except TimeoutError:
@@ -220,19 +241,25 @@ class WorkerExecutor(BaseExecutor):
             # Look up thread_id so we can set thread status to "error" too.
             # When wait_for fires, execute_run's CancelledError handler runs first
             # and sets thread_status="idle" — we must correct that to "error".
-            thread_id = await _get_thread_id_for_run(run_id)
+            thread_id = await _get_thread_id_for_run(run_id, tenant_schema)
             if thread_id is not None:
                 await finalize_run(
                     run_id,
                     thread_id,
+                    tenant_schema,
                     status="error",
                     thread_status="error",
                     error="Job exceeded maximum execution time",
                 )
             else:
                 # Fallback: update run status only (thread_id lookup failed)
-                await update_run_status(run_id, "error", error="Job exceeded maximum execution time")
-            await _release_lease(run_id, worker_name)
+                await update_run_status(
+                    run_id,
+                    "error",
+                    tenant_schema,
+                    error="Job exceeded maximum execution time",
+                )
+            await _release_lease(run_id, tenant_schema, worker_name)
         except asyncio.CancelledError:
             logger.info("Job task cancelled", worker=worker_name, run_id=run_id)
             raise
@@ -246,23 +273,28 @@ class WorkerExecutor(BaseExecutor):
     # Job execution (lease + heartbeat)
     # ------------------------------------------------------------------
 
-    async def _dequeue(self) -> str | None:
+    async def _dequeue(self) -> tuple[str, str] | None:
         """BLPOP with 5s timeout. Falls back to Postgres polling if Redis is down."""
         try:
             client = redis_manager.get_client()
             result = await client.blpop(settings.worker.WORKER_QUEUE_KEY, timeout=5)  # type: ignore[arg-type]
             if result is None:
                 return None
-            return result[1]  # type: ignore[return-value]
+            decoded = decode_queue_payload(result[1])  # type: ignore[arg-type]
+            if decoded is None:
+                logger.warning("Invalid queue payload, discarding", payload=str(result[1])[:64])  # type: ignore[index]
+                return None
+            tenant_schema, run_id = decoded
+            return tenant_schema, run_id
         except RedisError as exc:
             logger.warning("Redis BLPOP failed, falling back to Postgres poll", error=str(exc))
             await asyncio.sleep(settings.worker.POSTGRES_POLL_INTERVAL_SECONDS)
             return await self._poll_postgres()
 
-    async def _execute_with_lease(self, run_id: str, worker_name: str) -> None:
+    async def _execute_with_lease(self, run_id: str, tenant_schema: str, worker_name: str) -> None:
         """Acquire lease, load job from DB, execute with heartbeat."""
         lease_acquired_at = datetime.now(UTC)
-        loaded = await _acquire_and_load(run_id, worker_name)
+        loaded = await _acquire_and_load(run_id, tenant_schema, worker_name)
         if loaded is None:
             logger.debug("Lease not acquired or job missing, skipping", run_id=run_id, worker=worker_name)
             return
@@ -278,7 +310,7 @@ class WorkerExecutor(BaseExecutor):
         # lease loss, preventing double execution by a second worker.
         job_task = asyncio.create_task(execute_run(loaded.job))
         heartbeat_task = asyncio.create_task(
-            _heartbeat_loop(run_id, worker_name, job_task=job_task),
+            _heartbeat_loop(run_id, tenant_schema, worker_name, job_task=job_task),
             context=contextvars.copy_context(),
         )
 
@@ -298,7 +330,7 @@ class WorkerExecutor(BaseExecutor):
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.gather(job_task, heartbeat_task, return_exceptions=True)
-            await _release_lease(run_id, worker_name)
+            await _release_lease(run_id, tenant_schema, worker_name)
 
             elapsed = (datetime.now(UTC) - lease_acquired_at).total_seconds()
             logger.info(
@@ -309,17 +341,31 @@ class WorkerExecutor(BaseExecutor):
             )
 
     @staticmethod
-    async def _poll_postgres() -> str | None:
+    async def _poll_postgres() -> tuple[str, str] | None:
         """Pick the oldest pending, unclaimed run from Postgres."""
         maker = _get_session_maker()
         async with maker() as session:
-            run_id = await session.scalar(
-                select(RunORM.run_id)
-                .where(RunORM.status == "pending", RunORM.claimed_by.is_(None))
-                .order_by(RunORM.created_at.asc())
-                .limit(1)
-            )
-            return run_id
+            tenants = (await session.execute(select(Tenant).where(Tenant.enabled.is_(True)))).scalars().all()
+
+        oldest: tuple[datetime, str, str] | None = None
+        for tenant in tenants:
+            async with new_tenant_session(tenant.schema) as tenant_session:
+                row = await tenant_session.execute(
+                    select(RunORM.run_id, RunORM.created_at)
+                    .where(RunORM.status == "pending", RunORM.claimed_by.is_(None))
+                    .order_by(RunORM.created_at.asc())
+                    .limit(1)
+                )
+                found = row.first()
+                if not found:
+                    continue
+                run_id, created_at = found
+                if oldest is None or created_at < oldest[0]:
+                    oldest = (created_at, tenant.schema, run_id)
+
+        if oldest is None:
+            return None
+        return oldest[1], oldest[2]
 
 
 # ------------------------------------------------------------------
@@ -327,10 +373,9 @@ class WorkerExecutor(BaseExecutor):
 # ------------------------------------------------------------------
 
 
-async def _get_thread_id_for_run(run_id: str) -> str | None:
+async def _get_thread_id_for_run(run_id: str, tenant_schema: str) -> str | None:
     """Look up the thread_id for a run. Returns None if the row is missing."""
-    maker = _get_session_maker()
-    async with maker() as session:
+    async with new_tenant_session(tenant_schema) as session:
         return await session.scalar(select(RunORM.thread_id).where(RunORM.run_id == run_id))
 
 
@@ -349,7 +394,7 @@ class _LoadedRun:
         self.trace = trace
 
 
-async def _acquire_and_load(run_id: str, worker_name: str) -> _LoadedRun | None:
+async def _acquire_and_load(run_id: str, tenant_schema: str, worker_name: str) -> _LoadedRun | None:
     """Acquire lease and load job in a single DB session.
 
     Combines the lease UPDATE + job SELECT into one session. If the row
@@ -357,8 +402,7 @@ async def _acquire_and_load(run_id: str, worker_name: str) -> _LoadedRun | None:
     releases the claim and marks the run as errored.
     """
     lease_until = datetime.now(UTC) + timedelta(seconds=settings.worker.LEASE_DURATION_SECONDS)
-    maker = _get_session_maker()
-    async with maker() as session:
+    async with new_tenant_session(tenant_schema) as session:
         result = await session.execute(
             update(RunORM)
             .where(
@@ -394,15 +438,33 @@ async def _acquire_and_load(run_id: str, worker_name: str) -> _LoadedRun | None:
             await session.commit()
             return None
 
-        job = RunJob.from_run_orm(run_orm)
+        try:
+            job = RunJob.from_run_orm(run_orm)
+        except Exception:
+            logger.exception(
+                "Failed to reconstruct RunJob from execution_params",
+                run_id=run_id,
+                worker=worker_name,
+            )
+            await session.execute(
+                update(RunORM)
+                .where(RunORM.run_id == run_id, RunORM.claimed_by == worker_name)
+                .values(
+                    claimed_by=None,
+                    lease_expires_at=None,
+                    status="error",
+                    error_message="Invalid execution_params for worker run",
+                )
+            )
+            await session.commit()
+            return None
         trace = run_orm.execution_params.get("trace", {})
         return _LoadedRun(job=job, trace=trace)
 
 
-async def _release_lease(run_id: str, worker_name: str) -> None:
+async def _release_lease(run_id: str, tenant_schema: str, worker_name: str) -> None:
     """Clear lease fields after job completion, only if this worker still owns the lease."""
-    maker = _get_session_maker()
-    async with maker() as session:
+    async with new_tenant_session(tenant_schema) as session:
         await session.execute(
             update(RunORM)
             .where(RunORM.run_id == run_id, RunORM.claimed_by == worker_name)
@@ -413,6 +475,7 @@ async def _release_lease(run_id: str, worker_name: str) -> None:
 
 async def _heartbeat_loop(
     run_id: str,
+    tenant_schema: str,
     worker_name: str,
     *,
     job_task: asyncio.Task[None] | None = None,
@@ -424,13 +487,11 @@ async def _heartbeat_loop(
     """
     interval = settings.worker.HEARTBEAT_INTERVAL_SECONDS
     duration = settings.worker.LEASE_DURATION_SECONDS
-    maker = _get_session_maker()
-
     while True:
         await asyncio.sleep(interval)
         try:
             new_expiry = datetime.now(UTC) + timedelta(seconds=duration)
-            async with maker() as session:
+            async with new_tenant_session(tenant_schema) as session:
                 result = await session.execute(
                     update(RunORM)
                     .where(RunORM.run_id == run_id, RunORM.claimed_by == worker_name)
@@ -452,10 +513,9 @@ async def _heartbeat_loop(
             logger.warning("Heartbeat lease extension failed", run_id=run_id, worker=worker_name)
 
 
-async def _is_run_terminal(run_id: str) -> bool:
+async def _is_run_terminal(run_id: str, tenant_schema: str) -> bool:
     """Check if a run has reached a terminal state in the DB."""
-    maker = _get_session_maker()
-    async with maker() as session:
+    async with new_tenant_session(tenant_schema) as session:
         run_orm = await session.scalar(select(RunORM).where(RunORM.run_id == run_id))
         if run_orm is None:
             return True

@@ -220,9 +220,7 @@ class LangGraphService:
         # 1. Load the enabled tenants from the public schema.
         maker = _get_session_maker()
         async with maker() as public_session:
-            result = await public_session.execute(
-                select(Tenant).where(Tenant.enabled.is_(True))
-            )
+            result = await public_session.execute(select(Tenant).where(Tenant.enabled.is_(True)))
             tenants = result.scalars().all()
 
         if not tenants:
@@ -233,16 +231,12 @@ class LangGraphService:
 
         # 2. For each tenant, open a session bound to its schema and seed.
         for tenant in tenants:
-            tenant_engine = engine.execution_options(
-                schema_translate_map={None: tenant.schema}
-            )
+            tenant_engine = engine.execution_options(schema_translate_map={None: tenant.schema})
             async with AsyncSession(tenant_engine, expire_on_commit=False) as session:
                 for graph_id in self._graph_registry:
                     assistant_id = str(uuid5(NS, graph_id))
                     existing = await session.scalar(
-                        select(AssistantORM).where(
-                            AssistantORM.assistant_id == assistant_id
-                        )
+                        select(AssistantORM).where(AssistantORM.assistant_id == assistant_id)
                     )
                     if existing:
                         continue

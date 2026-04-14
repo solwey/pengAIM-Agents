@@ -43,7 +43,7 @@ async def verify_token_status(token: str, aud: str) -> tuple[str, str, str]:
             verification_key,
             algorithms=[settings.app.JWT_ALG],
             audience=aud,
-            options={"verify_aud": True, "require_aud": True}
+            options={"verify_aud": True, "require_aud": True},
         )
 
         # Verify token type

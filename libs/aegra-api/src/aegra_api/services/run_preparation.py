@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aegra_api.core.orm import Assistant as AssistantORM
 from aegra_api.core.orm import Run as RunORM
+from aegra_api.core.orm import Tenant
 from aegra_api.core.orm import Thread as ThreadORM
 from aegra_api.models import Run, RunCreate, User
 from aegra_api.models.run_job import RunBehavior, RunExecution, RunIdentity, RunJob
@@ -176,6 +177,7 @@ async def _prepare_run(
     thread_id: str,
     request: RunCreate,
     user: User,
+    tenant: Tenant,
     *,
     initial_status: str,
 ) -> tuple[str, Run, RunJob]:
@@ -247,7 +249,13 @@ async def _prepare_run(
 
     # Build the RunJob before persisting so we can store execution_params
     job = RunJob(
-        identity=RunIdentity(run_id=run_id, thread_id=thread_id, graph_id=assistant.graph_id),
+        identity=RunIdentity(
+            run_id=run_id,
+            thread_id=thread_id,
+            graph_id=assistant.graph_id,
+            tenant_schema=tenant.schema,
+            tenant_id=tenant.uuid,
+        ),
         user=user,
         execution=RunExecution(
             input_data=request.input or {},

@@ -17,11 +17,10 @@ from aegra_api.core.auth_handlers import build_auth_context, handle_event
 from aegra_api.core.orm import Assistant as AssistantORM
 from aegra_api.core.orm import Run as RunORM
 from aegra_api.core.orm import RunEvent as RunEventORM
-from aegra_api.core.orm import RunStatusHistory, get_session, new_tenant_session
-from aegra_api.core.orm import Tenant
+from aegra_api.core.orm import RunStatusHistory, Tenant, get_session
 from aegra_api.core.orm import Thread as ThreadORM
-from aegra_api.core.tenant import get_current_tenant
 from aegra_api.core.sse import create_end_event, get_sse_headers
+from aegra_api.core.tenant import get_current_tenant
 from aegra_api.models import Run, RunCreate, RunStatus, User
 from aegra_api.models.control_plane import (
     RunDetailResponse,
@@ -82,7 +81,7 @@ async def create_run(
         if isinstance(value_context, dict):
             request.context = {**(request.context or {}), **value_context}
 
-    _run_id, run, _job = await _prepare_run(session, thread_id, request, user, initial_status="pending")
+    _run_id, run, _job = await _prepare_run(session, thread_id, request, user, tenant, initial_status="pending")
 
     return run
 
@@ -105,7 +104,7 @@ async def create_and_stream_run(
     after the client disconnects (default is `"cancel"`). Use `stream_mode`
     to control which event types are emitted.
     """
-    run_id, run, _job = await _prepare_run(session, thread_id, request, user, initial_status="pending")
+    run_id, run, _job = await _prepare_run(session, thread_id, request, user, tenant, initial_status="pending")
 
     # Default to cancel on disconnect - this matches user expectation that clicking
     # "Cancel" in the frontend will stop the backend task. Users can explicitly
@@ -284,6 +283,7 @@ async def join_run(
     thread_id: str,
     run_id: str,
     user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> StreamingResponse:
     """Wait for a run to complete and return its output.
 
@@ -333,6 +333,7 @@ async def join_run(
             run_id,
             thread_id,
             user.id,
+            tenant_schema=tenant.schema,
             timeout=settings.worker.BG_JOB_TIMEOUT_SECS,
         ),
         media_type="application/json",
@@ -348,6 +349,7 @@ async def wait_for_run(
     thread_id: str,
     request: RunCreate,
     user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> StreamingResponse:
     """Create a run, execute it, and wait for completion.
 
@@ -359,11 +361,10 @@ async def wait_for_run(
     Sessions are managed manually (not via ``Depends``) to avoid holding a
     pool connection during the long wait.
     """
-    maker = _get_session_maker()
-
     # Session block: all pre-execution DB work (validate, create run, submit)
-    async with maker() as session:
-        run_id, _run, _job = await _prepare_run(session, thread_id, request, user, initial_status="pending")
+    async for session in get_session(tenant):
+        run_id, _run, _job = await _prepare_run(session, thread_id, request, user, tenant, initial_status="pending")
+        break
 
     # No pool connection held from here — safe for long waits
     return StreamingResponse(
@@ -371,6 +372,7 @@ async def wait_for_run(
             run_id,
             thread_id,
             user.id,
+            tenant_schema=tenant.schema,
             timeout=settings.worker.BG_JOB_TIMEOUT_SECS,
         ),
         media_type="application/json",

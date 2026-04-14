@@ -44,16 +44,9 @@ class DatabaseManager:
             connect_args={"prepared_statement_cache_size": 0},  # PgBouncer compatibility
         )
 
-    def ensure_sync_engine(self) -> None:
-        """Initialize only sync SQLAlchemy engine (no async/langgraph side effects)."""
-        if self.sync_engine is None:
-            self.sync_engine = self._build_sync_engine()
-
-    async def initialize(self) -> None:
-        """Initialize database connections and LangGraph components"""
-        # Idempotent SQLAlchemy initialization
+    def ensure_async_engine(self) -> None:
+        """Initialize async SQLAlchemy engine lazily."""
         if self.engine is None:
-            # 1. SQLAlchemy Engine (app metadata, uses asyncpg)
             # We strictly limit this pool because the main load
             # is handled by LangGraph components.
             self.engine = create_async_engine(
@@ -63,7 +56,16 @@ class DatabaseManager:
                 pool_pre_ping=True,
                 echo=settings.db.DB_ECHO_LOG,
             )
-        self.ensure_sync_engine()
+
+    def ensure_sync_engine(self) -> None:
+        """Initialize only sync SQLAlchemy engine (no async/langgraph side effects)."""
+        if self.sync_engine is None:
+            self.sync_engine = self._build_sync_engine()
+
+    async def initialize(self) -> None:
+        """Initialize database connections and LangGraph components"""
+        # 1. Async SQLAlchemy engine (lazy/idempotent)
+        self.ensure_async_engine()
 
         # 2. Ensure LangGraph components are initialized
         await self._ensure_langgraph_components()
@@ -192,14 +194,16 @@ class DatabaseManager:
 
     def get_engine(self) -> AsyncEngine:
         """Get the SQLAlchemy engine for metadata tables"""
+        self.ensure_async_engine()
         if not self.engine:
-            raise RuntimeError("Database not initialized")
+            raise RuntimeError("Failed to initialize async engine")
         return self.engine
 
     def get_sync_engine(self) -> Engine:
         """Get the sync SQLAlchemy engine for sync code paths (e.g. Celery tasks)."""
+        self.ensure_sync_engine()
         if not self.sync_engine:
-            raise RuntimeError("Database not initialized")
+            raise RuntimeError("Failed to initialize sync engine")
         return self.sync_engine
 
 

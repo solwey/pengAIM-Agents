@@ -117,7 +117,9 @@ class StreamingService:
             logger.error(f"Error in stream_run_execution for run {run_id}: {e}")
             yield create_error_event(str(e))
 
-    async def _replay_stored_events(self, tenant: Tenant, run_id: str, last_event_id: str | None) -> AsyncIterator[tuple[str, str]]:
+    async def _replay_stored_events(
+        self, tenant: Tenant, run_id: str, last_event_id: str | None
+    ) -> AsyncIterator[tuple[str, str]]:
         """Replay stored events from the broker's replay buffer.
 
         Yields (event_id, sse_event) tuples so the caller can track

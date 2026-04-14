@@ -39,7 +39,14 @@ class LocalExecutor(BaseExecutor):
             task_id=id(task),
         )
 
-    async def wait_for_completion(self, run_id: str, *, timeout: float = 300.0) -> None:
+    async def wait_for_completion(
+        self,
+        run_id: str,
+        *,
+        tenant_schema: str,
+        timeout: float = 300.0,
+    ) -> None:
+        _ = tenant_schema
         task = active_runs.get(run_id)
         if task is None:
             return

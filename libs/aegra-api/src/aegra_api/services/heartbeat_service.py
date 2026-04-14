@@ -54,9 +54,7 @@ class HeartbeatService:
                 )
                 await session.commit()
             except Exception:
-                logger.exception(
-                    "Failed to mark worker offline", worker_id=self._worker_id
-                )
+                logger.exception("Failed to mark worker offline", worker_id=self._worker_id)
 
         logger.info("Heartbeat service stopped", worker_id=self._worker_id)
 
@@ -64,14 +62,10 @@ class HeartbeatService:
         """Yield an ``AsyncSession`` bound to each enabled tenant's schema."""
         maker = _get_session_maker()
         async with maker() as public_session:
-            tenants = (
-                await public_session.execute(
-                    select(Tenant).where(Tenant.enabled.is_(True))
-                )
-            ).scalars().all()
+            tenants = (await public_session.execute(select(Tenant).where(Tenant.enabled.is_(True)))).scalars().all()
 
         for tenant in tenants:
-            async with new_tenant_session(tenant) as session:
+            async with new_tenant_session(tenant.schema) as session:
                 yield session
 
     async def _heartbeat_loop(self) -> None:

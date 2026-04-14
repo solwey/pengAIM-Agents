@@ -2,12 +2,12 @@ import logging
 import time
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 
 from aegra_api.settings import settings
-from alembic import command
-from alembic.config import Config
 
 # Resolve alembic.ini / script_location relative to the aegra-api package so
 # these scripts can be invoked from any CWD (e.g. the repo root).
@@ -20,6 +20,7 @@ def _alembic_config() -> Config:
     cfg = Config(str(_ALEMBIC_INI), ini_section="alembic")
     cfg.set_main_option("script_location", str(_ALEMBIC_SCRIPTS))
     return cfg
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -40,9 +41,7 @@ CREATE TABLE IF NOT EXISTS public.tenants (
 
 def _sync_url() -> str:
     """Return a psycopg3-compatible sync SQLAlchemy URL."""
-    return settings.db.database_url_sync.replace(
-        "postgresql://", "postgresql+psycopg://", 1
-    )
+    return settings.db.database_url_sync.replace("postgresql://", "postgresql+psycopg://", 1)
 
 
 def create_database_if_not_exist() -> None:
@@ -51,9 +50,7 @@ def create_database_if_not_exist() -> None:
     maintenance_url = _sync_url().rsplit("/", 1)[0] + "/postgres"
     engine = create_engine(maintenance_url, isolation_level="AUTOCOMMIT")
     with engine.connect() as conn:
-        result = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = :db"), {"db": db_name}
-        )
+        result = conn.execute(text("SELECT 1 FROM pg_database WHERE datname = :db"), {"db": db_name})
         if not result.scalar():
             logger.info("Creating database %s", db_name)
             conn.execute(text(f'CREATE DATABASE "{db_name}"'))
@@ -86,9 +83,7 @@ def ensure_tenant_schemas() -> None:
     """Create schemas for all enabled tenants that don't exist yet."""
     engine = create_engine(_sync_url())
     with engine.connect() as conn:
-        rows = conn.execute(
-            text("SELECT schema FROM public.tenants WHERE enabled = true")
-        ).fetchall()
+        rows = conn.execute(text("SELECT schema FROM public.tenants WHERE enabled = true")).fetchall()
         for (schema_name,) in rows:
             conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
         conn.commit()
@@ -119,9 +114,7 @@ def main() -> dict[str, int]:
                     )
                     time.sleep(5)
                 else:
-                    raise Exception(
-                        f"Attempt {attempt + 1} failed; no more retries for database"
-                    )
+                    raise Exception(f"Attempt {attempt + 1} failed; no more retries for database")
 
         logger.info("All migrations applied")
         return {"statusCode": 200}

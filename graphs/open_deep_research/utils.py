@@ -39,6 +39,7 @@ def _rag_base_url(config: RunnableConfig | None) -> str:
         raise ValueError("tenant_id missing from RunnableConfig; cannot build RAG URL")
     return f"{base}/tenant/{tenant_id}"
 
+
 ##########################
 # Agent Mode utils (RAG = RAG-only, ONLINE = Web)
 ##########################
@@ -988,9 +989,7 @@ async def get_api_key(
         return None
 
     search_params = f"provider={provider}&name={name}" if provider and name else ""
-    search_endpoint = (
-        f"{_rag_base_url(config)}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
-    )
+    search_endpoint = f"{_rag_base_url(config)}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
     headers = {"authorization": authorization, "Accept": "text/plain"}
 
     try:
@@ -1125,9 +1124,7 @@ async def _fetch_artifact_content(
         raise RuntimeError(f"No auth token for fetching artifact '{file_name}'")
 
     base = rag_base_url or RAG_URL
-    download_url_endpoint = (
-        f"{base}/api/v1/artifact-collections/{collection_id}/documents/{document_uuid}/download-url"
-    )
+    download_url_endpoint = f"{base}/api/v1/artifact-collections/{collection_id}/documents/{document_uuid}/download-url"
     headers = {"authorization": authorization}
 
     async with httpx.AsyncClient() as client:

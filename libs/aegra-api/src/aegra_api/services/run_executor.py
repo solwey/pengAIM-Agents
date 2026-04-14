@@ -46,10 +46,11 @@ async def execute_run(job: RunJob) -> None:
     """
     run_id = job.identity.run_id
     thread_id = job.identity.thread_id
+    tenant_schema = job.identity.tenant_schema
     is_lease_loss = False
 
     try:
-        await update_run_status(run_id, "running")
+        await update_run_status(run_id, "running", tenant_schema)
 
         final_output = await _stream_graph(job)
 
@@ -57,6 +58,7 @@ async def execute_run(job: RunJob) -> None:
             await finalize_run(
                 run_id,
                 thread_id,
+                tenant_schema,
                 status="interrupted",
                 thread_status="interrupted",
                 output=final_output.data,
@@ -68,6 +70,7 @@ async def execute_run(job: RunJob) -> None:
             await finalize_run(
                 run_id,
                 thread_id,
+                tenant_schema,
                 status="success",
                 thread_status="idle",
                 output=final_output.data,
@@ -84,13 +87,28 @@ async def execute_run(job: RunJob) -> None:
             is_lease_loss = True
             logger.info("Lease-loss cancel, skipping finalize", run_id=run_id)
         else:
-            await finalize_run(run_id, thread_id, status="interrupted", thread_status="idle", output={})
+            await finalize_run(
+                run_id,
+                thread_id,
+                tenant_schema,
+                status="interrupted",
+                thread_status="idle",
+                output={},
+            )
             await _best_effort_signal(streaming_service.signal_run_cancelled, run_id)
         raise
     except Exception as exc:
         logger.exception("Run failed", run_id=run_id)
         safe_message = f"{type(exc).__name__}: execution failed"
-        await finalize_run(run_id, thread_id, status="error", thread_status="error", output={}, error=str(exc))
+        await finalize_run(
+            run_id,
+            thread_id,
+            tenant_schema,
+            status="error",
+            thread_status="error",
+            output={},
+            error=str(exc),
+        )
         await _best_effort_signal(streaming_service.signal_run_error, run_id, safe_message, type(exc).__name__)
     else:
         status = "interrupted" if final_output.has_interrupt else "success"
@@ -136,6 +154,7 @@ class _GraphResult:
 async def _stream_graph(job: RunJob) -> _GraphResult:
     """Load the graph, stream events to the broker, return final output."""
     run_id = job.identity.run_id
+    tenant_id = job.identity.tenant_id or job.identity.tenant_schema
     run_config = _build_run_config(job)
     execution_input = _resolve_input(job)
     requested_stream_modes = _resolve_stream_modes(job.execution.stream_mode)
@@ -163,6 +182,7 @@ async def _stream_graph(job: RunJob) -> _GraphResult:
             input_data=execution_input,
             config=run_config,
             stream_mode=stream_modes,
+            tenant_id=tenant_id,
             context=job.execution.context,
             subgraphs=job.behavior.subgraphs,
             on_checkpoint=lambda _: None,
@@ -177,7 +197,12 @@ async def _stream_graph(job: RunJob) -> _GraphResult:
             next_step = _extract_current_step(event_type, event_data)
             if next_step and next_step != result.current_step:
                 result.current_step = next_step
-                await _best_effort_signal(update_run_progress, run_id, current_step=next_step)
+                await _best_effort_signal(
+                    update_run_progress,
+                    run_id,
+                    tenant_schema=job.identity.tenant_schema,
+                    current_step=next_step,
+                )
 
             if isinstance(event_data, dict) and "__interrupt__" in event_data:
                 result.has_interrupt = True

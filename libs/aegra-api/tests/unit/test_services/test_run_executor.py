@@ -16,7 +16,12 @@ async def _empty_async_gen():  # type: ignore[no-untyped-def]
 
 def _make_job(run_id: str = "run-1") -> RunJob:
     return RunJob(
-        identity=RunIdentity(run_id=run_id, thread_id="thread-1", graph_id="graph-1"),
+        identity=RunIdentity(
+            run_id=run_id,
+            thread_id="thread-1",
+            graph_id="graph-1",
+            tenant_schema="test_tenant",
+        ),
         user=User(identity="user-1"),
         execution=RunExecution(input_data={"msg": "hello"}),
     )

@@ -24,9 +24,8 @@ from aegra_api.api.runs import (
 from aegra_api.core.active_runs import active_runs
 from aegra_api.core.auth_deps import auth_dependency, get_current_user
 from aegra_api.core.orm import Run as RunORM
-from aegra_api.core.orm import Tenant
+from aegra_api.core.orm import Tenant, get_session, new_tenant_session
 from aegra_api.core.orm import Thread as ThreadORM
-from aegra_api.core.orm import get_session, new_tenant_session
 from aegra_api.core.tenant import get_current_tenant
 from aegra_api.models import Run, RunCreate, User
 from aegra_api.models.errors import CONFLICT, NOT_FOUND, SSE_RESPONSE
@@ -52,7 +51,7 @@ async def _delete_thread_by_id(tenant: Tenant, thread_id: str, user_id: str) -> 
     after the request session has been closed (e.g. in a ``finally`` block or
     background task).
     """
-    async with new_tenant_session(tenant) as session:
+    async with new_tenant_session(tenant.schema) as session:
         # Cancel any still-active runs on this thread
         active_runs_stmt = select(RunORM).where(
             RunORM.thread_id == thread_id,
@@ -86,14 +85,14 @@ async def _delete_thread_by_id(tenant: Tenant, thread_id: str, user_id: str) -> 
             await session.commit()
 
 
-async def _cleanup_after_background_run(run_id: str, thread_id: str, user_id: str) -> None:
+async def _cleanup_after_background_run(tenant: Tenant, run_id: str, thread_id: str, user_id: str) -> None:
     """Wait for a background run to finish, then delete the ephemeral thread.
 
     Uses executor.wait_for_completion which works both in-process (dev)
     and cross-instance (prod with Redis workers).
     """
     try:
-        await executor.wait_for_completion(run_id, timeout=3600.0)
+        await executor.wait_for_completion(run_id, tenant_schema=tenant.schema, timeout=3600.0)
     except (asyncio.CancelledError, TimeoutError):
         pass
     except Exception:
@@ -156,7 +155,7 @@ async def stateless_wait_for_run(
                 await aclose()
             if completed:
                 try:
-                    await _delete_thread_by_id(thread_id, user.id)
+                    await _delete_thread_by_id(tenant, thread_id, user.id)
                 except Exception:
                     logger.exception(
                         "Failed to delete ephemeral thread after wait",

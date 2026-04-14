@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aegra_api.core.orm import Run as RunORM
 from aegra_api.core.orm import Thread as ThreadORM
-from aegra_api.core.orm import _get_session_maker
+from aegra_api.core.orm import new_tenant_session
 from aegra_api.core.serializers import GeneralSerializer
 from aegra_api.utils.status_compat import validate_run_status, validate_thread_status
 
@@ -26,6 +26,7 @@ _serializer = GeneralSerializer()
 async def update_run_status(
     run_id: str,
     status: str,
+    tenant_schema: str,
     *,
     output: Any = None,
     error: str | None = None,
@@ -36,8 +37,7 @@ async def update_run_status(
     long-running graph execution.
     """
     validated = validate_run_status(status)
-    maker = _get_session_maker()
-    async with maker() as session:
+    async with new_tenant_session(tenant_schema) as session:
         values: dict[str, Any] = {
             "status": validated,
             "updated_at": datetime.now(UTC),
@@ -74,6 +74,7 @@ async def set_thread_status(session: AsyncSession, thread_id: str, status: str) 
 async def finalize_run(
     run_id: str,
     thread_id: str,
+    tenant_schema: str,
     *,
     status: str,
     thread_status: str,
@@ -90,8 +91,6 @@ async def finalize_run(
     """
     validated_run = validate_run_status(status)
     validated_thread = validate_thread_status(thread_status)
-    maker = _get_session_maker()
-
     run_values: dict[str, Any] = {
         "status": validated_run,
         "updated_at": datetime.now(UTC),
@@ -107,7 +106,7 @@ async def finalize_run(
     if tools_used is not None:
         run_values["tools_used"] = tools_used
 
-    async with maker() as session:
+    async with new_tenant_session(tenant_schema) as session:
         await session.execute(update(RunORM).where(RunORM.run_id == run_id).values(**run_values))
         await session.execute(
             update(ThreadORM)
@@ -121,6 +120,7 @@ async def finalize_run(
 
 async def update_run_progress(
     run_id: str,
+    tenant_schema: str,
     *,
     current_step: str | None = None,
 ) -> None:
@@ -128,8 +128,7 @@ async def update_run_progress(
     if current_step is None:
         return
 
-    maker = _get_session_maker()
-    async with maker() as session:
+    async with new_tenant_session(tenant_schema) as session:
         await session.execute(
             update(RunORM)
             .where(RunORM.run_id == run_id)

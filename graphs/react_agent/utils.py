@@ -110,9 +110,7 @@ async def get_api_key(
         return None
 
     search_params = f"provider={provider}&name={name}" if provider and name else ""
-    search_endpoint = (
-        f"{_rag_base_url(config)}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
-    )
+    search_endpoint = f"{_rag_base_url(config)}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
     headers = {"authorization": authorization, "Accept": "text/plain"}
 
     try:

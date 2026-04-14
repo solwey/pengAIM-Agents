@@ -75,7 +75,12 @@ class TestStreamingErrorHandling:
             mock_lg_service.return_value.get_graph.return_value.__aexit__ = AsyncMock(return_value=None)
 
             job = RunJob(
-                identity=RunIdentity(run_id=run_id, thread_id=thread_id, graph_id=graph_id),
+                identity=RunIdentity(
+                    run_id=run_id,
+                    thread_id=thread_id,
+                    graph_id=graph_id,
+                    tenant_schema="test_tenant",
+                ),
                 user=mock_user,
                 execution=RunExecution(
                     input_data={},
@@ -142,7 +147,12 @@ class TestStreamingErrorHandling:
             mock_lg_service.return_value.get_graph.return_value.__aexit__ = AsyncMock(return_value=None)
 
             job = RunJob(
-                identity=RunIdentity(run_id=run_id, thread_id=thread_id, graph_id=graph_id),
+                identity=RunIdentity(
+                    run_id=run_id,
+                    thread_id=thread_id,
+                    graph_id=graph_id,
+                    tenant_schema="test_tenant",
+                ),
                 user=mock_user,
                 execution=RunExecution(
                     input_data={},
@@ -194,7 +204,12 @@ class TestStreamingErrorHandling:
             mock_lg_service.return_value.get_graph.return_value.__aexit__ = AsyncMock(return_value=None)
 
             job = RunJob(
-                identity=RunIdentity(run_id=run_id, thread_id=thread_id, graph_id=graph_id),
+                identity=RunIdentity(
+                    run_id=run_id,
+                    thread_id=thread_id,
+                    graph_id=graph_id,
+                    tenant_schema="test_tenant",
+                ),
                 user=mock_user,
                 execution=RunExecution(
                     input_data={},
@@ -251,7 +266,12 @@ class TestStreamingErrorHandling:
             mock_lg_service.return_value.get_graph.return_value.__aexit__ = AsyncMock(return_value=None)
 
             job = RunJob(
-                identity=RunIdentity(run_id=run_id, thread_id=thread_id, graph_id=graph_id),
+                identity=RunIdentity(
+                    run_id=run_id,
+                    thread_id=thread_id,
+                    graph_id=graph_id,
+                    tenant_schema="test_tenant",
+                ),
                 user=mock_user,
                 execution=RunExecution(
                     input_data={},

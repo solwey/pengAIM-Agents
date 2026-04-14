@@ -11,15 +11,11 @@ This module creates:
 Nothing is auto-imported by FastAPI yet; routers will `from ...core.db import get_session`.
 """
 
-from __future__ import annotations
-
 from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from fastapi import Depends, Path
-from sqlalchemy import select
 from sqlalchemy import (
     TIMESTAMP,
     Boolean,
@@ -29,14 +25,12 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    select,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column
-
-if TYPE_CHECKING:
-    pass
 
 Base = declarative_base()
 
@@ -57,15 +51,9 @@ class Tenant(Base):
 
     uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True)
     schema: Mapped[str] = mapped_column(String(63), nullable=False)
-    enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"))
 
 
 class Assistant(Base):
@@ -385,16 +373,14 @@ async def get_current_tenant(
     return tenant
 
 
-def new_tenant_session(tenant: "Tenant") -> AsyncSession:
-    """Return a fresh ``AsyncSession`` bound to ``tenant``'s schema."""
+def new_tenant_session(schema: str) -> AsyncSession:
+    """Return a fresh ``AsyncSession`` bound to a tenant schema."""
     from aegra_api.core.database import db_manager
 
-    if tenant is None:
-        raise RuntimeError("new_tenant_session requires a Tenant")
+    if not schema:
+        raise RuntimeError("new_tenant_session requires a non-empty schema")
 
-    engine = db_manager.get_engine().execution_options(
-        schema_translate_map={None: tenant.schema}
-    )
+    engine = db_manager.get_engine().execution_options(schema_translate_map={None: schema})
     return AsyncSession(bind=engine, expire_on_commit=False)
 
 
@@ -407,7 +393,7 @@ async def get_session(
         # in case a route uses `get_session` without `validate_tenant`.
         raise RuntimeError("get_session called without a valid tenant")
 
-    session = new_tenant_session(tenant)
+    session = new_tenant_session(tenant.schema)
     async with session:
         try:
             yield session

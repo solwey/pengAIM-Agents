@@ -15,7 +15,7 @@ import structlog
 from sqlalchemy import select
 
 from aegra_api.core.orm import Run as RunORM
-from aegra_api.core.orm import _get_session_maker
+from aegra_api.core.orm import new_tenant_session
 from aegra_api.services.executor import executor
 from aegra_api.settings import settings
 
@@ -29,10 +29,10 @@ async def read_run_output(
     run_id: str,
     thread_id: str,
     user_id: str,
+    tenant_schema: str,
 ) -> dict[str, Any]:
     """Open a short-lived DB session and read the run's final output."""
-    maker = _get_session_maker()
-    async with maker() as session:
+    async with new_tenant_session(tenant_schema) as session:
         run_orm = await session.scalar(
             select(RunORM).where(
                 RunORM.run_id == run_id,
@@ -54,6 +54,7 @@ async def heartbeat_wait_body(
     run_id: str,
     thread_id: str,
     user_id: str,
+    tenant_schema: str,
     *,
     timeout: float,
 ) -> AsyncIterator[bytes]:
@@ -67,7 +68,11 @@ async def heartbeat_wait_body(
 
     async def _wait_for_run() -> None:
         try:
-            await executor.wait_for_completion(run_id, timeout=timeout)
+            await executor.wait_for_completion(
+                run_id,
+                tenant_schema=tenant_schema,
+                timeout=timeout,
+            )
         except TimeoutError:
             logger.warning("heartbeat_wait timeout", run_id=run_id, timeout=timeout)
         except Exception:
@@ -98,5 +103,5 @@ async def heartbeat_wait_body(
                     exc_info=task.exception(),
                 )
 
-    output = await read_run_output(run_id, thread_id, user_id)
+    output = await read_run_output(run_id, thread_id, user_id, tenant_schema)
     yield encode_output(output)

@@ -17,7 +17,12 @@ async def _empty_async_gen():
 
 def _make_job(run_id: str = "run-1") -> RunJob:
     return RunJob(
-        identity=RunIdentity(run_id=run_id, thread_id="thread-1", graph_id="graph-1"),
+        identity=RunIdentity(
+            run_id=run_id,
+            thread_id="thread-1",
+            graph_id="graph-1",
+            tenant_schema="test_tenant",
+        ),
         user=User(identity="user-1"),
         execution=RunExecution(input_data={"msg": "hello"}),
     )
@@ -97,7 +102,7 @@ class TestRunExecutorBoundaryConditions:
         crash with AttributeError if context is None.
         """
         job = RunJob(
-            identity=RunIdentity(run_id="r1", thread_id="t1", graph_id="g1"),
+            identity=RunIdentity(run_id="r1", thread_id="t1", graph_id="g1", tenant_schema="test_tenant"),
             user=User(identity="u1"),
             execution=RunExecution(context={}),
         )

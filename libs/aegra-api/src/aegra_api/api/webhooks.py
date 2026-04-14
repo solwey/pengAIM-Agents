@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aegra_api.settings import settings
 
-from ..core.orm import Workflow, WorkflowRun, get_session, get_current_tenant, Tenant
+from ..core.orm import Tenant, Workflow, WorkflowRun, get_current_tenant, get_session
 from ..services.webhook_security import (
     WebhookVerificationError,
     verify_bearer_token,

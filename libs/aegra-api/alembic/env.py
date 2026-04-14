@@ -49,7 +49,6 @@ def run_migrations_offline() -> None:
     raise NotImplementedError("Offline migrations are not supported")
 
 
-
 async def _get_tenant_schemas() -> list[str]:
     """Return list of schemas to migrate: all enabled tenants + prototype.
 
@@ -67,9 +66,7 @@ async def _get_tenant_schemas() -> list[str]:
     )
 
     async with connectable.connect() as connection:
-        rows = await connection.execute(
-            text("SELECT schema FROM public.tenants WHERE enabled = true")
-        )
+        rows = await connection.execute(text("SELECT schema FROM public.tenants WHERE enabled = true"))
         schemas = [r[0] for r in rows.all()]
         if PROTOTYPE_SCHEMA not in schemas:
             schemas.append(PROTOTYPE_SCHEMA)
@@ -78,9 +75,7 @@ async def _get_tenant_schemas() -> list[str]:
 
 def do_run_migrations(connection: Connection, schemas: list[str]) -> None:
     """Run migrations once per tenant schema (plus the prototype schema)."""
-    is_autogenerate = bool(
-        context.get_x_argument(as_dictionary=True).get("autogenerate")
-    )
+    is_autogenerate = bool(context.get_x_argument(as_dictionary=True).get("autogenerate"))
 
     schemas = [PROTOTYPE_SCHEMA] if is_autogenerate else schemas
     for schema in schemas:

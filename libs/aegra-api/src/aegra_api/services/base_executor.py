@@ -17,7 +17,13 @@ class BaseExecutor(ABC):
         """Enqueue a job for execution. Returns immediately."""
 
     @abstractmethod
-    async def wait_for_completion(self, run_id: str, *, timeout: float = 300.0) -> None:
+    async def wait_for_completion(
+        self,
+        run_id: str,
+        *,
+        tenant_schema: str,
+        timeout: float = 300.0,
+    ) -> None:
         """Block until the run reaches a terminal state or timeout expires."""
 
     @abstractmethod

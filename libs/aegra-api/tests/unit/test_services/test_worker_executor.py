@@ -39,7 +39,12 @@ def _make_run_job(
 ) -> RunJob:
     """Create a minimal RunJob for testing."""
     return RunJob(
-        identity=RunIdentity(run_id=run_id, thread_id=thread_id, graph_id=graph_id),
+        identity=RunIdentity(
+            run_id=run_id,
+            thread_id=thread_id,
+            graph_id=graph_id,
+            tenant_schema="test_tenant",
+        ),
         user=User(identity="test-user"),
         execution=RunExecution(),
         behavior=RunBehavior(),

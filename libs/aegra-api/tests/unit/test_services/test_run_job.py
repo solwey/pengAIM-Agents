@@ -9,12 +9,12 @@ from aegra_api.models.run_job import RunBehavior, RunExecution, RunIdentity, Run
 
 class TestRunIdentity:
     def test_frozen(self) -> None:
-        identity = RunIdentity(run_id="r1", thread_id="t1", graph_id="g1")
+        identity = RunIdentity(run_id="r1", thread_id="t1", graph_id="g1", tenant_schema="test_tenant")
         with pytest.raises(ValidationError):
             identity.run_id = "r2"  # type: ignore[misc]
 
     def test_fields(self) -> None:
-        identity = RunIdentity(run_id="r1", thread_id="t1", graph_id="g1")
+        identity = RunIdentity(run_id="r1", thread_id="t1", graph_id="g1", tenant_schema="test_tenant")
         assert identity.run_id == "r1"
         assert identity.thread_id == "t1"
         assert identity.graph_id == "g1"
@@ -55,7 +55,12 @@ class TestRunJob:
     @pytest.fixture()
     def sample_job(self) -> RunJob:
         return RunJob(
-            identity=RunIdentity(run_id="run-1", thread_id="thread-1", graph_id="graph-1"),
+            identity=RunIdentity(
+                run_id="run-1",
+                thread_id="thread-1",
+                graph_id="graph-1",
+                tenant_schema="test_tenant",
+            ),
             user=User(identity="user-1", is_authenticated=True, permissions=["read"]),
             execution=RunExecution(
                 input_data={"message": "hello"},
@@ -101,7 +106,7 @@ class TestRunJob:
     def test_extra_user_fields_preserved(self) -> None:
         """User model allows extra fields (ConfigDict extra='allow')."""
         job = RunJob(
-            identity=RunIdentity(run_id="r1", thread_id="t1", graph_id="g1"),
+            identity=RunIdentity(run_id="r1", thread_id="t1", graph_id="g1", tenant_schema="test_tenant"),
             user=User(identity="u1", is_authenticated=True, permissions=[], team_id="team-42"),
         )
         params = job.to_execution_params()
@@ -118,7 +123,7 @@ class TestRunJob:
     def test_defaults_when_optional_fields_missing(self) -> None:
         """RunJob with minimal required fields."""
         job = RunJob(
-            identity=RunIdentity(run_id="r1", thread_id="t1", graph_id="g1"),
+            identity=RunIdentity(run_id="r1", thread_id="t1", graph_id="g1", tenant_schema="test_tenant"),
             user=User(identity="u1"),
         )
         assert job.execution.input_data == {}
