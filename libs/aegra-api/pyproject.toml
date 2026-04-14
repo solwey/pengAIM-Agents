@@ -23,12 +23,11 @@ dependencies = [
     "uvicorn>=0.35.0",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.12.0",
-
     # LangGraph
     "langgraph>=1.0.3",
     "langgraph-sdk>=0.3.5",
     "langgraph-checkpoint-postgres>=2.0.23",
-
+    "langchain-google-genai==4.2.1",
     # Database
     "sqlalchemy>=2.0.0",
     "greenlet>=3.1.0",
@@ -36,16 +35,13 @@ dependencies = [
     "psycopg[binary]>=3.2.9",
     "alembic>=1.16.4",
     "celery>=5.4.0",
-
     # Observability (OpenTelemetry)
     "opentelemetry-api>=1.39.1",
     "opentelemetry-sdk>=1.39.1",
     "opentelemetry-exporter-otlp>=1.39.1",
     "openinference-instrumentation-langchain>=0.1.58",
-
     # Sentry
     "sentry-sdk[fastapi]==2.57.0",
-
     # Utils
     "structlog>=25.4.0",
     "asgi-correlation-id>=4.3.4",
@@ -53,7 +49,6 @@ dependencies = [
     "firecrawl>=4.6.0",
     "tavily-python>=0.5.0",
     "croniter>=3.0.0",
-
     # Redis (optional broker backend for multi-instance streaming)
     "redis[hiredis]>=5.0.0",
 ]
@@ -81,20 +76,20 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = [
-    "E",     # pycodestyle errors
-    "W",     # pycodestyle warnings
-    "F",     # pyflakes
-    "I",     # isort
-    "B",     # flake8-bugbear
-    "C4",    # flake8-comprehensions
-    "UP",    # pyupgrade
-    "ARG",   # flake8-unused-arguments
-    "SIM",   # flake8-simplify
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "F", # pyflakes
+    "I", # isort
+    "B", # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
 ]
 ignore = [
-    "E501",   # line too long (handled by formatter)
-    "B008",   # do not perform function calls in argument defaults
-    "B904",   # Within an except clause, raise exceptions with `raise ... from err`
+    "E501", # line too long (handled by formatter)
+    "B008", # do not perform function calls in argument defaults
+    "B904", # Within an except clause, raise exceptions with `raise ... from err`
     "ARG001", # Unused function argument
     "ARG002", # Unused method argument
     "ARG005", # Unused lambda argument
