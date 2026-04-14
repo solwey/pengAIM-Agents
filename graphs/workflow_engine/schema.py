@@ -37,6 +37,7 @@ class NodeType(StrEnum):
     SYNC_TO_INSTANTLY = "sync_to_instantly"
     ADD_LEADS_TO_INSTANTLY = "add_leads_to_instantly"
     ACTIVATE_INSTANTLY = "activate_instantly"
+    PAUSE_INSTANTLY = "pause_instantly"
 
 
 class ComparisonOperator(StrEnum):
@@ -261,6 +262,12 @@ class ActivateInstantlyConfig(BaseModel):
     response_key: str = "instantly_activate_result"
 
 
+class PauseInstantlyConfig(BaseModel):
+    campaign_id: str = ""  # direct campaign ID
+    campaign_id_key: str = ""  # or dot-path to campaign ID in state
+    response_key: str = "instantly_pause_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -302,6 +309,7 @@ class NodeDef(BaseModel):
             NodeType.SYNC_TO_INSTANTLY: SyncToInstantlyConfig,
             NodeType.ADD_LEADS_TO_INSTANTLY: AddLeadsToInstantlyConfig,
             NodeType.ACTIVATE_INSTANTLY: ActivateInstantlyConfig,
+            NodeType.PAUSE_INSTANTLY: PauseInstantlyConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

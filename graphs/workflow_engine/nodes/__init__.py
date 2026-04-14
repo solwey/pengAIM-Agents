@@ -14,6 +14,7 @@ from .generate_report import GenerateReportExecutor
 from .icp_score import ICPScoreExecutor
 from .list_condition import ListConditionExecutor, build_list_condition_router
 from .llm_complete import LLMCompleteExecutor
+from .pause_instantly import PauseInstantlyExecutor
 from .read_google_sheet import ReadGoogleSheetExecutor
 from .remove_from_list import RemoveFromListExecutor
 from .remove_tag import RemoveTagExecutor
@@ -56,6 +57,7 @@ NODE_REGISTRY: dict[str, type] = {
     "sync_to_instantly": SyncToInstantlyExecutor,
     "add_leads_to_instantly": AddLeadsToInstantlyExecutor,
     "activate_instantly": ActivateInstantlyExecutor,
+    "pause_instantly": PauseInstantlyExecutor,
 }
 
 __all__ = [
