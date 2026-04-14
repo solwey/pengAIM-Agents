@@ -54,7 +54,7 @@ class AddTagExecutor(NodeExecutor):
                         headers=headers,
                     )
                     if resp.status_code not in (200, 201):
-                        result = {"ok": False, "error": f"Tag ensure failed: {resp.text[:300]}"}
+                        result = {"ok": False, "error": f"Tag ensure failed: {resp.text[:500]}"}
                         return {"data": {**data, cfg.response_key: result}}
 
                     tag = resp.json()
@@ -70,7 +70,7 @@ class AddTagExecutor(NodeExecutor):
                         result = {"ok": True, "tag_id": tag["id"], "tag_name": tag_name}
                         logger.info("Tag '%s' assigned to %s %s", tag_name, cfg.entity_type, entity_id)
                     else:
-                        result = {"ok": False, "error": f"Tag assign failed: {resp.text[:300]}"}
+                        result = {"ok": False, "error": f"Tag assign failed: {resp.text[:500]}"}
 
             except httpx.TimeoutException:
                 result = {"ok": False, "error": "Request timed out"}

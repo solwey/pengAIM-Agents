@@ -50,7 +50,7 @@ class TagConditionExecutor(NodeExecutor):
                     )
                     if resp.status_code != 200:
                         return {
-                            "data": {**data, cfg.response_key: {"ok": False, "match": False, "error": resp.text[:300]}}
+                            "data": {**data, cfg.response_key: {"ok": False, "match": False, "error": resp.text[:500]}}
                         }
 
                     entity = resp.json()

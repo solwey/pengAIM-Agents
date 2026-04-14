@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -19,6 +20,20 @@ from graphs.workflow_engine.nodes.base import (
 from graphs.workflow_engine.schema import EmailMessageConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _send_smtp(
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    msg: MIMEMultipart,
+) -> None:
+    """Send email via SMTP (blocking — run via asyncio.to_thread)."""
+    with smtplib.SMTP(host, port, timeout=30) as server:
+        server.starttls()
+        server.login(user, password)
+        server.send_message(msg)
 
 
 class EmailMessageExecutor(NodeExecutor):
@@ -40,7 +55,7 @@ class EmailMessageExecutor(NodeExecutor):
             user = resolve_templates(cfg.smtp_user, data) if cfg.smtp_user else settings.graphs.SMTP_USER
 
             # Fetch SMTP password from api_keys table via pengAIM-RAG
-            password = ""
+            password = ""  # nosec B105
             if cfg.smtp_password_key_id:
                 password = await reveal_api_key(config, cfg.smtp_password_key_id) or ""
             if not password:
@@ -70,10 +85,7 @@ class EmailMessageExecutor(NodeExecutor):
                     msg.attach(MIMEText(resolved_text, "plain"))
                 msg.attach(MIMEText(resolved_html, "html"))
 
-                with smtplib.SMTP(host, port, timeout=30) as server:
-                    server.starttls()
-                    server.login(user, password)
-                    server.send_message(msg)
+                await asyncio.to_thread(_send_smtp, host, port, user, password, msg)
 
                 result = {"ok": True}
                 logger.info("Email sent to %s via %s", resolved_to, host)

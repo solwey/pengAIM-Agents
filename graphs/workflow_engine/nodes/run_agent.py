@@ -43,7 +43,7 @@ class RunAgentExecutor(NodeExecutor):
                     if thread_resp.status_code not in (200, 201):
                         result = {
                             "ok": False,
-                            "error": f"Failed to create thread: {thread_resp.text[:300]}",
+                            "error": f"Failed to create thread: {thread_resp.text[:500]}",
                         }
                         return {"data": {**data, cfg.response_key: result}}
 
@@ -69,7 +69,7 @@ class RunAgentExecutor(NodeExecutor):
                     if wait_resp.status_code not in (200, 201):
                         result = {
                             "ok": False,
-                            "error": f"Agent run failed: {wait_resp.text[:300]}",
+                            "error": f"Agent run failed: {wait_resp.text[:500]}",
                         }
                         return {"data": {**data, cfg.response_key: result}}
 

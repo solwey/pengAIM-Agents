@@ -125,7 +125,7 @@ class ApiRequestExecutor(NodeExecutor):
                     break
 
             if cfg.retry_count > 0:
-                result["attempts"] = attempt + 1  # noqa: F821
+                result["attempts"] = attempt + 1
 
             logger.info(
                 "Workflow api_request [%s %s] -> status=%s%s",

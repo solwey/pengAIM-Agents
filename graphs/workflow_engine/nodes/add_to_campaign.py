@@ -70,7 +70,7 @@ class AddToCampaignExecutor(NodeExecutor):
                         }
                         logger.info("Added %d accounts to campaign %s", len(account_ids), campaign_id)
                     else:
-                        result = {"ok": False, "error": resp.text[:300]}
+                        result = {"ok": False, "error": resp.text[:500]}
 
             except httpx.TimeoutException:
                 result = {"ok": False, "error": "Request timed out"}

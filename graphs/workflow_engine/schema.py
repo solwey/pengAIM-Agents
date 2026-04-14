@@ -167,6 +167,7 @@ class ReadGoogleSheetConfig(BaseModel):
 class LLMCompleteConfig(BaseModel):
     prompt: str  # supports {{template}} variables
     system_prompt: str = ""
+    model: str = ""  # LLM model (e.g. "openai:gpt-4o-mini"), empty = env default
     max_tokens: int = Field(default=1000, ge=1, le=4000)
     response_key: str = "llm_result"
 
