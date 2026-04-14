@@ -18,11 +18,13 @@ from .core.database import db_manager
 from .core.orm import Run as RunORM
 from .core.orm import (
     RunStatusHistory,
+    Tenant,
     WorkerHeartbeat,
     Workflow,
     WorkflowRun,
     WorkflowSchedule,
 )
+from .services.internal_auth import create_internal_token
 
 logger = structlog.getLogger(__name__)
 
@@ -210,7 +212,7 @@ def cleanup_offline_workers(max_age_hours: int = 0):
     bind=True,
     max_retries=0,
 )
-def execute_workflow(self, workflow_run_id: str, auth_token: str = ""):
+def execute_workflow(self, workflow_run_id: str, auth_token: str = ""):  # nosec B107
     """Execute a workflow run: compile JSON → LangGraph → ainvoke.
 
     Steps:
@@ -332,6 +334,10 @@ def dispatch_scheduled_workflows():
             .all()
         )
 
+        # Resolve tenant for internal JWT generation (single-tenant)
+        tenant = session.execute(select(Tenant).where(Tenant.enabled.is_(True)).limit(1)).scalar_one_or_none()
+        tenant_id = tenant.uuid if tenant else ""
+
         for schedule in due_schedules:
             workflow = session.execute(
                 select(Workflow).where(
@@ -346,6 +352,17 @@ def dispatch_scheduled_workflows():
                 schedule.updated_at = now
                 continue
 
+            # Generate internal JWT so downstream nodes can call backend
+            auth_token = ""  # nosec B105
+            if tenant_id:
+                token = create_internal_token(
+                    workflow.user_id,
+                    workflow.team_id,
+                    tenant_id,
+                )
+                if token:
+                    auth_token = f"Bearer {token}"
+
             run = WorkflowRun(
                 workflow_id=schedule.workflow_id,
                 team_id=schedule.team_id,
@@ -356,7 +373,7 @@ def dispatch_scheduled_workflows():
             session.add(run)
             session.flush()
 
-            task = execute_workflow.delay(run.id)
+            task = execute_workflow.delay(run.id, auth_token=auth_token)
             run.celery_task_id = task.id
 
             schedule.last_run_at = now
