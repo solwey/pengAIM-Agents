@@ -38,6 +38,9 @@ class NodeType(StrEnum):
     ADD_LEADS_TO_INSTANTLY = "add_leads_to_instantly"
     ACTIVATE_INSTANTLY = "activate_instantly"
     PAUSE_INSTANTLY = "pause_instantly"
+    ACTIVATE_NETSUITE = "activate_netsuite"
+    FETCH_NETSUITE_ENTITY = "fetch_netsuite_entity"
+    CALCULATE_NETSUITE_METRIC = "calculate_netsuite_metric"
 
 
 class ComparisonOperator(StrEnum):
@@ -269,6 +272,53 @@ class PauseInstantlyConfig(BaseModel):
     response_key: str = "instantly_pause_result"
 
 
+NetsuiteActivateRecordType = Literal["customer", "vendor", "employee", "lead", "prospect", "contact"]
+NetsuiteFetchRecordType = Literal[
+    "customer", "vendor", "employee", "lead", "prospect", "contact", "item", "invoice", "salesorder"
+]
+NetsuiteMetric = Literal[
+    "total_revenue",
+    "monthly_revenue",
+    "open_invoices_total",
+    "aging_receivables",
+    "outstanding_balance",
+    "customer_count",
+    "new_customers",
+    "average_deal_size",
+]
+NetsuitePeriod = Literal["mtd", "qtd", "ytd", "last_7_days", "last_30_days", "last_90_days", "custom"]
+
+
+class ActivateNetsuiteConfig(BaseModel):
+    record_type: NetsuiteActivateRecordType = "customer"
+    record_id: str = ""  # direct NetSuite internal ID
+    record_id_key: str = ""  # or dot-path to record ID in state
+    response_key: str = "netsuite_activate_result"
+
+
+class FetchNetsuiteEntityConfig(BaseModel):
+    record_type: NetsuiteFetchRecordType = "customer"
+    record_id: str = ""  # direct NetSuite internal ID
+    record_id_key: str = ""  # or dot-path to record ID in state
+    fields: list[str] = Field(default_factory=list)  # empty = all fields
+    response_key: str = "netsuite_entity"
+
+
+class CalculateNetsuiteMetricConfig(BaseModel):
+    metric: NetsuiteMetric = "total_revenue"
+    period: NetsuitePeriod = "mtd"
+    start_date: str = ""  # required when period == "custom"
+    end_date: str = ""  # required when period == "custom"
+    filter_key: str = ""  # optional dot-path to scope the metric to entities in state
+    response_key: str = "netsuite_metric"
+
+    @model_validator(mode="after")
+    def _require_custom_dates(self) -> CalculateNetsuiteMetricConfig:
+        if self.period == "custom" and not (self.start_date and self.end_date):
+            raise ValueError("start_date and end_date are required when period is 'custom'")
+        return self
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -311,6 +361,9 @@ class NodeDef(BaseModel):
             NodeType.ADD_LEADS_TO_INSTANTLY: AddLeadsToInstantlyConfig,
             NodeType.ACTIVATE_INSTANTLY: ActivateInstantlyConfig,
             NodeType.PAUSE_INSTANTLY: PauseInstantlyConfig,
+            NodeType.ACTIVATE_NETSUITE: ActivateNetsuiteConfig,
+            NodeType.FETCH_NETSUITE_ENTITY: FetchNetsuiteEntityConfig,
+            NodeType.CALCULATE_NETSUITE_METRIC: CalculateNetsuiteMetricConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
