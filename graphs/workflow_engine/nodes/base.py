@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-import aiohttp
+import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
@@ -122,12 +122,10 @@ async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
     headers = {"authorization": auth_token, "Accept": "text/plain"}
 
     try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp,
-        ):
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
+            resp = await client.get(url, headers=headers)
             resp.raise_for_status()
-            return await resp.text()
-    except Exception as exc:
+            return resp.text
+    except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError) as exc:
         logger.warning("Failed to reveal api key %s: %s", key_id, exc)
         return None

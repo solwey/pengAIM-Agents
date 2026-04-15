@@ -47,7 +47,7 @@ class RemoveTagExecutor(NodeExecutor):
                         return {
                             "data": {
                                 **data,
-                                cfg.response_key: {"ok": False, "error": f"Failed to list tags: {resp.text[:300]}"},
+                                cfg.response_key: {"ok": False, "error": f"Failed to list tags: {resp.text[:500]}"},
                             }
                         }
 
@@ -70,7 +70,7 @@ class RemoveTagExecutor(NodeExecutor):
                         result = {"ok": True, "tag_name": tag_name}
                         logger.info("Tag '%s' removed from %s %s", tag_name, cfg.entity_type, entity_id)
                     else:
-                        result = {"ok": False, "error": resp.text[:300]}
+                        result = {"ok": False, "error": resp.text[:500]}
 
             except httpx.TimeoutException:
                 result = {"ok": False, "error": "Request timed out"}

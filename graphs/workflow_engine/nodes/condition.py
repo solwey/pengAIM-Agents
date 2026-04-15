@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
@@ -28,7 +29,7 @@ class ConditionExecutor(NodeExecutor):
 
 def build_condition_router(
     config: dict[str, Any],
-) -> callable:
+) -> Callable[..., str]:
     """Build a routing function for add_conditional_edges().
 
     Returns a function that reads state["data"], evaluates the condition,

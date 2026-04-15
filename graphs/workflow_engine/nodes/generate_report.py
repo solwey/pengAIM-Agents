@@ -42,7 +42,7 @@ class GenerateReportExecutor(NodeExecutor):
 
             headers: dict[str, str] = {"Content-Type": "application/json"}
             if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
+                headers["Authorization"] = auth_token
 
             result: dict[str, Any]
             try:

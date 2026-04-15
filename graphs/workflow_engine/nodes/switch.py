@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -21,7 +22,7 @@ class SwitchExecutor(NodeExecutor):
         return switch_node
 
 
-def build_switch_router(config: dict[str, Any]) -> callable:
+def build_switch_router(config: dict[str, Any]) -> Callable[..., str]:
     """Build a routing function that evaluates cases in order, returns first match label."""
     cfg = SwitchConfig(**config)
 

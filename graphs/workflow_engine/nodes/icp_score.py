@@ -76,7 +76,7 @@ class ICPScoreExecutor(NodeExecutor):
                         ctx = resp.json()
                         icp = ctx.get("ideal_customer_profile") or "Not defined"
                         personas = ctx.get("buyer_personas") or "Not defined"
-            except Exception as exc:
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
                 logger.warning("Failed to fetch team context: %s", exc)
                 icp = "Not available"
                 personas = "Not available"
@@ -119,7 +119,7 @@ class ICPScoreExecutor(NodeExecutor):
                         "raw_response": content[:500],
                     }
 
-            except Exception as exc:
+            except Exception as exc:  # LLM providers raise diverse exceptions
                 logger.warning("ICP score LLM call failed: %s", exc)
                 result = {"ok": False, "error": str(exc)[:500]}
 

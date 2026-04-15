@@ -47,7 +47,7 @@ class SetSourceExecutor(NodeExecutor):
                         return {
                             "data": {
                                 **data,
-                                cfg.response_key: {"ok": False, "error": f"Failed to list sources: {resp.text[:300]}"},
+                                cfg.response_key: {"ok": False, "error": f"Failed to list sources: {resp.text[:500]}"},
                             }
                         }
 
@@ -75,7 +75,7 @@ class SetSourceExecutor(NodeExecutor):
                         result = {"ok": True, "source_name": source_name, "source_id": source["id"]}
                         logger.info("Source '%s' set on %s %s", source_name, cfg.entity_type, entity_id)
                     else:
-                        result = {"ok": False, "error": resp.text[:300]}
+                        result = {"ok": False, "error": resp.text[:500]}
 
             except httpx.TimeoutException:
                 result = {"ok": False, "error": "Request timed out"}

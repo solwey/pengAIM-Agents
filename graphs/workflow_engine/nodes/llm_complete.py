@@ -35,8 +35,9 @@ class LLMCompleteExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
+                llm_model = cfg.model or settings.graphs.WORKFLOW_LLM_MODEL
                 model = init_chat_model(
-                    settings.graphs.WORKFLOW_LLM_MODEL,
+                    llm_model,
                     temperature=0,
                     max_tokens=cfg.max_tokens,
                 )

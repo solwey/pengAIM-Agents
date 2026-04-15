@@ -58,7 +58,7 @@ class ListConditionExecutor(NodeExecutor):
                             return {
                                 "data": {
                                     **data,
-                                    cfg.response_key: {"ok": False, "match": False, "error": resp.text[:300]},
+                                    cfg.response_key: {"ok": False, "match": False, "error": resp.text[:500]},
                                 }
                             }
 

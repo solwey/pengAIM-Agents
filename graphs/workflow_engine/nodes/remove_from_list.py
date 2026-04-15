@@ -57,7 +57,7 @@ class RemoveFromListExecutor(NodeExecutor):
                         result = {"ok": True, "list_id": list_id, "removed": len(entity_ids)}
                         logger.info("Removed %d entities from list %s", len(entity_ids), list_id)
                     else:
-                        result = {"ok": False, "error": resp.text[:300]}
+                        result = {"ok": False, "error": resp.text[:500]}
 
             except httpx.TimeoutException:
                 result = {"ok": False, "error": "Request timed out"}
