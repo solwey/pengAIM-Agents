@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth_deps import auth_dependency, get_current_user
-from ..core.orm import Workflow, WorkflowRun, get_session
+from ..core.orm import Tenant, Workflow, WorkflowRun, get_current_tenant, get_session
 from ..models.auth import User
 
 router = APIRouter(tags=["Workflow Runs"], dependencies=auth_dependency)
@@ -70,6 +70,7 @@ async def create_workflow_run(
     request: Request,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Create a workflow run and queue it for execution via Celery."""
     # Verify workflow exists and belongs to team
@@ -104,7 +105,7 @@ async def create_workflow_run(
     from ..tasks import execute_workflow
 
     auth_token = request.headers.get("authorization", "")
-    task = execute_workflow.delay(run.id, auth_token=auth_token)
+    task = execute_workflow.delay(run.id, tenant_uuid=tenant.uuid, auth_token=auth_token)
     run.celery_task_id = task.id
     await session.commit()
 

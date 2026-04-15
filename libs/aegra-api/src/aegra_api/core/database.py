@@ -41,7 +41,9 @@ class DatabaseManager:
             sync_sqlalchemy_url,
             pool_pre_ping=True,
             echo=settings.db.DB_ECHO_LOG,
-            connect_args={"prepared_statement_cache_size": 0},  # PgBouncer compatibility
+            connect_args={
+                "prepare_threshold": None
+            },  # psycopg3: disable server-side prepared statements (PgBouncer compat)
         )
 
     def ensure_async_engine(self) -> None:

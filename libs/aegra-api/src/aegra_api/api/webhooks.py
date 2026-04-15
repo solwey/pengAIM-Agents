@@ -115,7 +115,7 @@ async def handle_workflow_webhook(
     # 7. Queue Celery task
     from ..tasks import execute_workflow
 
-    task = execute_workflow.delay(run.id, auth_token=auth_token)
+    task = execute_workflow.delay(run.id, tenant_uuid=tenant.uuid, auth_token=auth_token)
     run.celery_task_id = task.id
     await session.commit()
 
