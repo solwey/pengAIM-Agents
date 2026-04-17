@@ -24,8 +24,8 @@ AUTO_FIELD_MAP: dict[str, str] = {
     "title": "title",
     "job_title": "title",
     "position": "title",
-    "linkedin_url": "linkedin_url",
-    "linkedin": "linkedin_url",
+    "linkedin_url": "linkedin",
+    "linkedin": "linkedin",
     "phone": "phone",
     "mobile_phone": "phone",
     "city": "city",
@@ -86,6 +86,13 @@ class CreateContactExecutor(NodeExecutor):
                     for src_key, dst_key in AUTO_FIELD_MAP.items():
                         if src_key in item and item[src_key]:
                             contact[dst_key] = item[src_key]
+
+                # Build location from city + state (if not already set)
+                if "location" not in contact:
+                    city = item.get("city", "")
+                    st = item.get("state", "")
+                    if city or st:
+                        contact["location"] = f"{city}, {st}".strip(", ")
 
                 # Ensure required fields have at least empty defaults
                 if "last_name" not in contact:
