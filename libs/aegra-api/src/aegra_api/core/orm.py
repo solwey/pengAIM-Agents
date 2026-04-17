@@ -30,7 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import Mapped, declarative_base, mapped_column
+from sqlalchemy.orm import Mapped, Session, declarative_base, mapped_column, sessionmaker
 
 Base = declarative_base()
 
@@ -400,3 +400,41 @@ async def get_session(
         except Exception:
             await session.rollback()
             raise
+
+
+# ---------------------------------------------------------------------------
+# Sync session factory (for Celery tasks — async helpers above mirror these)
+# ---------------------------------------------------------------------------
+
+sync_session_maker: sessionmaker[Session] | None = None
+
+
+def _get_sync_session_maker() -> sessionmaker[Session]:
+    """Return a cached sessionmaker bound to db_manager.sync_engine."""
+    global sync_session_maker
+    if sync_session_maker is None:
+        from aegra_api.core.database import db_manager
+
+        db_manager.ensure_sync_engine()
+        sync_session_maker = sessionmaker(db_manager.get_sync_engine(), expire_on_commit=False)
+    return sync_session_maker
+
+
+def get_public_sync_session() -> Session:
+    """Return a sync Session bound to the public schema (tenant registry)."""
+    return _get_sync_session_maker()()
+
+
+def new_tenant_sync_session(schema: str) -> Session:
+    """Return a fresh sync ``Session`` bound to a tenant schema.
+
+    Mirrors :func:`new_tenant_session` for Celery task code that cannot
+    use async sessions.
+    """
+    from aegra_api.core.database import db_manager
+
+    if not schema:
+        raise RuntimeError("new_tenant_sync_session requires a non-empty schema")
+
+    engine = db_manager.get_sync_engine().execution_options(schema_translate_map={None: schema})
+    return Session(bind=engine, expire_on_commit=False)
