@@ -18,11 +18,15 @@ from .core.database import db_manager
 from .core.orm import Run as RunORM
 from .core.orm import (
     RunStatusHistory,
+    Tenant,
     WorkerHeartbeat,
     Workflow,
     WorkflowRun,
     WorkflowSchedule,
+    get_public_sync_session,
+    new_tenant_sync_session,
 )
+from .services.internal_auth import create_internal_token
 
 logger = structlog.getLogger(__name__)
 
@@ -31,16 +35,17 @@ ZOMBIE_RUN_TIMEOUT_MINUTES = 30
 CANCELLATION_POLL_INTERVAL = 10  # seconds between DB polls for cancellation
 
 
-async def _is_workflow_cancelled(async_engine, workflow_run_id: str) -> bool:
-    """Check if a workflow run has been cancelled."""
-    async with AsyncSession(async_engine) as session:
+async def _is_workflow_cancelled(async_engine, workflow_run_id: str, schema: str) -> bool:
+    """Check if a workflow run has been cancelled. Bound to tenant schema."""
+    engine = async_engine.execution_options(schema_translate_map={None: schema})
+    async with AsyncSession(engine) as session:
         status = (
             await session.execute(select(WorkflowRun.status).where(WorkflowRun.id == workflow_run_id))
         ).scalar_one_or_none()
         return status == "cancelled"
 
 
-async def _run_with_cancellation(coro, workflow_run_id: str, async_engine):
+async def _run_with_cancellation(coro, workflow_run_id: str, async_engine, schema: str):
     """Run a coroutine with cancellation support via DB polling.
 
     Creates an asyncio task for the main coroutine and a watcher task that
@@ -50,7 +55,7 @@ async def _run_with_cancellation(coro, workflow_run_id: str, async_engine):
     Returns the result of the coroutine, or None if cancelled.
     """
     # If already cancelled before we start, bail out
-    if await _is_workflow_cancelled(async_engine, workflow_run_id):
+    if await _is_workflow_cancelled(async_engine, workflow_run_id, schema):
         logger.info("Workflow run already cancelled, skipping", run_id=workflow_run_id)
         coro.close()
         return None
@@ -60,7 +65,7 @@ async def _run_with_cancellation(coro, workflow_run_id: str, async_engine):
         try:
             while not main_task.done():
                 await asyncio.sleep(CANCELLATION_POLL_INTERVAL)
-                if await _is_workflow_cancelled(async_engine, workflow_run_id):
+                if await _is_workflow_cancelled(async_engine, workflow_run_id, schema):
                     logger.info(
                         "Workflow run cancelled, stopping task",
                         run_id=workflow_run_id,
@@ -141,49 +146,60 @@ def sweep_stale_workers():
 
 @celery_app.task(name="src.agent_server.tasks.sweep_zombie_runs")
 def sweep_zombie_runs():
-    """Mark runs stuck in active status for 30+ minutes as failed."""
-    engine = _get_sync_engine()
+    """Mark runs stuck in active status for 30+ minutes as failed.
+
+    ``runs`` lives in each tenant's schema, so we iterate over enabled
+    tenants rather than relying on the default connection schema.
+    """
     cutoff = datetime.now(UTC) - timedelta(minutes=ZOMBIE_RUN_TIMEOUT_MINUTES)
     error_msg = "Zombie run detected: no activity for 30+ minutes"
+    total_marked = 0
 
-    with Session(engine) as session:
-        # Find affected runs
-        stmt = select(RunORM).where(
-            RunORM.status.in_(["pending", "running", "streaming"]),
-            RunORM.updated_at < cutoff,
-        )
-        affected_runs = session.scalars(stmt).all()
+    with get_public_sync_session() as public:
+        tenants = public.execute(select(Tenant).where(Tenant.enabled.is_(True))).scalars().all()
 
-        if not affected_runs:
-            return {"marked_failed": 0}
-
-        # Insert status history for each affected run
-        for run in affected_runs:
-            history = RunStatusHistory(
-                run_id=run.run_id,
-                from_status=run.status,
-                to_status="failed",
-                error_message=error_msg,
-                created_at=datetime.now(UTC),
-            )
-            session.add(history)
-
-        # Bulk update runs to failed
-        update_stmt = (
-            update(RunORM)
-            .where(
+    for tenant in tenants:
+        with new_tenant_sync_session(tenant.schema) as session:
+            stmt = select(RunORM).where(
                 RunORM.status.in_(["pending", "running", "streaming"]),
                 RunORM.updated_at < cutoff,
             )
-            .values(status="failed", error_message=error_msg)
-        )
-        result = session.execute(update_stmt)
-        session.commit()
+            affected_runs = session.scalars(stmt).all()
 
-        zombie_run_ids = [r.run_id for r in affected_runs]
-        marked = result.rowcount
-        logger.warning("sweep_zombie_runs", marked_failed=marked, run_ids=zombie_run_ids)
-        return {"marked_failed": marked}
+            if not affected_runs:
+                continue
+
+            for run in affected_runs:
+                history = RunStatusHistory(
+                    run_id=run.run_id,
+                    from_status=run.status,
+                    to_status="failed",
+                    error_message=error_msg,
+                    created_at=datetime.now(UTC),
+                )
+                session.add(history)
+
+            update_stmt = (
+                update(RunORM)
+                .where(
+                    RunORM.status.in_(["pending", "running", "streaming"]),
+                    RunORM.updated_at < cutoff,
+                )
+                .values(status="failed", error_message=error_msg)
+            )
+            result = session.execute(update_stmt)
+            session.commit()
+
+            zombie_run_ids = [r.run_id for r in affected_runs]
+            total_marked += result.rowcount
+            logger.warning(
+                "sweep_zombie_runs",
+                tenant_uuid=tenant.uuid,
+                marked_failed=result.rowcount,
+                run_ids=zombie_run_ids,
+            )
+
+    return {"marked_failed": total_marked}
 
 
 @celery_app.task(name="src.agent_server.tasks.cleanup_offline_workers")
@@ -210,19 +226,31 @@ def cleanup_offline_workers(max_age_hours: int = 0):
     bind=True,
     max_retries=0,
 )
-def execute_workflow(self, workflow_run_id: str, auth_token: str = ""):
+def execute_workflow(self, workflow_run_id: str, tenant_uuid: str, auth_token: str = ""):  # nosec B107
     """Execute a workflow run: compile JSON → LangGraph → ainvoke.
 
     Steps:
-    1. Load WorkflowRun from DB, set status=running
+    0. Resolve tenant schema from ``tenant_uuid`` (public session)
+    1. Load WorkflowRun from tenant schema, set status=running
     2. Load Workflow definition
     3. Validate and compile to StateGraph
     4. Execute via ainvoke (no streaming, no checkpointer)
     5. Save output or error to WorkflowRun
     """
-    engine = _get_sync_engine()
+    with get_public_sync_session() as public:
+        row = public.execute(select(Tenant.schema, Tenant.enabled).where(Tenant.uuid == tenant_uuid)).one_or_none()
 
-    with Session(engine) as session:
+    if row is None or not row.enabled:
+        logger.error(
+            "execute_workflow: unknown or disabled tenant",
+            tenant_uuid=tenant_uuid,
+            run_id=workflow_run_id,
+        )
+        return {"error": "unknown tenant", "run_id": workflow_run_id}
+
+    tenant_schema = row.schema
+
+    with new_tenant_sync_session(tenant_schema) as session:
         run = session.execute(select(WorkflowRun).where(WorkflowRun.id == workflow_run_id)).scalar_one_or_none()
 
         if not run:
@@ -263,6 +291,7 @@ def execute_workflow(self, workflow_run_id: str, auth_token: str = ""):
                         ),
                         workflow_run_id,
                         async_engine,
+                        tenant_schema,
                     )
                 finally:
                     await async_engine.dispose()
@@ -313,61 +342,80 @@ def execute_workflow(self, workflow_run_id: str, auth_token: str = ""):
 
 @celery_app.task(name="src.agent_server.tasks.dispatch_scheduled_workflows")
 def dispatch_scheduled_workflows():
-    """Check for due workflow schedules and dispatch them."""
-    engine = _get_sync_engine()
+    """Check for due workflow schedules and dispatch them.
+
+    Iterates over every enabled tenant and queries schedules within that
+    tenant's schema — schedules are stored per-tenant, so querying the
+    public schema would miss them.
+    """
     now = datetime.now(UTC)
     dispatched = 0
 
-    with Session(engine) as session:
-        due_schedules = (
-            session.execute(
-                select(WorkflowSchedule)
-                .where(
-                    WorkflowSchedule.is_enabled.is_(True),
-                    WorkflowSchedule.next_run_at <= now,
+    with get_public_sync_session() as public:
+        tenants = public.execute(select(Tenant).where(Tenant.enabled.is_(True))).scalars().all()
+
+    for tenant in tenants:
+        with new_tenant_sync_session(tenant.schema) as session:
+            due_schedules = (
+                session.execute(
+                    select(WorkflowSchedule)
+                    .where(
+                        WorkflowSchedule.is_enabled.is_(True),
+                        WorkflowSchedule.next_run_at <= now,
+                    )
+                    .with_for_update(skip_locked=True)
                 )
-                .with_for_update(skip_locked=True)
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
 
-        for schedule in due_schedules:
-            workflow = session.execute(
-                select(Workflow).where(
-                    Workflow.id == schedule.workflow_id,
-                    Workflow.is_active.is_(True),
-                    Workflow.deleted_at.is_(None),
+            for schedule in due_schedules:
+                workflow = session.execute(
+                    select(Workflow).where(
+                        Workflow.id == schedule.workflow_id,
+                        Workflow.is_active.is_(True),
+                        Workflow.deleted_at.is_(None),
+                    )
+                ).scalar_one_or_none()
+
+                if not workflow:
+                    schedule.is_enabled = False
+                    schedule.updated_at = now
+                    continue
+
+                # Generate internal JWT so downstream nodes can call backend
+                # on behalf of the workflow owner (aud = this tenant's uuid).
+                auth_token = ""  # nosec B105
+                token = create_internal_token(
+                    workflow.user_id,
+                    workflow.team_id,
+                    tenant.uuid,
                 )
-            ).scalar_one_or_none()
+                if token:
+                    auth_token = f"Bearer {token}"
 
-            if not workflow:
-                schedule.is_enabled = False
+                run = WorkflowRun(
+                    workflow_id=schedule.workflow_id,
+                    team_id=schedule.team_id,
+                    user_id=schedule.user_id,
+                    status="pending",
+                    input_data=schedule.input_data or {},
+                )
+                session.add(run)
+                session.flush()
+
+                task = execute_workflow.delay(run.id, tenant_uuid=tenant.uuid, auth_token=auth_token)
+                run.celery_task_id = task.id
+
+                schedule.last_run_at = now
                 schedule.updated_at = now
-                continue
+                tz = ZoneInfo(schedule.timezone)
+                cron = croniter_cls(schedule.cron_expression, now.astimezone(tz))
+                schedule.next_run_at = cron.get_next(datetime).astimezone(UTC)
 
-            run = WorkflowRun(
-                workflow_id=schedule.workflow_id,
-                team_id=schedule.team_id,
-                user_id=schedule.user_id,
-                status="pending",
-                input_data=schedule.input_data or {},
-            )
-            session.add(run)
-            session.flush()
+                dispatched += 1
 
-            task = execute_workflow.delay(run.id)
-            run.celery_task_id = task.id
-
-            schedule.last_run_at = now
-            schedule.updated_at = now
-            tz = ZoneInfo(schedule.timezone)
-            cron = croniter_cls(schedule.cron_expression, now.astimezone(tz))
-            schedule.next_run_at = cron.get_next(datetime).astimezone(UTC)
-
-            dispatched += 1
-
-        session.commit()
+            session.commit()
 
     if dispatched:
         logger.info("dispatch_scheduled_workflows", dispatched=dispatched)
