@@ -1,5 +1,6 @@
 """CRUD endpoints for Workflow definitions."""
 
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -90,7 +91,10 @@ def _validate_definition(definition: dict) -> None:
 
 
 def _build_webhook_url(tenant_uuid: str, webhook_path: str) -> str:
-    """Construct the full public webhook URL including tenant prefix."""
+    """Construct the full public webhook URL routed through the RevOps backend proxy."""
+    revy_url = os.environ.get("REVY_API_URL", "").rstrip("/")
+    if revy_url:
+        return f"{revy_url}/api/v1/webhooks/rb2b/{tenant_uuid}/{webhook_path}"
     return f"{settings.app.SERVER_URL.rstrip('/')}/tenant/{tenant_uuid}/webhook/{webhook_path}"
 
 
