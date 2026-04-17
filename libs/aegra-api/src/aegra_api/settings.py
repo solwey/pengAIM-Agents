@@ -255,6 +255,7 @@ class GraphsSettings(EnvBase):
     SMTP_FROM: str | None = None
     REVY_API_URL: str | None = None
     WORKFLOW_LLM_MODEL: str = "openai:gpt-4o-mini"
+    TENANT_UUID: str | None = None
 
 
 class Settings:

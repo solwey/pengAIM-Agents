@@ -38,6 +38,9 @@ class NodeType(StrEnum):
     ADD_LEADS_TO_INSTANTLY = "add_leads_to_instantly"
     ACTIVATE_INSTANTLY = "activate_instantly"
     PAUSE_INSTANTLY = "pause_instantly"
+    ACTIVATE_NETSUITE = "activate_netsuite"
+    FETCH_NETSUITE_ENTITY = "fetch_netsuite_entity"
+    CALCULATE_NETSUITE_METRIC = "calculate_netsuite_metric"
 
 
 class ComparisonOperator(StrEnum):
@@ -269,6 +272,27 @@ class PauseInstantlyConfig(BaseModel):
     response_key: str = "instantly_pause_result"
 
 
+class ActivateNetsuiteConfig(BaseModel):
+    response_key: str = "netsuite_activate_result"
+
+
+class FetchNetsuiteEntityConfig(BaseModel):
+    record_type: str = "customer"
+    fields: list[str] = Field(default_factory=list)
+    token_key: str = "netsuite_activate_result"  # state key where activate_netsuite wrote token
+    limit: int = Field(default=100, ge=1, le=1000)
+    response_key: str = "netsuite_entity"
+
+
+class CalculateNetsuiteMetricConfig(BaseModel):
+    metric: str = "total_revenue"
+    period: str = "mtd"
+    start_date: str = ""
+    end_date: str = ""
+    filter_key: str = ""
+    response_key: str = "netsuite_metric"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -311,6 +335,9 @@ class NodeDef(BaseModel):
             NodeType.ADD_LEADS_TO_INSTANTLY: AddLeadsToInstantlyConfig,
             NodeType.ACTIVATE_INSTANTLY: ActivateInstantlyConfig,
             NodeType.PAUSE_INSTANTLY: PauseInstantlyConfig,
+            NodeType.ACTIVATE_NETSUITE: ActivateNetsuiteConfig,
+            NodeType.FETCH_NETSUITE_ENTITY: FetchNetsuiteEntityConfig,
+            NodeType.CALCULATE_NETSUITE_METRIC: CalculateNetsuiteMetricConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

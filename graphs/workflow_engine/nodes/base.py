@@ -118,7 +118,12 @@ async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
     if not auth_token:
         return None
 
-    url = f"{settings.graphs.RAG_API_URL}/keys/{key_id}/reveal"
+    tenant_uuid = settings.graphs.TENANT_UUID
+    if not tenant_uuid:
+        logger.warning("TENANT_UUID is not configured — cannot reveal api key %s", key_id)
+        return None
+
+    url = f"{settings.graphs.RAG_API_URL}/tenant/{tenant_uuid}/keys/{key_id}/reveal"
     headers = {"authorization": auth_token, "Accept": "text/plain"}
 
     try:
@@ -128,4 +133,37 @@ async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
             return resp.text
     except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError) as exc:
         logger.warning("Failed to reveal api key %s: %s", key_id, exc)
+        return None
+
+
+async def reveal_team_integration_key(config: RunnableConfig, provider: str, name: str) -> str | None:
+    """Fetch a decrypted team-scoped integration key by (provider, name).
+
+    Uses the /keys/{key_id}/reveal endpoint's fallback lookup — when the
+    path key_id is not found and provider+name query params are present,
+    the RAG API resolves the key against the caller's team.
+    """
+    if not provider or not name:
+        return None
+
+    auth_token = config.get("configurable", {}).get("auth_token", "")
+    if not auth_token:
+        return None
+
+    tenant_uuid = settings.graphs.TENANT_UUID
+    if not tenant_uuid:
+        logger.warning("TENANT_UUID is not configured — cannot reveal %s/%s", provider, name)
+        return None
+
+    url = f"{settings.graphs.RAG_API_URL}/tenant/{tenant_uuid}/keys/by-name/reveal"
+    headers = {"authorization": auth_token, "Accept": "text/plain"}
+    params = {"provider": provider, "name": name}
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
+            resp = await client.get(url, headers=headers, params=params)
+            resp.raise_for_status()
+            return resp.text
+    except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError) as exc:
+        logger.warning("Failed to reveal %s/%s: %s", provider, name, exc)
         return None
