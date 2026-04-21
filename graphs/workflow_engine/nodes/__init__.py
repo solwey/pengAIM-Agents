@@ -1,15 +1,18 @@
 from .activate_instantly import ActivateInstantlyExecutor
+from .activate_netsuite import ActivateNetsuiteExecutor
 from .add_leads_to_instantly import AddLeadsToInstantlyExecutor
 from .add_tag import AddTagExecutor
 from .add_to_campaign import AddToCampaignExecutor
 from .add_to_list import AddToListExecutor
 from .api_request import ApiRequestExecutor
+from .calculate_netsuite_metric import CalculateNetsuiteMetricExecutor
 from .condition import ConditionExecutor, build_condition_router
 from .create_account import CreateAccountExecutor
 from .create_campaign import CreateCampaignExecutor
 from .create_contact import CreateContactExecutor
 from .delay import DelayExecutor
 from .email_message import EmailMessageExecutor
+from .fetch_netsuite_entity import FetchNetsuiteEntityExecutor
 from .generate_report import GenerateReportExecutor
 from .icp_score import ICPScoreExecutor
 from .list_condition import ListConditionExecutor, build_list_condition_router
@@ -58,6 +61,9 @@ NODE_REGISTRY: dict[str, type] = {
     "add_leads_to_instantly": AddLeadsToInstantlyExecutor,
     "activate_instantly": ActivateInstantlyExecutor,
     "pause_instantly": PauseInstantlyExecutor,
+    "activate_netsuite": ActivateNetsuiteExecutor,
+    "fetch_netsuite_entity": FetchNetsuiteEntityExecutor,
+    "calculate_netsuite_metric": CalculateNetsuiteMetricExecutor,
 }
 
 __all__ = [

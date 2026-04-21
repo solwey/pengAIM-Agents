@@ -114,11 +114,17 @@ async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
     if not key_id:
         return None
 
-    auth_token = config.get("configurable", {}).get("auth_token", "")
+    configurable = config.get("configurable", {})
+    auth_token = configurable.get("auth_token", "")
     if not auth_token:
         return None
 
-    url = f"{settings.graphs.RAG_API_URL}/keys/{key_id}/reveal"
+    tenant_uuid = configurable.get("tenant_uuid", "")
+    if not tenant_uuid:
+        logger.warning("tenant_uuid missing from RunnableConfig — cannot reveal api key %s", key_id)
+        return None
+
+    url = f"{settings.graphs.RAG_API_URL}/tenant/{tenant_uuid}/keys/{key_id}/reveal"
     headers = {"authorization": auth_token, "Accept": "text/plain"}
 
     try:

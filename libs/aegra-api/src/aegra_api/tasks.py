@@ -287,7 +287,7 @@ def execute_workflow(self, workflow_run_id: str, tenant_uuid: str, auth_token: s
                     return await _run_with_cancellation(
                         compiled.ainvoke(
                             initial_state,
-                            config={"configurable": {"auth_token": auth_token}},
+                            config={"configurable": {"auth_token": auth_token, "tenant_uuid": tenant_uuid}},
                         ),
                         workflow_run_id,
                         async_engine,

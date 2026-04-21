@@ -272,10 +272,35 @@ class PauseInstantlyConfig(BaseModel):
     response_key: str = "instantly_pause_result"
 
 
-NetsuiteActivateRecordType = Literal["customer", "vendor", "employee", "lead", "prospect", "contact"]
-NetsuiteFetchRecordType = Literal[
-    "customer", "vendor", "employee", "lead", "prospect", "contact", "item", "invoice", "salesorder"
+# Must stay aligned with revops RECORD_TYPES in
+# revops/app/components/workflow-editor/config-forms/fetch-netsuite-entity-config.tsx
+# and with NetSuiteEntity in api/src/api/net_suite/netsuite.api.ts.
+NetsuiteRecordType = Literal[
+    "account",
+    "check",
+    "contact",
+    "creditCardCharge",
+    "customer",
+    "customerPayment",
+    "department",
+    "deposit",
+    "employee",
+    "expenseReport",
+    "inventoryItem",
+    "invoice",
+    "job",
+    "journalEntry",
+    "location",
+    "purchaseOrder",
+    "salesOrder",
+    "subsidiary",
+    "vendor",
+    "vendorBill",
+    "vendorCredit",
+    "vendorPayment",
 ]
+NetsuiteActivateRecordType = NetsuiteRecordType
+NetsuiteFetchRecordType = NetsuiteRecordType
 NetsuiteMetric = Literal[
     "total_revenue",
     "monthly_revenue",
@@ -301,6 +326,8 @@ class FetchNetsuiteEntityConfig(BaseModel):
     record_id: str = ""  # direct NetSuite internal ID
     record_id_key: str = ""  # or dot-path to record ID in state
     fields: list[str] = Field(default_factory=list)  # empty = all fields
+    limit: int = 100
+    token_key: str = "netsuite_activate_result"  # state.data key where activate_netsuite writes its token
     response_key: str = "netsuite_entity"
 
 
