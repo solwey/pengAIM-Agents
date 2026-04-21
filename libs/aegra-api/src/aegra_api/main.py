@@ -23,6 +23,7 @@ from aegra_api.api.store import router as store_router
 from aegra_api.api.threads import router as threads_router
 from aegra_api.api.webhooks import router as webhooks_router
 from aegra_api.api.workflow_models import router as workflow_models_router
+from aegra_api.api.workflow_node_preview import router as workflow_node_preview_router
 from aegra_api.api.workflow_runs import router as workflow_runs_router
 from aegra_api.api.workflow_schedules import router as workflow_schedules_router
 from aegra_api.api.workflows import router as workflows_router
@@ -333,6 +334,7 @@ def _include_core_routers(app: FastAPI) -> None:
     tenant_router.include_router(workflow_runs_router)
     tenant_router.include_router(workflow_schedules_router)
     tenant_router.include_router(workflow_models_router)
+    tenant_router.include_router(workflow_node_preview_router)
     app.include_router(tenant_router)
 
 

@@ -157,6 +157,15 @@ class ICPScoreConfig(BaseModel):
     account_data_key: str = ""  # where to find account data in state
     model: str = ""  # LLM model (e.g. "openai:gpt-4o-mini"), empty = env default
     response_key: str = "icp_score"
+    hot_threshold: int = Field(default=80, ge=0, le=100)
+    warm_threshold: int = Field(default=50, ge=0, le=100)
+    custom_criteria: str = ""  # extra rules appended to the scoring prompt
+
+    @model_validator(mode="after")
+    def _check_thresholds(self) -> ICPScoreConfig:
+        if self.warm_threshold >= self.hot_threshold:
+            raise ValueError("warm_threshold must be lower than hot_threshold")
+        return self
 
 
 class ReadGoogleSheetConfig(BaseModel):
