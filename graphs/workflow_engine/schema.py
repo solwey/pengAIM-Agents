@@ -299,7 +299,6 @@ NetsuiteRecordType = Literal[
     "vendorCredit",
     "vendorPayment",
 ]
-NetsuiteActivateRecordType = NetsuiteRecordType
 NetsuiteFetchRecordType = NetsuiteRecordType
 NetsuiteMetric = Literal[
     "total_revenue",
@@ -310,14 +309,12 @@ NetsuiteMetric = Literal[
     "customer_count",
     "new_customers",
     "average_deal_size",
+    "actual_by_department",
 ]
 NetsuitePeriod = Literal["mtd", "qtd", "ytd", "last_7_days", "last_30_days", "last_90_days", "custom"]
 
 
 class ActivateNetsuiteConfig(BaseModel):
-    record_type: NetsuiteActivateRecordType = "customer"
-    record_id: str = ""  # direct NetSuite internal ID
-    record_id_key: str = ""  # or dot-path to record ID in state
     response_key: str = "netsuite_activate_result"
 
 
@@ -334,16 +331,11 @@ class FetchNetsuiteEntityConfig(BaseModel):
 class CalculateNetsuiteMetricConfig(BaseModel):
     metric: NetsuiteMetric = "total_revenue"
     period: NetsuitePeriod = "mtd"
-    start_date: str = ""  # required when period == "custom"
-    end_date: str = ""  # required when period == "custom"
+    start_date: str = ""  # required when period == "custom" — enforced at runtime by the executor
+    end_date: str = ""  # required when period == "custom" — enforced at runtime by the executor
     filter_key: str = ""  # optional dot-path to scope the metric to entities in state
+    token_key: str = "netsuite_activate_result"  # state.data key where activate_netsuite writes its token
     response_key: str = "netsuite_metric"
-
-    @model_validator(mode="after")
-    def _require_custom_dates(self) -> CalculateNetsuiteMetricConfig:
-        if self.period == "custom" and not (self.start_date and self.end_date):
-            raise ValueError("start_date and end_date are required when period is 'custom'")
-        return self
 
 
 # ── Node & Edge definitions ──────────────────────────────────
