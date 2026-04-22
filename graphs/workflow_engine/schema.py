@@ -301,15 +301,8 @@ NetsuiteRecordType = Literal[
 ]
 NetsuiteFetchRecordType = NetsuiteRecordType
 NetsuiteMetric = Literal[
-    "total_revenue",
-    "monthly_revenue",
-    "open_invoices_total",
-    "aging_receivables",
-    "outstanding_balance",
-    "customer_count",
-    "new_customers",
-    "average_deal_size",
     "actual_by_department",
+    "cost_per_sqft",
 ]
 NetsuitePeriod = Literal["mtd", "qtd", "ytd", "last_7_days", "last_30_days", "last_90_days", "custom"]
 
@@ -329,7 +322,7 @@ class FetchNetsuiteEntityConfig(BaseModel):
 
 
 class CalculateNetsuiteMetricConfig(BaseModel):
-    metric: NetsuiteMetric = "total_revenue"
+    metric: NetsuiteMetric = "actual_by_department"
     period: NetsuitePeriod = "mtd"
     start_date: str = ""  # required when period == "custom" — enforced at runtime by the executor
     end_date: str = ""  # required when period == "custom" — enforced at runtime by the executor
