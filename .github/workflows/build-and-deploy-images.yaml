@@ -9,7 +9,7 @@ on:
         type: choice
         options:
           - solwey-qa
-          - solwey-demo
+          - solwey-prod
   workflow_call:
     inputs:
       env:
