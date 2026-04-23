@@ -10,6 +10,7 @@ from .create_campaign import CreateCampaignExecutor
 from .create_contact import CreateContactExecutor
 from .delay import DelayExecutor
 from .email_message import EmailMessageExecutor
+from .fetch_instantly_replies import FetchInstantlyRepliesExecutor
 from .generate_report import GenerateReportExecutor
 from .icp_score import ICPScoreExecutor
 from .list_condition import ListConditionExecutor, build_list_condition_router
@@ -27,6 +28,7 @@ from .sync_to_instantly import SyncToInstantlyExecutor
 from .tag_condition import TagConditionExecutor, build_tag_condition_router
 from .transform import TransformExecutor
 from .update_account import UpdateAccountExecutor
+from .update_instantly_lead_status import UpdateInstantlyLeadStatusExecutor
 
 NODE_REGISTRY: dict[str, type] = {
     "api_request": ApiRequestExecutor,
@@ -58,6 +60,8 @@ NODE_REGISTRY: dict[str, type] = {
     "add_leads_to_instantly": AddLeadsToInstantlyExecutor,
     "activate_instantly": ActivateInstantlyExecutor,
     "pause_instantly": PauseInstantlyExecutor,
+    "update_instantly_lead_status": UpdateInstantlyLeadStatusExecutor,
+    "fetch_instantly_replies": FetchInstantlyRepliesExecutor,
 }
 
 __all__ = [
