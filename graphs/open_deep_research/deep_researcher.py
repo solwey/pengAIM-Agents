@@ -65,6 +65,7 @@ from graphs.open_deep_research.utils import (
     openai_websearch_called,
     remove_up_to_last_ai_message,
     resolve_artifact_placeholders,
+    resolve_reasoning_model_kwargs,
     think_tool,
     truncate_result,
 )
@@ -176,7 +177,7 @@ def log_error(node_name: str, error: Exception):
 
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
-    configurable_fields=("model", "max_tokens", "api_key"),
+    configurable_fields=("model", "max_tokens", "api_key", "reasoning_effort", "model_kwargs"),
 )
 
 
@@ -851,6 +852,12 @@ async def clarify_with_user(
         "max_tokens": configurable.research_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
+        **resolve_reasoning_model_kwargs(
+            configurable.research_model,
+            configurable.research_model_reasoning_level.value
+            if configurable.research_model_reasoning_level is not None
+            else None,
+        ),
     }
 
     # Configure model with structured output and retry logic
@@ -902,6 +909,12 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
         "max_tokens": configurable.research_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
+        **resolve_reasoning_model_kwargs(
+            configurable.research_model,
+            configurable.research_model_reasoning_level.value
+            if configurable.research_model_reasoning_level is not None
+            else None,
+        ),
     }
 
     # Configure model for structured research question generation
@@ -1007,6 +1020,12 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
         "max_tokens": configurable.research_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
+        **resolve_reasoning_model_kwargs(
+            configurable.research_model,
+            configurable.research_model_reasoning_level.value
+            if configurable.research_model_reasoning_level is not None
+            else None,
+        ),
     }
 
     agent_mode = get_agent_mode(config)
@@ -1326,6 +1345,12 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
         "max_tokens": configurable.research_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
+        **resolve_reasoning_model_kwargs(
+            configurable.research_model,
+            configurable.research_model_reasoning_level.value
+            if configurable.research_model_reasoning_level is not None
+            else None,
+        ),
     }
 
     # Choose mode-specific researcher prompt
@@ -1508,6 +1533,12 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             "max_tokens": configurable.compression_model_max_tokens,
             "api_key": api_key,
             "tags": ["langsmith:nostream"],
+            **resolve_reasoning_model_kwargs(
+                configurable.compression_model,
+                configurable.compression_model_reasoning_level.value
+                if configurable.compression_model_reasoning_level is not None
+                else None,
+            ),
         }
     )
 
@@ -1668,6 +1699,12 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         "max_tokens": configurable.final_report_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
+        **resolve_reasoning_model_kwargs(
+            configurable.final_report_model,
+            configurable.final_report_model_reasoning_level.value
+            if configurable.final_report_model_reasoning_level is not None
+            else None,
+        ),
     }
     agent_mode = get_agent_mode(config)
 

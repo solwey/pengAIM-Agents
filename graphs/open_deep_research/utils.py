@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -14,7 +15,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
-    MessageLikeRepresentation,
     filter_messages,
 )
 from langchain_core.runnables import RunnableConfig
@@ -65,6 +65,46 @@ def _is_openai_gpt5_model(llm_provider: str | None, model_name: str | None) -> b
     return model_name.split(":")[-1].lower().startswith("gpt-5")
 
 
+def _is_openai_reasoning_model(model_id: str) -> bool:
+    return (
+        model_id.startswith("gpt-5")
+        or model_id.startswith("o1")
+        or model_id.startswith("o3")
+        or model_id.startswith("o4")
+    )
+
+
+def resolve_reasoning_model_kwargs(model_name: str | None, reasoning_level: str | None) -> dict[str, Any]:
+    """Map generic reasoning level to provider-specific model kwargs."""
+    if not model_name or not reasoning_level:
+        return {}
+
+    model_lower = model_name.lower()
+    model_id = model_lower.split(":", 1)[-1]
+
+    if model_lower.startswith("openai:") or model_lower.startswith("azure_openai:"):
+        if not _is_openai_reasoning_model(model_id):
+            return {}
+
+        return {"reasoning": {"effort": reasoning_level}}
+
+    if model_lower.startswith("google_genai:") or model_lower.startswith("google:"):
+        if bool(re.match(r"^gemini-3([.-]|$)", model_id)):
+            return {"model_kwargs": {"thinkingLevel": reasoning_level}}
+        if bool(re.match(r"^gemini-2\.5([.-]|$)", model_id)):
+            thinking_budget_by_level = {
+                "minimal": 0,
+                "low": 1024,
+                "medium": 4096,
+                "high": 8192,
+            }
+            budget = thinking_budget_by_level.get(reasoning_level)
+            if budget is not None:
+                return {"model_kwargs": {"thinkingBudget": budget}}
+
+    return {}
+
+
 ##########################
 # RAG tool
 ##########################
@@ -99,6 +139,7 @@ async def rag_search(
     rag_retrieval_chunk_rank_weight_similarity = configurable.get("rag_retrieval_chunk_rank_weight_similarity")
     rag_retrieval_chunk_rank_weight_entity = configurable.get("rag_retrieval_chunk_rank_weight_entity")
     summarization_model = configurable.get("summarization_model") or None
+    rag_llm_reasoning_level = configurable.get("rag_llm_reasoning_level") or None
 
     llm_provider = configurable.get("llm_provider", "openai")
     if llm_provider == "google":
@@ -118,6 +159,7 @@ async def rag_search(
         "api_key_id": key_data.get("keyId"),
         "llm_provider": "gemini" if llm_provider == "google" else "open-ai",
         "llm_model": summarization_model.split(":")[-1] if summarization_model else None,
+        "llm_reasoning_level": rag_llm_reasoning_level,
         "embedding_model": embedding_model,
         "llm_temperature": llm_temperature,
         "llm_max_tokens": llm_max_tokens,
@@ -226,12 +268,18 @@ async def firecrawl_search(
     configurable = Configuration.from_runnable_config(config)
     max_char_to_include = configurable.max_content_length
     model_api_key = await get_api_key_for_model(configurable.summarization_model, config)
+    summarization_reasoning_level = (
+        configurable.summarization_model_reasoning_level.value
+        if configurable.summarization_model_reasoning_level is not None
+        else None
+    )
     summarization_model = (
         init_chat_model(
             model=configurable.summarization_model,
             max_tokens=configurable.summarization_model_max_tokens,
             api_key=model_api_key,
             tags=["langsmith:nostream"],
+            **resolve_reasoning_model_kwargs(configurable.summarization_model, summarization_reasoning_level),
         )
         .with_structured_output(Summary)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
@@ -313,12 +361,18 @@ async def tavily_search(
 
     # Initialize summarization model with retry logic
     model_api_key = await get_api_key_for_model(configurable.summarization_model, config)
+    summarization_reasoning_level = (
+        configurable.summarization_model_reasoning_level.value
+        if configurable.summarization_model_reasoning_level is not None
+        else None
+    )
     summarization_model = (
         init_chat_model(
             model=configurable.summarization_model,
             max_tokens=configurable.summarization_model_max_tokens,
             api_key=model_api_key,
             tags=["langsmith:nostream"],
+            **resolve_reasoning_model_kwargs(configurable.summarization_model, summarization_reasoning_level),
         )
         .with_structured_output(Summary)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
@@ -612,7 +666,7 @@ async def get_all_tools(config: RunnableConfig):
     return tools
 
 
-def get_notes_from_tool_calls(messages: list[MessageLikeRepresentation]):
+def get_notes_from_tool_calls(messages: list):
     """Extract notes from tool call messages."""
     return [tool_msg.content for tool_msg in filter_messages(messages, include_types="tool")]
 
@@ -882,8 +936,8 @@ def get_model_token_limit(model_string):
 
 
 def remove_up_to_last_ai_message(
-    messages: list[MessageLikeRepresentation],
-) -> list[MessageLikeRepresentation]:
+    messages: list,
+) -> list:
     """Truncate message history by removing up to the last AI message.
 
     This is useful for handling token limit exceeded errors by removing recent context.
