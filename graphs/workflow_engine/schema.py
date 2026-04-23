@@ -41,6 +41,7 @@ class NodeType(StrEnum):
     ACTIVATE_NETSUITE = "activate_netsuite"
     FETCH_NETSUITE_ENTITY = "fetch_netsuite_entity"
     CALCULATE_NETSUITE_METRIC = "calculate_netsuite_metric"
+    FETCH_BLOOMERANG_ENTITY = "fetch_bloomerang_entity"
 
 
 class ComparisonOperator(StrEnum):
@@ -331,6 +332,32 @@ class CalculateNetsuiteMetricConfig(BaseModel):
     response_key: str = "netsuite_metric"
 
 
+# Semantic record types — must stay aligned with revops RECORD_TYPES in
+# revops/app/components/workflow-editor/config-forms/fetch-bloomerang-entity-config.tsx.
+# The mapping to Bloomerang v2 REST paths lives in
+# graphs/workflow_engine/nodes/fetch_bloomerang_entity.py (_BLOOMERANG_ENDPOINT).
+BloomerangRecordType = Literal[
+    "appeal",
+    "campaign",
+    "constituent",
+    "designation",
+    "fund",
+    "household",
+    "interaction",
+    "note",
+    "relationship",
+    "transaction",
+    "tribute",
+]
+
+
+class FetchBloomerangEntityConfig(BaseModel):
+    record_type: BloomerangRecordType = "constituent"
+    fields: list[str] = Field(default_factory=list)  # empty = all fields (client-side projection)
+    limit: int = Field(default=50, ge=1, le=50)  # maps to Bloomerang's ?take=N
+    response_key: str = "bloomerang_entity"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -376,6 +403,7 @@ class NodeDef(BaseModel):
             NodeType.ACTIVATE_NETSUITE: ActivateNetsuiteConfig,
             NodeType.FETCH_NETSUITE_ENTITY: FetchNetsuiteEntityConfig,
             NodeType.CALCULATE_NETSUITE_METRIC: CalculateNetsuiteMetricConfig,
+            NodeType.FETCH_BLOOMERANG_ENTITY: FetchBloomerangEntityConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
