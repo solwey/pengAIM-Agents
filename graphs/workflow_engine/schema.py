@@ -38,6 +38,8 @@ class NodeType(StrEnum):
     ADD_LEADS_TO_INSTANTLY = "add_leads_to_instantly"
     ACTIVATE_INSTANTLY = "activate_instantly"
     PAUSE_INSTANTLY = "pause_instantly"
+    UPDATE_INSTANTLY_LEAD_STATUS = "update_instantly_lead_status"
+    FETCH_INSTANTLY_REPLIES = "fetch_instantly_replies"
 
 
 class ComparisonOperator(StrEnum):
@@ -278,6 +280,22 @@ class PauseInstantlyConfig(BaseModel):
     response_key: str = "instantly_pause_result"
 
 
+class UpdateInstantlyLeadStatusConfig(BaseModel):
+    campaign_id: str = ""
+    campaign_id_key: str = ""
+    lead_email: str = ""
+    lead_email_key: str = ""
+    interest_value: int | None = None
+    interest_value_key: str = ""
+    response_key: str = "instantly_lead_status_result"
+
+
+class FetchInstantlyRepliesConfig(BaseModel):
+    campaign_id: str = ""
+    campaign_id_key: str = ""
+    limit: int = 50
+    response_key: str = "instantly_replies"
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -320,6 +338,8 @@ class NodeDef(BaseModel):
             NodeType.ADD_LEADS_TO_INSTANTLY: AddLeadsToInstantlyConfig,
             NodeType.ACTIVATE_INSTANTLY: ActivateInstantlyConfig,
             NodeType.PAUSE_INSTANTLY: PauseInstantlyConfig,
+            NodeType.UPDATE_INSTANTLY_LEAD_STATUS: UpdateInstantlyLeadStatusConfig,
+            NodeType.FETCH_INSTANTLY_REPLIES: FetchInstantlyRepliesConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
