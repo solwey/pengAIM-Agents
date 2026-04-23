@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from aegra_api.llm_models import DEFAULT_LLM_MODEL, to_ui_options
 from graphs.shared import (
     DEFAULT_QUESTION_CATEGORIES,
     DefaultQuestionsCategory,
@@ -558,23 +559,12 @@ class Configuration(BaseModel):
     )
     # Model Configuration
     summarization_model: str = Field(
-        default="openai:gpt-4o-mini",
+        default=DEFAULT_LLM_MODEL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "openai:gpt-4o-mini",
-                "options": [
-                    {"label": "GPT‑4o‑mini", "value": "openai:gpt-4o-mini"},
-                    {"label": "GPT‑5.0", "value": "openai:gpt-5.0"},
-                    {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
-                    {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
-                    {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
-                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
-                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
-                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
-                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
-                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
-                ],
+                "default": DEFAULT_LLM_MODEL,
+                "options": to_ui_options(),
                 "description": "Model for summarizing research results from Tavily search results",
             }
         },
@@ -602,23 +592,12 @@ class Configuration(BaseModel):
         },
     )
     research_model: str = Field(
-        default="openai:gpt-4o-mini",
+        default=DEFAULT_LLM_MODEL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "openai:gpt-4o-mini",
-                "options": [
-                    {"label": "GPT‑4o‑mini", "value": "openai:gpt-4o-mini"},
-                    {"label": "GPT‑5.0", "value": "openai:gpt-5.0"},
-                    {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
-                    {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
-                    {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
-                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
-                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
-                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
-                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
-                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
-                ],
+                "default": DEFAULT_LLM_MODEL,
+                "options": to_ui_options(),
                 "description": "Model for conducting research. NOTE: Make sure your Researcher Model supports the selected search API.",
             }
         },
@@ -634,23 +613,12 @@ class Configuration(BaseModel):
         },
     )
     compression_model: str = Field(
-        default="openai:gpt-4o-mini",
+        default=DEFAULT_LLM_MODEL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "openai:gpt-4o-mini",
-                "options": [
-                    {"label": "GPT‑4o‑mini", "value": "openai:gpt-4o-mini"},
-                    {"label": "GPT‑5.0", "value": "openai:gpt-5.0"},
-                    {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
-                    {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
-                    {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
-                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
-                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
-                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
-                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
-                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
-                ],
+                "default": DEFAULT_LLM_MODEL,
+                "options": to_ui_options(),
                 "description": "Model for compressing research findings from sub-agents. NOTE: Make sure your Compression Model supports the selected search API.",
             }
         },
@@ -666,23 +634,12 @@ class Configuration(BaseModel):
         },
     )
     final_report_model: str = Field(
-        default="openai:gpt-4o-mini",
+        default=DEFAULT_LLM_MODEL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "openai:gpt-4o-mini",
-                "options": [
-                    {"label": "GPT‑4o‑mini", "value": "openai:gpt-4o-mini"},
-                    {"label": "GPT‑5.0", "value": "openai:gpt-5.0"},
-                    {"label": "GPT‑5.1", "value": "openai:gpt-5.1"},
-                    {"label": "GPT‑5.2", "value": "openai:gpt-5.2"},
-                    {"label": "GPT‑5‑mini", "value": "openai:gpt-5-mini"},
-                    {"label": "Gemini 2.5 Pro", "value": "google_genai:gemini-2.5-pro"},
-                    {"label": "Gemini 2.5 Flash", "value": "google_genai:gemini-2.5-flash"},
-                    {"label": "Gemini 2.5 Flash Lite", "value": "google_genai:gemini-2.5-flash-lite"},
-                    {"label": "Gemini 3 Flash Preview", "value": "google_genai:gemini-3-flash-preview"},
-                    {"label": "Gemini 3.1 Pro Preview", "value": "google_genai:gemini-3.1-pro-preview"},
-                ],
+                "default": DEFAULT_LLM_MODEL,
+                "options": to_ui_options(),
                 "description": "Model for writing the final report from all research findings",
             }
         },

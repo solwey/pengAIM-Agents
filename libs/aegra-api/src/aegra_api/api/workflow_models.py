@@ -1,7 +1,4 @@
-"""Workflow model health endpoint — probes each supported LLM model and reports reachability.
-
-Canonical list mirrors graphs/react_agent/context.py. Keep these two in sync.
-"""
+"""Workflow model health endpoint — probes each supported LLM model and reports reachability."""
 
 import asyncio
 import logging
@@ -15,28 +12,13 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
 from ..core.auth_deps import auth_dependency, get_current_user
+from ..llm_models import LLM_MODELS
 from ..models.auth import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Workflow Models"], dependencies=auth_dependency)
 
-
-WORKFLOW_LLM_MODELS: list[tuple[str, str]] = [
-    ("openai:gpt-4o", "GPT-4o"),
-    ("openai:gpt-4o-mini", "GPT-4o Mini"),
-    ("openai:gpt-4.1", "GPT-4.1"),
-    ("openai:gpt-4.1-mini", "GPT-4.1 Mini"),
-    ("openai:gpt-5", "GPT-5"),
-    ("openai:gpt-5-mini", "GPT-5 Mini"),
-    ("openai:gpt-5.1", "GPT-5.1"),
-    ("openai:gpt-5.2", "GPT-5.2"),
-    ("google_genai:gemini-2.5-pro", "Gemini 2.5 Pro"),
-    ("google_genai:gemini-2.5-flash", "Gemini 2.5 Flash"),
-    ("google_genai:gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite"),
-    ("google_genai:gemini-3-flash-preview", "Gemini 3 Flash Preview"),
-    ("google_genai:gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
-]
 
 MODEL_PROBE_TIMEOUT_SECONDS = 15.0
 CACHE_TTL_SECONDS = 300
@@ -124,7 +106,7 @@ async def get_workflow_models_health(
         if cached is not None and cached[0] > now:
             return cached[1]
 
-    probes = [_probe_model(value, label) for value, label in WORKFLOW_LLM_MODELS]
+    probes = [_probe_model(value, label) for value, label in LLM_MODELS]
     results = await asyncio.gather(*probes)
 
     response = WorkflowModelsHealthResponse(
