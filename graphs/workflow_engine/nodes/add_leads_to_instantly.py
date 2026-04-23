@@ -64,12 +64,14 @@ class AddLeadsToInstantlyExecutor(NodeExecutor):
                     )
                     if resp.status_code in (200, 201):
                         body = resp.json()
+                        leads_added = body.get("leads_sent", len(contact_ids))
                         result = {
                             "ok": True,
                             "campaign_id": campaign_id,
-                            "leads_added": body.get("added", len(contact_ids)),
+                            "leads_added": leads_added,
+                            "skipped_emails": body.get("skipped_emails", []),
                         }
-                        logger.info("Added %d leads to Instantly campaign %s", len(contact_ids), campaign_id)
+                        logger.info("Added %d leads to Instantly campaign %s", leads_added, campaign_id)
                     else:
                         result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
