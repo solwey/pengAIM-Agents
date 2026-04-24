@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -41,7 +42,7 @@ class LLMCompleteExecutor(NodeExecutor):
                     temperature=0,
                     max_tokens=cfg.max_tokens,
                 )
-                response = await model.ainvoke(messages)
+                response = await asyncio.wait_for(model.ainvoke(messages), timeout=cfg.timeout_seconds)
                 content = response.content or ""
 
                 usage = {}
@@ -58,6 +59,16 @@ class LLMCompleteExecutor(NodeExecutor):
                 }
                 logger.info("LLM complete: %d chars response", len(content))
 
+            except TimeoutError:
+                logger.warning(
+                    "LLM complete timed out after %ds (model=%s)",
+                    cfg.timeout_seconds,
+                    cfg.model or settings.graphs.WORKFLOW_LLM_MODEL,
+                )
+                result = {
+                    "ok": False,
+                    "error": f"LLM call timed out after {cfg.timeout_seconds}s",
+                }
             except Exception as exc:
                 logger.warning("LLM complete failed: %s", exc)
                 result = {"ok": False, "error": str(exc)[:500]}
