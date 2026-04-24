@@ -41,10 +41,33 @@ from graphs.agentic_rag.state import (
     AgentState,
 )
 from graphs.react_agent.context import Context
-from graphs.react_agent.rag_models import SourceDocument
+from graphs.react_agent.rag_models import DocumentCollectionInfo, SourceDocument
 from graphs.react_agent.utils import get_api_key_for_model, get_today_str
 
 logger = logging.getLogger(__name__)
+
+EXACT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+NON_DATE_LOOKUP_TERMS = {
+    "document", "documents", "file", "files", "record", "records",
+    "doc", "docs", "added", "uploaded", "created", "modified", "updated",
+    "from", "in", "on", "during", "for", "at", "by", "between", "and",
+    "show", "list", "what", "which", "were", "was", "are", "is", "the",
+    "a", "an", "of", "to",
+}
+MONTH_TERMS = {
+    "january", "jan", "february", "feb", "march", "mar", "april", "apr",
+    "may", "june", "jun", "july", "jul", "august", "aug", "september",
+    "sep", "sept", "october", "oct", "november", "nov", "december", "dec",
+}
+PROBLEM_REPORT_RE = re.compile(
+    r"\b(broke|broken|failing|failure|fault|error|issue|problem|malfunction|stuck)\b"
+    r"|not working|doesn'?t work|can't figure|cannot figure|won'?t start|will not start",
+    re.IGNORECASE,
+)
 
 
 def _get_last_human_message(state: AgentState) -> str:
@@ -59,6 +82,129 @@ def _get_last_human_message_id(state: AgentState) -> str | None:
         if isinstance(msg, HumanMessage):
             return getattr(msg, "id", None)
     return None
+
+
+def _is_exact_reference_date(value: str | None) -> bool:
+    return bool(value and EXACT_DATE_RE.fullmatch(value.strip()))
+
+
+def _is_date_inventory_query(query: str | None) -> bool:
+    """Return True when a temporal query has no non-date lookup terms."""
+    tokens = re.findall(r"[a-zA-Z0-9]+", str(query or "").lower())
+    meaningful = [
+        token for token in tokens
+        if token not in NON_DATE_LOOKUP_TERMS
+        and token not in MONTH_TERMS
+        and not token.isdigit()
+    ]
+    return not meaningful
+
+
+def _is_problem_report(query: str | None) -> bool:
+    return bool(PROBLEM_REPORT_RE.search(str(query or "")))
+
+
+def _problem_report_note(query: str | None) -> str:
+    if not _is_problem_report(query):
+        return ""
+
+    return (
+        "Answering note: The user is reporting a problem in vague terms. If the "
+        "retrieved context does not identify a single cause, do not give generic "
+        "repair advice. Use the context to provide the closest related evidence, "
+        "checks, hazards, or procedures with citations, clearly marked as related "
+        "leads rather than confirmed fixes. Ask for the missing symptoms needed "
+        "to narrow the issue.\n\n"
+    )
+
+
+def _source_doc_id(source: SourceDocument) -> str:
+    metadata = source.metadata or {}
+
+    for key in ("doc_id", "document_id"):
+        value = metadata.get(key)
+        if value:
+            return str(value)
+
+    document_ids = metadata.get("document_ids")
+    if isinstance(document_ids, list):
+        for value in document_ids:
+            if value:
+                return str(value)
+    elif document_ids:
+        return str(document_ids)
+
+    if UUID_RE.fullmatch(str(source.title or "")):
+        return str(source.title)
+
+    return ""
+
+
+def _format_citation_context(
+    sources: list[SourceDocument],
+    document_collections: list[DocumentCollectionInfo],
+    *,
+    max_sources: int = 50,
+) -> str:
+    """Build an explicit citation map for the answer LLM."""
+    title_by_doc_id = {
+        collection.document_id: collection.document_title
+        for collection in document_collections
+        if collection.document_title
+    }
+
+    lines: list[str] = []
+    seen_tokens: set[str] = set()
+    for source in sources:
+        if source.source_type != "text_unit" or not source.chunk_id:
+            continue
+
+        doc_id = _source_doc_id(source)
+        if not doc_id:
+            continue
+
+        token = f"[{source.chunk_id}|{doc_id}]"
+        if token in seen_tokens:
+            continue
+        seen_tokens.add(token)
+
+        title = title_by_doc_id.get(doc_id) or source.title or "Untitled document"
+        snippet = re.sub(r"\s+", " ", str(source.content or "")).strip()
+        if len(snippet) > 240:
+            snippet = snippet[:237].rstrip() + "..."
+        lines.append(f"- {token} {title}: {snippet}")
+
+        if len(lines) >= max_sources:
+            break
+
+    if not lines:
+        return ""
+
+    return (
+        "Citation tokens available from text-unit sources:\n"
+        "Use only these exact tokens for citations. Do not invent or alter tokens.\n"
+        + "\n".join(lines)
+    )
+
+
+def _append_citation_context(
+    context: str,
+    sources: list[SourceDocument],
+    document_collections: list[DocumentCollectionInfo],
+) -> str:
+    citation_context = _format_citation_context(sources, document_collections)
+    if not citation_context:
+        if len(context) > MAX_CONTEXT_CHARS:
+            return context[:MAX_CONTEXT_CHARS] + "\n\n[Context truncated to fit token budget]"
+        return context
+
+    reserved = len(citation_context) + len("\n\nRetrieved context:\n")
+    context_budget = max(1000, MAX_CONTEXT_CHARS - reserved)
+    if len(context) > context_budget:
+        context = context[:context_budget] + "\n\n[Context truncated to fit token budget]"
+        logger.info("Truncated context to %d chars before adding citation map", context_budget)
+
+    return f"{citation_context}\n\nRetrieved context:\n{context}"
 
 
 async def _get_model(config: RunnableConfig) -> Any:
@@ -118,6 +264,15 @@ async def route_query(state: AgentState, config: RunnableConfig) -> dict[str, An
     if query_type not in ("factual", "metadata", "temporal", "walkthrough", "overview", "off_topic"):
         query_type = "factual"
 
+    if extracted_date:
+        extracted_date = str(extracted_date).strip()
+        if extracted_date.lower() in ("none", "null", "n/a"):
+            extracted_date = ""
+
+    if query_type == "temporal" and extracted_date and not _is_exact_reference_date(extracted_date):
+        logger.info("Route query: ignoring non-day temporal extraction '%s'", extracted_date)
+        extracted_date = ""
+
     logger.info("Route query: type=%s, date=%s, search_query=%s", query_type, extracted_date, search_query[:100])
 
     return {
@@ -143,13 +298,23 @@ async def search(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     if query_type == "off_topic":
         return {"search_context": "", "sources": [], "document_collections": [], "retrieval_error": ""}
 
-    if query_type == "temporal" and not extracted_date:
+    if query_type == "temporal" and not _is_exact_reference_date(extracted_date):
         result = await _search_semantic(state, config, query, retry_count)
+        if result.get("search_context"):
+            result["search_context"] = (
+                "Retrieval note: the question references a broad or relative time period, "
+                "so exact-day metadata filtering was not applied. The context below is "
+                "from semantic retrieval rather than date-filtered document lookup.\n\n"
+                f"{result['search_context']}"
+            )
         result["query_type"] = "factual"
         return result
 
     if query_type in ("metadata", "overview") or (query_type == "temporal" and extracted_date):
-        return await _search_lookup(state, config, query, extracted_date)
+        lookup_query = query
+        if query_type == "temporal" and _is_date_inventory_query(query):
+            lookup_query = ""
+        return await _search_lookup(state, config, lookup_query, extracted_date)
 
     if query_type == "walkthrough":
         return await _search_walkthrough(state, config, query)
@@ -178,10 +343,11 @@ async def _search_semantic(
     for coll in rag_response.document_collections:
         coll.last_human_message_id = last_human_id
 
-    context = rag_response.context_text
-    if len(context) > MAX_CONTEXT_CHARS:
-        context = context[:MAX_CONTEXT_CHARS] + "\n\n[Context truncated to fit token budget]"
-        logger.info("Truncated context from %d to %d chars", len(rag_response.context_text), MAX_CONTEXT_CHARS)
+    context = _append_citation_context(
+        rag_response.context_text,
+        rag_response.sources,
+        rag_response.document_collections,
+    )
 
     retrieval_error = ""
     if isinstance(rag_response.retrieval_metadata, dict):
@@ -236,11 +402,14 @@ async def _search_lookup(
 
     last_human_id = _get_last_human_message_id(state)
     sources: list[SourceDocument] = []
+    document_collections: list[DocumentCollectionInfo] = []
+    seen_doc_ids: set[str] = set()
     context_parts: list[str] = []
 
     for item in items:
         doc_id = str(item.get("doc_id") or "")
         file_name = str(item.get("file_name") or "Untitled")
+        collection_id = str(item.get("collection_id") or "")
         ref_date = item.get("reference_date") or ""
         match_type = str(item.get("match_type") or "keyword")
         score = item.get("score")
@@ -255,6 +424,16 @@ async def _search_lookup(
             last_human_message_id=last_human_id,
         ))
 
+        if doc_id and collection_id and doc_id not in seen_doc_ids:
+            seen_doc_ids.add(doc_id)
+            document_collections.append(DocumentCollectionInfo(
+                document_id=doc_id,
+                collection_id=collection_id,
+                document_title=file_name,
+                relevance_score=float(score) if score is not None else None,
+                last_human_message_id=last_human_id,
+            ))
+
         line = f"- {file_name}"
         if ref_date:
             line += f" (date: {ref_date})"
@@ -267,7 +446,7 @@ async def _search_lookup(
     return {
         "search_context": context,
         "sources": sources,
-        "document_collections": [],
+        "document_collections": document_collections,
         "retrieval_error": "",
     }
 
@@ -318,6 +497,7 @@ async def _search_walkthrough(
 
     doc_id = str(target.get("doc_id") or "")
     file_name = str(target.get("file_name") or "Untitled")
+    collection_id = str(target.get("collection_id") or "")
 
     content = await get_document_content(config, doc_id, page=1, page_size=WALKTHROUGH_PAGE_SIZE)
 
@@ -356,7 +536,10 @@ async def _search_walkthrough(
             header = (header + f" (page {page_number})").strip()
         if header:
             parts.append(header)
-        parts.append(text)
+        if chunk_id and doc_id:
+            parts.append(f"[{chunk_id}|{doc_id}] {text}")
+        else:
+            parts.append(text)
 
         sources.append(SourceDocument(
             id=chunk_id,
@@ -377,10 +560,20 @@ async def _search_walkthrough(
     if len(context) > MAX_CONTEXT_CHARS:
         context = context[:MAX_CONTEXT_CHARS] + "\n\n[Walkthrough truncated - request next page for more]"
 
+    document_collections = []
+    if doc_id and collection_id:
+        document_collections.append(DocumentCollectionInfo(
+            document_id=doc_id,
+            collection_id=collection_id,
+            document_title=file_name,
+            relevance_score=float(target_score) if target_score is not None else None,
+            last_human_message_id=last_human_id,
+        ))
+
     return {
         "search_context": context,
         "sources": sources,
-        "document_collections": [],
+        "document_collections": document_collections,
         "retrieval_error": "",
     }
 
@@ -411,16 +604,18 @@ async def quality_gate(state: AgentState, config: RunnableConfig) -> dict[str, A
         logger.info("Quality gate: FAIL - no sources")
         return {"quality_ok": False}
 
-    if len(context.strip()) < 200:
-        logger.info("Quality gate: FAIL - context too short (%d chars)", len(context.strip()))
-        return {"quality_ok": False}
-
     is_bm25 = query_type in ("metadata", "overview", "temporal")
     threshold = QUALITY_THRESHOLD_BM25 if is_bm25 else QUALITY_THRESHOLD_SEMANTIC
 
-    scores = [s.relevance_score for s in sources if s.relevance_score is not None]
+    if not is_bm25 and len(context.strip()) < 200:
+        logger.info("Quality gate: FAIL - context too short (%d chars)", len(context.strip()))
+        return {"quality_ok": False}
+
+    score_sources = sources if is_bm25 else [s for s in sources if s.source_type == "text_unit"]
+    scores = [s.relevance_score for s in score_sources if s.relevance_score is not None]
     if not scores:
-        logger.info("Quality gate: FAIL - no relevance scores available on any source")
+        score_scope = "document_lookup sources" if is_bm25 else "text_unit sources"
+        logger.info("Quality gate: FAIL - no relevance scores available on %s", score_scope)
         return {"quality_ok": False}
 
     best_score = max(scores)
@@ -487,6 +682,7 @@ async def generate_answer(state: AgentState, config: RunnableConfig) -> dict[str
     system = f"{user_system_prompt}\n\n{technical_prompt}" if user_system_prompt else technical_prompt
 
     retrieval_error = state.get("retrieval_error", "")
+    problem_note = _problem_report_note(question)
 
     if query_type == "off_topic":
         user_content = question
@@ -508,6 +704,7 @@ async def generate_answer(state: AgentState, config: RunnableConfig) -> dict[str
         else:
             user_content = (
                 f"Question: {question}\n\n"
+                f"{problem_note}"
                 "The search returned limited or low-quality results. "
                 "Answer as best you can using the available context below, "
                 "but clearly state what information is uncertain or missing.\n\n"
@@ -516,6 +713,7 @@ async def generate_answer(state: AgentState, config: RunnableConfig) -> dict[str
     else:
         user_content = (
             f"Question: {question}\n\n"
+            f"{problem_note}"
             f"Retrieved context from knowledge base:\n{context}"
         )
 
