@@ -188,12 +188,12 @@ class Context(BaseModel, McpConfigMixin):
     )
 
     reasoning_level: ReasoningLevel | None = Field(
-        default=None,
+        default=ReasoningLevel.MINIMAL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": None,
-                "description": "Reasoning/thinking level. Leave empty to use provider defaults.",
+                "default": ReasoningLevel.MINIMAL.value,
+                "description": "Reasoning/thinking level.",
                 "options": [
                     {"label": "Provider default", "value": None},
                     {"label": "Minimal", "value": ReasoningLevel.MINIMAL.value},

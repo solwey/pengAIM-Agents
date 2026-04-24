@@ -581,12 +581,12 @@ class Configuration(BaseModel):
         },
     )
     summarization_model_reasoning_level: ReasoningLevel | None = Field(
-        default=None,
+        default=ReasoningLevel.MINIMAL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": None,
-                "description": "Reasoning/thinking level for summarization model. Leave empty for provider default.",
+                "default": ReasoningLevel.MINIMAL.value,
+                "description": "Reasoning/thinking level for summarization model.",
                 "group": "summarization_model_settings",
                 "group_label": "Summarization Model Settings",
                 "group_order": 40,
@@ -643,12 +643,12 @@ class Configuration(BaseModel):
         },
     )
     research_model_reasoning_level: ReasoningLevel | None = Field(
-        default=None,
+        default=ReasoningLevel.MINIMAL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": None,
-                "description": "Reasoning/thinking level for research model. Leave empty for provider default.",
+                "default": ReasoningLevel.MINIMAL.value,
+                "description": "Reasoning/thinking level for research model.",
                 "group": "research_model_settings",
                 "group_label": "Research Model Settings",
                 "group_order": 50,
@@ -693,12 +693,12 @@ class Configuration(BaseModel):
         },
     )
     compression_model_reasoning_level: ReasoningLevel | None = Field(
-        default=None,
+        default=ReasoningLevel.MINIMAL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": None,
-                "description": "Reasoning/thinking level for compression model. Leave empty for provider default.",
+                "default": ReasoningLevel.MINIMAL.value,
+                "description": "Reasoning/thinking level for compression model.",
                 "group": "compression_model_settings",
                 "group_label": "Compression Model Settings",
                 "group_order": 60,
@@ -743,12 +743,12 @@ class Configuration(BaseModel):
         },
     )
     final_report_model_reasoning_level: ReasoningLevel | None = Field(
-        default=None,
+        default=ReasoningLevel.MINIMAL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": None,
-                "description": "Reasoning/thinking level for final report model. Leave empty for provider default.",
+                "default": ReasoningLevel.MINIMAL.value,
+                "description": "Reasoning/thinking level for final report model.",
                 "group": "final_report_model_settings",
                 "group_label": "Final Report Model Settings",
                 "group_order": 70,
@@ -859,12 +859,12 @@ class Configuration(BaseModel):
         },
     )
     rag_llm_reasoning_level: ReasoningLevel | None = Field(
-        default=None,
+        default=ReasoningLevel.MINIMAL,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": None,
-                "description": "Reasoning/thinking level for RAG LLM calls. Leave empty for provider default.",
+                "default": ReasoningLevel.MINIMAL.value,
+                "description": "Reasoning/thinking level for RAG LLM calls.",
                 "group": "rag_llm_settings",
                 "group_label": "RAG LLM Settings",
                 "group_order": 15,

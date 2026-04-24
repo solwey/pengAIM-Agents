@@ -56,7 +56,7 @@ async def create_rag_tool(rag_url: str):
                     embedding_model = configurable.get("rag_embedding_model")
                     llm_temperature = configurable.get("rag_llm_temperature")
                     llm_max_tokens = configurable.get("rag_llm_max_tokens")
-                    llm_reasoning_level = configurable.get("rag_llm_reasoning_level")
+                    llm_reasoning_level = configurable.get("reasoning_level")
                     rag_retrieval_context_token_budget = configurable.get("rag_retrieval_context_token_budget")
                     rag_retrieval_text_unit_ratio = configurable.get("rag_retrieval_text_unit_ratio")
                     rag_retrieval_community_ratio = configurable.get("rag_retrieval_community_ratio")
