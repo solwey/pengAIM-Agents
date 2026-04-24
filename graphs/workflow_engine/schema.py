@@ -43,6 +43,7 @@ class NodeType(StrEnum):
     CALCULATE_NETSUITE_METRIC = "calculate_netsuite_metric"
     FETCH_BLOOMERANG_ENTITY = "fetch_bloomerang_entity"
     FETCH_MAINTAINX_ENTITY = "fetch_maintainx_entity"
+    FETCH_LIGHTNINGSTEP_ENTITY = "fetch_lightningstep_entity"
 
 
 class ComparisonOperator(StrEnum):
@@ -385,6 +386,36 @@ class FetchMaintainxEntityConfig(BaseModel):
     response_key: str = "maintainx_entity"
 
 
+# Semantic record types — must stay aligned with revops RECORD_TYPES in
+# revops/app/components/workflow-editor/config-forms/fetch-lightningstep-entity-config.tsx
+# and with LightningStepEntity in api/src/api/lightning_step/lightning_step.api.ts.
+# Each maps to a `/{record_type}list` URL on the tenant's Lightning Step host.
+LightningstepRecordType = Literal[
+    "episode",
+    "table",
+    "inquiry",
+    "admission",
+    "bed",
+    "calendarevent",
+    "casereviewnote",
+    "clientmed",
+    "clearance",
+    "contact",
+    "formdata",
+    "demographic",
+    "prognote",
+    "medadmitnote",
+    "payor",
+]
+
+
+class FetchLightningstepEntityConfig(BaseModel):
+    record_type: LightningstepRecordType = "episode"
+    inquiry_id: str = ""  # when set, scopes the list call to /{record_type}list/{inquiry_id}
+    fields: list[str] = Field(default_factory=list)  # empty = all fields (client-side projection)
+    response_key: str = "lightningstep_entity"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -432,6 +463,7 @@ class NodeDef(BaseModel):
             NodeType.CALCULATE_NETSUITE_METRIC: CalculateNetsuiteMetricConfig,
             NodeType.FETCH_BLOOMERANG_ENTITY: FetchBloomerangEntityConfig,
             NodeType.FETCH_MAINTAINX_ENTITY: FetchMaintainxEntityConfig,
+            NodeType.FETCH_LIGHTNINGSTEP_ENTITY: FetchLightningstepEntityConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
