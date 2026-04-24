@@ -13,6 +13,7 @@ from .create_contact import CreateContactExecutor
 from .delay import DelayExecutor
 from .email_message import EmailMessageExecutor
 from .fetch_bloomerang_entity import FetchBloomerangEntityExecutor
+from .fetch_maintainx_entity import FetchMaintainxEntityExecutor
 from .fetch_netsuite_entity import FetchNetsuiteEntityExecutor
 from .generate_report import GenerateReportExecutor
 from .icp_score import ICPScoreExecutor
@@ -66,6 +67,7 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch_netsuite_entity": FetchNetsuiteEntityExecutor,
     "calculate_netsuite_metric": CalculateNetsuiteMetricExecutor,
     "fetch_bloomerang_entity": FetchBloomerangEntityExecutor,
+    "fetch_maintainx_entity": FetchMaintainxEntityExecutor,
 }
 
 __all__ = [

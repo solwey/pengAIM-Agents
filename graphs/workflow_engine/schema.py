@@ -42,6 +42,7 @@ class NodeType(StrEnum):
     FETCH_NETSUITE_ENTITY = "fetch_netsuite_entity"
     CALCULATE_NETSUITE_METRIC = "calculate_netsuite_metric"
     FETCH_BLOOMERANG_ENTITY = "fetch_bloomerang_entity"
+    FETCH_MAINTAINX_ENTITY = "fetch_maintainx_entity"
 
 
 class ComparisonOperator(StrEnum):
@@ -358,6 +359,32 @@ class FetchBloomerangEntityConfig(BaseModel):
     response_key: str = "bloomerang_entity"
 
 
+# Semantic record types — must stay aligned with revops RECORD_TYPES in
+# revops/app/components/workflow-editor/config-forms/fetch-maintainx-entity-config.tsx.
+# The mapping to MaintainX v1 REST paths + response keys lives in
+# graphs/workflow_engine/nodes/fetch_maintainx_entity.py (_MAINTAINX_ENDPOINTS).
+MaintainxRecordType = Literal[
+    "workorder",
+    "asset",
+    "location",
+    "part",
+    "category",
+    "user",
+    "team",
+    "vendor",
+    "purchaseorder",
+    "meter",
+    "workrequest",
+    "meterreading",
+]
+
+
+class FetchMaintainxEntityConfig(BaseModel):
+    record_type: MaintainxRecordType = "workorder"
+    fields: list[str] = Field(default_factory=list)  # empty = all fields (client-side projection)
+    response_key: str = "maintainx_entity"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -404,6 +431,7 @@ class NodeDef(BaseModel):
             NodeType.FETCH_NETSUITE_ENTITY: FetchNetsuiteEntityConfig,
             NodeType.CALCULATE_NETSUITE_METRIC: CalculateNetsuiteMetricConfig,
             NodeType.FETCH_BLOOMERANG_ENTITY: FetchBloomerangEntityConfig,
+            NodeType.FETCH_MAINTAINX_ENTITY: FetchMaintainxEntityConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
