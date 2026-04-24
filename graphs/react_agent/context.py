@@ -112,6 +112,13 @@ class SearchAPI(Enum):
     NONE = "none"
 
 
+class ReasoningLevel(Enum):
+    MINIMAL = "minimal"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 def _is_openai_gpt5_model(model_name: str | None) -> bool:
     if not model_name:
         return False
@@ -176,6 +183,24 @@ class Context(BaseModel, McpConfigMixin):
                 "default": DEFAULT_LLM_MODEL,
                 "description": "The model to use in all generations",
                 "options": to_ui_options(),
+            }
+        },
+    )
+
+    reasoning_level: ReasoningLevel | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": None,
+                "description": "Reasoning/thinking level. Leave empty to use provider defaults.",
+                "options": [
+                    {"label": "Provider default", "value": None},
+                    {"label": "Minimal", "value": ReasoningLevel.MINIMAL.value},
+                    {"label": "Low", "value": ReasoningLevel.LOW.value},
+                    {"label": "Medium", "value": ReasoningLevel.MEDIUM.value},
+                    {"label": "High", "value": ReasoningLevel.HIGH.value},
+                ],
             }
         },
     )
@@ -695,6 +720,18 @@ class Context(BaseModel, McpConfigMixin):
     def validate_model_name(cls, v):
         if v is None or v == "":
             return "openai:gpt-4o-mini"
+        return v
+
+    @field_validator("reasoning_level", mode="before")
+    @classmethod
+    def validate_reasoning_level(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized == "":
+                return None
+            return normalized
         return v
 
     @field_validator("rag_embedding_model", mode="before")

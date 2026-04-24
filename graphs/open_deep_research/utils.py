@@ -14,7 +14,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
-    MessageLikeRepresentation,
     filter_messages,
 )
 from langchain_core.runnables import RunnableConfig
@@ -25,6 +24,7 @@ from aegra_api.settings import settings
 from graphs.open_deep_research.configuration import AgentMode, Configuration, SearchAPI
 from graphs.open_deep_research.prompts import summarize_webpage_prompt
 from graphs.open_deep_research.state import ResearchComplete, Summary
+from graphs.shared.utils import is_openai_reasoning_model, resolve_reasoning_model_params
 
 RAG_URL = settings.graphs.RAG_API_URL
 
@@ -57,12 +57,6 @@ def get_agent_mode(config: RunnableConfig) -> AgentMode:
         return cfg.mode if cfg.mode else AgentMode.ONLINE
     except Exception:
         return AgentMode.ONLINE
-
-
-def _is_openai_gpt5_model(llm_provider: str | None, model_name: str | None) -> bool:
-    if llm_provider != "openai" or not model_name:
-        return False
-    return model_name.split(":")[-1].lower().startswith("gpt-5")
 
 
 ##########################
@@ -99,6 +93,7 @@ async def rag_search(
     rag_retrieval_chunk_rank_weight_similarity = configurable.get("rag_retrieval_chunk_rank_weight_similarity")
     rag_retrieval_chunk_rank_weight_entity = configurable.get("rag_retrieval_chunk_rank_weight_entity")
     summarization_model = configurable.get("summarization_model") or None
+    rag_llm_reasoning_level = configurable.get("rag_llm_reasoning_level") or None
 
     llm_provider = configurable.get("llm_provider", "openai")
     if llm_provider == "google":
@@ -106,7 +101,7 @@ async def rag_search(
     else:
         key_data = configurable.get("rag_openai_api_key", {})
 
-    if not _is_openai_gpt5_model(llm_provider, summarization_model):
+    if not is_openai_reasoning_model(summarization_model):
         llm_temperature = None
         llm_max_tokens = None
 
@@ -118,6 +113,7 @@ async def rag_search(
         "api_key_id": key_data.get("keyId"),
         "llm_provider": "gemini" if llm_provider == "google" else "open-ai",
         "llm_model": summarization_model.split(":")[-1] if summarization_model else None,
+        "llm_reasoning_level": rag_llm_reasoning_level,
         "embedding_model": embedding_model,
         "llm_temperature": llm_temperature,
         "llm_max_tokens": llm_max_tokens,
@@ -226,12 +222,18 @@ async def firecrawl_search(
     configurable = Configuration.from_runnable_config(config)
     max_char_to_include = configurable.max_content_length
     model_api_key = await get_api_key_for_model(configurable.summarization_model, config)
+    summarization_reasoning_level = (
+        configurable.summarization_model_reasoning_level.value
+        if configurable.summarization_model_reasoning_level is not None
+        else None
+    )
     summarization_model = (
         init_chat_model(
             model=configurable.summarization_model,
             max_tokens=configurable.summarization_model_max_tokens,
             api_key=model_api_key,
             tags=["langsmith:nostream"],
+            **resolve_reasoning_model_params(configurable.summarization_model, summarization_reasoning_level),
         )
         .with_structured_output(Summary)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
@@ -313,12 +315,18 @@ async def tavily_search(
 
     # Initialize summarization model with retry logic
     model_api_key = await get_api_key_for_model(configurable.summarization_model, config)
+    summarization_reasoning_level = (
+        configurable.summarization_model_reasoning_level.value
+        if configurable.summarization_model_reasoning_level is not None
+        else None
+    )
     summarization_model = (
         init_chat_model(
             model=configurable.summarization_model,
             max_tokens=configurable.summarization_model_max_tokens,
             api_key=model_api_key,
             tags=["langsmith:nostream"],
+            **resolve_reasoning_model_params(configurable.summarization_model, summarization_reasoning_level),
         )
         .with_structured_output(Summary)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
@@ -612,7 +620,7 @@ async def get_all_tools(config: RunnableConfig):
     return tools
 
 
-def get_notes_from_tool_calls(messages: list[MessageLikeRepresentation]):
+def get_notes_from_tool_calls(messages: list):
     """Extract notes from tool call messages."""
     return [tool_msg.content for tool_msg in filter_messages(messages, include_types="tool")]
 
@@ -882,8 +890,8 @@ def get_model_token_limit(model_string):
 
 
 def remove_up_to_last_ai_message(
-    messages: list[MessageLikeRepresentation],
-) -> list[MessageLikeRepresentation]:
+    messages: list,
+) -> list:
     """Truncate message history by removing up to the last AI message.
 
     This is useful for handling token limit exceeded errors by removing recent context.

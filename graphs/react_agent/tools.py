@@ -7,12 +7,7 @@ from langchain_core.tools import tool
 from pydantic import ValidationError
 
 from graphs.react_agent.rag_models import DocumentCollectionInfo, RagToolError, RagToolResponse, SourceDocument
-
-
-def _is_openai_gpt5_model(model_name: str | None) -> bool:
-    if not model_name:
-        return False
-    return model_name.split(":")[-1].lower().startswith("gpt-5")
+from graphs.shared.utils import is_openai_reasoning_model
 
 
 async def create_rag_tool(rag_url: str):
@@ -61,6 +56,7 @@ async def create_rag_tool(rag_url: str):
                     embedding_model = configurable.get("rag_embedding_model")
                     llm_temperature = configurable.get("rag_llm_temperature")
                     llm_max_tokens = configurable.get("rag_llm_max_tokens")
+                    llm_reasoning_level = configurable.get("rag_llm_reasoning_level")
                     rag_retrieval_context_token_budget = configurable.get("rag_retrieval_context_token_budget")
                     rag_retrieval_text_unit_ratio = configurable.get("rag_retrieval_text_unit_ratio")
                     rag_retrieval_community_ratio = configurable.get("rag_retrieval_community_ratio")
@@ -84,7 +80,7 @@ async def create_rag_tool(rag_url: str):
                     else:
                         key_data = configurable.get("rag_openai_api_key", {})
 
-                    if is_google_model or not _is_openai_gpt5_model(model_name):
+                    if is_google_model or not is_openai_reasoning_model(model_name):
                         llm_temperature = None
                         llm_max_tokens = None
 
@@ -108,6 +104,7 @@ async def create_rag_tool(rag_url: str):
                     "embedding_model": embedding_model,
                     "llm_temperature": llm_temperature,
                     "llm_max_tokens": llm_max_tokens,
+                    "llm_reasoning_level": llm_reasoning_level,
                     "context_token_budget": rag_retrieval_context_token_budget,
                     "text_unit_ratio": rag_retrieval_text_unit_ratio,
                     "community_ratio": rag_retrieval_community_ratio,

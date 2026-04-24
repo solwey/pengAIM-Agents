@@ -38,6 +38,7 @@ from graphs.react_agent.utils import (
     get_provider_from_model_name,
     get_today_str,
 )
+from graphs.shared.utils import resolve_reasoning_model_params
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +57,14 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict[str, lis
     if settings.graphs.AZURE_OPENAI_ENDPOINT:
         model_name = re.sub(r"^openai:", "azure_openai:", model_name)
 
+    reasoning_level = cfg.reasoning_level.value if cfg.reasoning_level is not None else None
+    reasoning_params = resolve_reasoning_model_params(model_name, reasoning_level)
     model = init_chat_model(
         model_name,
         temperature=cfg.temperature,
         max_tokens=cfg.max_tokens,
         api_key=api_key or "No token found",
+        **reasoning_params,
     )
 
     all_tool_specs: list = list(tools)

@@ -41,6 +41,13 @@ class SearchAPI(Enum):
     NONE = "none"
 
 
+class ReasoningLevel(Enum):
+    MINIMAL = "minimal"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class SubPromptConfig(BaseModel):
     name: str
     text: str
@@ -566,6 +573,31 @@ class Configuration(BaseModel):
                 "default": DEFAULT_LLM_MODEL,
                 "options": to_ui_options(),
                 "description": "Model for summarizing research results from Tavily search results",
+                "group": "summarization_model_settings",
+                "group_label": "Summarization Model Settings",
+                "group_order": 40,
+                "field_order": 10,
+            }
+        },
+    )
+    summarization_model_reasoning_level: ReasoningLevel | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": None,
+                "description": "Reasoning/thinking level for summarization model. Leave empty for provider default.",
+                "group": "summarization_model_settings",
+                "group_label": "Summarization Model Settings",
+                "group_order": 40,
+                "field_order": 20,
+                "options": [
+                    {"label": "Provider default", "value": None},
+                    {"label": "Minimal", "value": ReasoningLevel.MINIMAL.value},
+                    {"label": "Low", "value": ReasoningLevel.LOW.value},
+                    {"label": "Medium", "value": ReasoningLevel.MEDIUM.value},
+                    {"label": "High", "value": ReasoningLevel.HIGH.value},
+                ],
             }
         },
     )
@@ -576,6 +608,10 @@ class Configuration(BaseModel):
                 "type": "number",
                 "default": 8192,
                 "description": "Maximum output tokens for summarization model",
+                "group": "summarization_model_settings",
+                "group_label": "Summarization Model Settings",
+                "group_order": 40,
+                "field_order": 30,
             }
         },
     )
@@ -599,6 +635,31 @@ class Configuration(BaseModel):
                 "default": DEFAULT_LLM_MODEL,
                 "options": to_ui_options(),
                 "description": "Model for conducting research. NOTE: Make sure your Researcher Model supports the selected search API.",
+                "group": "research_model_settings",
+                "group_label": "Research Model Settings",
+                "group_order": 50,
+                "field_order": 10,
+            }
+        },
+    )
+    research_model_reasoning_level: ReasoningLevel | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": None,
+                "description": "Reasoning/thinking level for research model. Leave empty for provider default.",
+                "group": "research_model_settings",
+                "group_label": "Research Model Settings",
+                "group_order": 50,
+                "field_order": 20,
+                "options": [
+                    {"label": "Provider default", "value": None},
+                    {"label": "Minimal", "value": ReasoningLevel.MINIMAL.value},
+                    {"label": "Low", "value": ReasoningLevel.LOW.value},
+                    {"label": "Medium", "value": ReasoningLevel.MEDIUM.value},
+                    {"label": "High", "value": ReasoningLevel.HIGH.value},
+                ],
             }
         },
     )
@@ -609,6 +670,10 @@ class Configuration(BaseModel):
                 "type": "number",
                 "default": 10000,
                 "description": "Maximum output tokens for research model",
+                "group": "research_model_settings",
+                "group_label": "Research Model Settings",
+                "group_order": 50,
+                "field_order": 30,
             }
         },
     )
@@ -620,6 +685,31 @@ class Configuration(BaseModel):
                 "default": DEFAULT_LLM_MODEL,
                 "options": to_ui_options(),
                 "description": "Model for compressing research findings from sub-agents. NOTE: Make sure your Compression Model supports the selected search API.",
+                "group": "compression_model_settings",
+                "group_label": "Compression Model Settings",
+                "group_order": 60,
+                "field_order": 10,
+            }
+        },
+    )
+    compression_model_reasoning_level: ReasoningLevel | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": None,
+                "description": "Reasoning/thinking level for compression model. Leave empty for provider default.",
+                "group": "compression_model_settings",
+                "group_label": "Compression Model Settings",
+                "group_order": 60,
+                "field_order": 20,
+                "options": [
+                    {"label": "Provider default", "value": None},
+                    {"label": "Minimal", "value": ReasoningLevel.MINIMAL.value},
+                    {"label": "Low", "value": ReasoningLevel.LOW.value},
+                    {"label": "Medium", "value": ReasoningLevel.MEDIUM.value},
+                    {"label": "High", "value": ReasoningLevel.HIGH.value},
+                ],
             }
         },
     )
@@ -630,6 +720,10 @@ class Configuration(BaseModel):
                 "type": "number",
                 "default": 8192,
                 "description": "Maximum output tokens for compression model",
+                "group": "compression_model_settings",
+                "group_label": "Compression Model Settings",
+                "group_order": 60,
+                "field_order": 30,
             }
         },
     )
@@ -641,6 +735,31 @@ class Configuration(BaseModel):
                 "default": DEFAULT_LLM_MODEL,
                 "options": to_ui_options(),
                 "description": "Model for writing the final report from all research findings",
+                "group": "final_report_model_settings",
+                "group_label": "Final Report Model Settings",
+                "group_order": 70,
+                "field_order": 10,
+            }
+        },
+    )
+    final_report_model_reasoning_level: ReasoningLevel | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": None,
+                "description": "Reasoning/thinking level for final report model. Leave empty for provider default.",
+                "group": "final_report_model_settings",
+                "group_label": "Final Report Model Settings",
+                "group_order": 70,
+                "field_order": 20,
+                "options": [
+                    {"label": "Provider default", "value": None},
+                    {"label": "Minimal", "value": ReasoningLevel.MINIMAL.value},
+                    {"label": "Low", "value": ReasoningLevel.LOW.value},
+                    {"label": "Medium", "value": ReasoningLevel.MEDIUM.value},
+                    {"label": "High", "value": ReasoningLevel.HIGH.value},
+                ],
             }
         },
     )
@@ -651,6 +770,10 @@ class Configuration(BaseModel):
                 "type": "number",
                 "default": 10000,
                 "description": "Maximum output tokens for final report model",
+                "group": "final_report_model_settings",
+                "group_label": "Final Report Model Settings",
+                "group_order": 70,
+                "field_order": 30,
             }
         },
     )
@@ -713,6 +836,10 @@ class Configuration(BaseModel):
                 "max": 2,
                 "step": 0.1,
                 "description": "Temperature for LLM calls used only in RAG operations.",
+                "group": "rag_llm_settings",
+                "group_label": "RAG LLM Settings",
+                "group_order": 15,
+                "field_order": 10,
             }
         },
     )
@@ -724,6 +851,31 @@ class Configuration(BaseModel):
                 "default": 24_000,
                 "min": 20_000,
                 "description": "Maximum output tokens for LLM calls used only in RAG operations.",
+                "group": "rag_llm_settings",
+                "group_label": "RAG LLM Settings",
+                "group_order": 15,
+                "field_order": 20,
+            }
+        },
+    )
+    rag_llm_reasoning_level: ReasoningLevel | None = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "default": None,
+                "description": "Reasoning/thinking level for RAG LLM calls. Leave empty for provider default.",
+                "group": "rag_llm_settings",
+                "group_label": "RAG LLM Settings",
+                "group_order": 15,
+                "field_order": 30,
+                "options": [
+                    {"label": "Provider default", "value": None},
+                    {"label": "Minimal", "value": ReasoningLevel.MINIMAL.value},
+                    {"label": "Low", "value": ReasoningLevel.LOW.value},
+                    {"label": "Medium", "value": ReasoningLevel.MEDIUM.value},
+                    {"label": "High", "value": ReasoningLevel.HIGH.value},
+                ],
             }
         },
     )
@@ -841,6 +993,25 @@ class Configuration(BaseModel):
             return "openai:gpt-4o-mini"
         if isinstance(v, str) and v.strip() == "":
             return "openai:gpt-4o-mini"
+        return v
+
+    @field_validator(
+        "summarization_model_reasoning_level",
+        "research_model_reasoning_level",
+        "compression_model_reasoning_level",
+        "final_report_model_reasoning_level",
+        "rag_llm_reasoning_level",
+        mode="before",
+    )
+    @classmethod
+    def _validate_reasoning_level(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized == "":
+                return None
+            return normalized
         return v
 
     @field_validator("rag_embedding_model", mode="before")
