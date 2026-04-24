@@ -65,7 +65,7 @@ from graphs.open_deep_research.utils import (
     openai_websearch_called,
     remove_up_to_last_ai_message,
     resolve_artifact_placeholders,
-    resolve_reasoning_model_kwargs,
+    resolve_reasoning_model_params,
     think_tool,
     truncate_result,
 )
@@ -852,7 +852,7 @@ async def clarify_with_user(
         "max_tokens": configurable.research_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
-        **resolve_reasoning_model_kwargs(
+        **resolve_reasoning_model_params(
             configurable.research_model,
             configurable.research_model_reasoning_level.value
             if configurable.research_model_reasoning_level is not None
@@ -909,7 +909,7 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
         "max_tokens": configurable.research_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
-        **resolve_reasoning_model_kwargs(
+        **resolve_reasoning_model_params(
             configurable.research_model,
             configurable.research_model_reasoning_level.value
             if configurable.research_model_reasoning_level is not None
@@ -1020,7 +1020,7 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
         "max_tokens": configurable.research_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
-        **resolve_reasoning_model_kwargs(
+        **resolve_reasoning_model_params(
             configurable.research_model,
             configurable.research_model_reasoning_level.value
             if configurable.research_model_reasoning_level is not None
@@ -1345,7 +1345,7 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
         "max_tokens": configurable.research_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
-        **resolve_reasoning_model_kwargs(
+        **resolve_reasoning_model_params(
             configurable.research_model,
             configurable.research_model_reasoning_level.value
             if configurable.research_model_reasoning_level is not None
@@ -1533,7 +1533,7 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             "max_tokens": configurable.compression_model_max_tokens,
             "api_key": api_key,
             "tags": ["langsmith:nostream"],
-            **resolve_reasoning_model_kwargs(
+            **resolve_reasoning_model_params(
                 configurable.compression_model,
                 configurable.compression_model_reasoning_level.value
                 if configurable.compression_model_reasoning_level is not None
@@ -1699,7 +1699,7 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         "max_tokens": configurable.final_report_model_max_tokens,
         "api_key": api_key,
         "tags": ["langsmith:nostream"],
-        **resolve_reasoning_model_kwargs(
+        **resolve_reasoning_model_params(
             configurable.final_report_model,
             configurable.final_report_model_reasoning_level.value
             if configurable.final_report_model_reasoning_level is not None

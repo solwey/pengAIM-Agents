@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -25,6 +24,7 @@ from aegra_api.settings import settings
 from graphs.open_deep_research.configuration import AgentMode, Configuration, SearchAPI
 from graphs.open_deep_research.prompts import summarize_webpage_prompt
 from graphs.open_deep_research.state import ResearchComplete, Summary
+from graphs.shared.utils import is_openai_reasoning_model, resolve_reasoning_model_params
 
 RAG_URL = settings.graphs.RAG_API_URL
 
@@ -57,52 +57,6 @@ def get_agent_mode(config: RunnableConfig) -> AgentMode:
         return cfg.mode if cfg.mode else AgentMode.ONLINE
     except Exception:
         return AgentMode.ONLINE
-
-
-def _is_openai_gpt5_model(llm_provider: str | None, model_name: str | None) -> bool:
-    if llm_provider != "openai" or not model_name:
-        return False
-    return model_name.split(":")[-1].lower().startswith("gpt-5")
-
-
-def _is_openai_reasoning_model(model_id: str) -> bool:
-    return (
-        model_id.startswith("gpt-5")
-        or model_id.startswith("o1")
-        or model_id.startswith("o3")
-        or model_id.startswith("o4")
-    )
-
-
-def resolve_reasoning_model_kwargs(model_name: str | None, reasoning_level: str | None) -> dict[str, Any]:
-    """Map generic reasoning level to provider-specific model kwargs."""
-    if not model_name or not reasoning_level:
-        return {}
-
-    model_lower = model_name.lower()
-    model_id = model_lower.split(":", 1)[-1]
-
-    if model_lower.startswith("openai:") or model_lower.startswith("azure_openai:"):
-        if not _is_openai_reasoning_model(model_id):
-            return {}
-
-        return {"reasoning": {"effort": reasoning_level}}
-
-    if model_lower.startswith("google_genai:") or model_lower.startswith("google:"):
-        if bool(re.match(r"^gemini-3([.-]|$)", model_id)):
-            return {"model_kwargs": {"thinkingLevel": reasoning_level}}
-        if bool(re.match(r"^gemini-2\.5([.-]|$)", model_id)):
-            thinking_budget_by_level = {
-                "minimal": 0,
-                "low": 1024,
-                "medium": 4096,
-                "high": 8192,
-            }
-            budget = thinking_budget_by_level.get(reasoning_level)
-            if budget is not None:
-                return {"model_kwargs": {"thinkingBudget": budget}}
-
-    return {}
 
 
 ##########################
@@ -147,7 +101,7 @@ async def rag_search(
     else:
         key_data = configurable.get("rag_openai_api_key", {})
 
-    if not _is_openai_gpt5_model(llm_provider, summarization_model):
+    if not is_openai_reasoning_model(summarization_model):
         llm_temperature = None
         llm_max_tokens = None
 
@@ -279,7 +233,7 @@ async def firecrawl_search(
             max_tokens=configurable.summarization_model_max_tokens,
             api_key=model_api_key,
             tags=["langsmith:nostream"],
-            **resolve_reasoning_model_kwargs(configurable.summarization_model, summarization_reasoning_level),
+            **resolve_reasoning_model_params(configurable.summarization_model, summarization_reasoning_level),
         )
         .with_structured_output(Summary)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
@@ -372,7 +326,7 @@ async def tavily_search(
             max_tokens=configurable.summarization_model_max_tokens,
             api_key=model_api_key,
             tags=["langsmith:nostream"],
-            **resolve_reasoning_model_kwargs(configurable.summarization_model, summarization_reasoning_level),
+            **resolve_reasoning_model_params(configurable.summarization_model, summarization_reasoning_level),
         )
         .with_structured_output(Summary)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)

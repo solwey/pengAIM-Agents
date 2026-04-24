@@ -38,48 +38,9 @@ from graphs.react_agent.utils import (
     get_provider_from_model_name,
     get_today_str,
 )
+from graphs.shared.utils import resolve_reasoning_model_params
 
 logger = logging.getLogger(__name__)
-
-
-def _is_openai_reasoning_model(model_id: str) -> bool:
-    return (
-        model_id.startswith("gpt-5")
-        or model_id.startswith("o1")
-        or model_id.startswith("o3")
-        or model_id.startswith("o4")
-    )
-
-
-def _resolve_reasoning_params(model_name: str | None, reasoning_level: str | None) -> dict[str, Any]:
-    """Map generic reasoning level to provider-specific model parameters."""
-    if not model_name or not reasoning_level:
-        return {}
-
-    model_lower = model_name.lower()
-    model_id = model_lower.split(":", 1)[-1]
-
-    if model_lower.startswith("openai:") or model_lower.startswith("azure_openai:"):
-        if not _is_openai_reasoning_model(model_id):
-            return {}
-
-        return {"reasoning": {"effort": reasoning_level}}
-
-    if model_lower.startswith("google_genai:") or model_lower.startswith("google:"):
-        if bool(re.match(r"^gemini-3([.-]|$)", model_id)):
-            return {"model_kwargs": {"thinkingLevel": reasoning_level}}
-        if bool(re.match(r"^gemini-2\.5([.-]|$)", model_id)):
-            thinking_budget_by_level = {
-                "minimal": 0,
-                "low": 1024,
-                "medium": 4096,
-                "high": 8192,
-            }
-            budget = thinking_budget_by_level.get(reasoning_level)
-            if budget is not None:
-                return {"model_kwargs": {"thinkingBudget": budget}}
-
-    return {}
 
 
 async def call_model(state: AgentState, config: RunnableConfig) -> dict[str, list[AIMessage]]:
@@ -97,7 +58,7 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict[str, lis
         model_name = re.sub(r"^openai:", "azure_openai:", model_name)
 
     reasoning_level = cfg.reasoning_level.value if cfg.reasoning_level is not None else None
-    reasoning_params = _resolve_reasoning_params(model_name, reasoning_level)
+    reasoning_params = resolve_reasoning_model_params(model_name, reasoning_level)
     model = init_chat_model(
         model_name,
         temperature=cfg.temperature,

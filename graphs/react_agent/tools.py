@@ -7,12 +7,7 @@ from langchain_core.tools import tool
 from pydantic import ValidationError
 
 from graphs.react_agent.rag_models import DocumentCollectionInfo, RagToolError, RagToolResponse, SourceDocument
-
-
-def _is_openai_gpt5_model(model_name: str | None) -> bool:
-    if not model_name:
-        return False
-    return model_name.split(":")[-1].lower().startswith("gpt-5")
+from graphs.shared.utils import is_openai_reasoning_model
 
 
 async def create_rag_tool(rag_url: str):
@@ -85,7 +80,7 @@ async def create_rag_tool(rag_url: str):
                     else:
                         key_data = configurable.get("rag_openai_api_key", {})
 
-                    if is_google_model or not _is_openai_gpt5_model(model_name):
+                    if is_google_model or not is_openai_reasoning_model(model_name):
                         llm_temperature = None
                         llm_max_tokens = None
 
