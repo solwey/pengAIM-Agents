@@ -85,6 +85,7 @@ class SlackMessageConfig(BaseModel):
     username: str = ""  # override bot display name
     icon_emoji: str = ""  # override bot icon (e.g. ":robot_face:")
     response_key: str = "slack_response"
+    timeout_seconds: int = Field(default=15, ge=1, le=600)
 
 
 class EmailMessageConfig(BaseModel):
@@ -141,6 +142,7 @@ class GenerateReportConfig(BaseModel):
     content: str = ""  # optional prompt/content, supports {{template}}
     generator: str = "manus"  # "manus" or "local"
     response_key: str = "report_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class RunAgentConfig(BaseModel):
@@ -155,6 +157,7 @@ class CreateAccountConfig(BaseModel):
     field_mapping: dict[str, str] = Field(default_factory=dict)  # {"name": "{{company_name}}"}
     response_key: str = "created_accounts"
     dedup_mode: str = "upsert"  # "upsert" | "skip" | "create"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class CreateContactConfig(BaseModel):
@@ -163,12 +166,14 @@ class CreateContactConfig(BaseModel):
     field_mapping: dict[str, str] = Field(default_factory=dict)
     response_key: str = "created_contacts"
     dedup_mode: str = "upsert"  # "upsert" | "skip" | "create"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class UpdateAccountConfig(BaseModel):
     account_id_key: str = "created_accounts.account_id"  # dot-path to account ID in state
     updates: dict[str, str] = Field(default_factory=dict)  # {"score": "{{icp_score.score}}"}
     response_key: str = "update_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class ICPScoreConfig(BaseModel):
@@ -209,6 +214,7 @@ class AddTagConfig(BaseModel):
     entity_type: str = "account"  # "account" or "contact"
     entity_id_key: str = "created_accounts.account_id"
     response_key: str = "add_tag_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class RemoveTagConfig(BaseModel):
@@ -216,12 +222,14 @@ class RemoveTagConfig(BaseModel):
     entity_type: str = "account"
     entity_id_key: str = "created_accounts.account_id"
     response_key: str = "remove_tag_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class AddToListConfig(BaseModel):
     list_id: str = ""  # direct list ID
     entity_id_key: str = "created_accounts.account_id"
     response_key: str = "add_to_list_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class TagConditionConfig(BaseModel):
@@ -230,6 +238,7 @@ class TagConditionConfig(BaseModel):
     tag_names: list[str] = Field(default_factory=list)
     match_mode: str = "any"  # "any" or "all"
     response_key: str = "tag_check_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class SetSourceConfig(BaseModel):
@@ -237,12 +246,14 @@ class SetSourceConfig(BaseModel):
     entity_type: str = "account"
     entity_id_key: str = "created_accounts.account_id"
     response_key: str = "set_source_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class RemoveFromListConfig(BaseModel):
     list_id: str = ""
     entity_id_key: str = "created_accounts.account_id"
     response_key: str = "remove_from_list_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class ListConditionConfig(BaseModel):
@@ -250,6 +261,7 @@ class ListConditionConfig(BaseModel):
     entity_type: str = "account"
     entity_id_key: str = "created_accounts.account_id"
     response_key: str = "list_check_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class SourceConditionConfig(BaseModel):
@@ -257,6 +269,7 @@ class SourceConditionConfig(BaseModel):
     entity_type: str = "account"
     entity_id_key: str = "created_accounts.account_id"
     response_key: str = "source_check_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class CreateCampaignConfig(BaseModel):
@@ -265,6 +278,7 @@ class CreateCampaignConfig(BaseModel):
     description: str = ""  # supports {{template}}
     target_persona: str = ""
     response_key: str = "created_campaign"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class AddToCampaignConfig(BaseModel):
@@ -272,6 +286,7 @@ class AddToCampaignConfig(BaseModel):
     campaign_id_key: str = ""  # or dot-path to campaign ID in state
     account_id_key: str = "created_accounts.account_id"  # dot-path to account ID(s)
     response_key: str = "campaign_add_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class SyncToInstantlyConfig(BaseModel):
@@ -279,6 +294,7 @@ class SyncToInstantlyConfig(BaseModel):
     campaign_id_key: str = ""  # or dot-path to campaign ID in state (e.g. "created_campaign.campaign_id")
     account_email: str = ""  # sender email, supports {{template}}
     response_key: str = "instantly_sync_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class AddLeadsToInstantlyConfig(BaseModel):
@@ -286,18 +302,21 @@ class AddLeadsToInstantlyConfig(BaseModel):
     campaign_id_key: str = ""  # or dot-path to campaign ID in state
     contact_ids_key: str = "created_contacts.contact_id"  # dot-path to contact ID(s)
     response_key: str = "instantly_leads_result"
+    timeout_seconds: int = Field(default=60, ge=1, le=600)
 
 
 class ActivateInstantlyConfig(BaseModel):
     campaign_id: str = ""  # direct campaign ID
     campaign_id_key: str = ""  # or dot-path to campaign ID in state
     response_key: str = "instantly_activate_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class PauseInstantlyConfig(BaseModel):
     campaign_id: str = ""  # direct campaign ID
     campaign_id_key: str = ""  # or dot-path to campaign ID in state
     response_key: str = "instantly_pause_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class UpdateInstantlyLeadStatusConfig(BaseModel):
@@ -308,6 +327,7 @@ class UpdateInstantlyLeadStatusConfig(BaseModel):
     interest_value: int | None = None
     interest_value_key: str = ""
     response_key: str = "instantly_lead_status_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class FetchInstantlyRepliesConfig(BaseModel):
@@ -315,6 +335,7 @@ class FetchInstantlyRepliesConfig(BaseModel):
     campaign_id_key: str = ""
     limit: int = 50
     response_key: str = "instantly_replies"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 class AddToInstantlyBlocklistConfig(BaseModel):
@@ -322,6 +343,7 @@ class AddToInstantlyBlocklistConfig(BaseModel):
     bl_value_key: str = ""  # dot-path to single email/domain in state
     bl_values_key: str = ""  # dot-path to a list of emails/domains in state
     response_key: str = "instantly_blocklist_result"
+    timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
 # ── Node & Edge definitions ──────────────────────────────────

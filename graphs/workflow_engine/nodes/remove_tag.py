@@ -9,7 +9,12 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import RemoveTagConfig
 
 logger = logging.getLogger(__name__)
@@ -37,43 +42,46 @@ class RemoveTagExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    # Find tag by name
-                    resp = await client.get(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/tags",
-                        headers=headers,
-                    )
-                    if resp.status_code != 200:
-                        return {
-                            "data": {
-                                **data,
-                                cfg.response_key: {"ok": False, "error": f"Failed to list tags: {resp.text[:500]}"},
-                            }
+                resp = await http_request_with_retry(
+                    "GET",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/tags",
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="remove_tag.list",
+                )
+                if resp.status_code != 200:
+                    return {
+                        "data": {
+                            **data,
+                            cfg.response_key: {
+                                "ok": False,
+                                "error": f"Failed to list tags: {resp.text[:500]}",
+                            },
                         }
+                    }
 
-                    tags = resp.json()
-                    tag = next((t for t in tags if t["name"] == tag_name), None)
-                    if not tag:
-                        return {
-                            "data": {**data, cfg.response_key: {"ok": False, "error": f"Tag '{tag_name}' not found"}}
-                        }
+                tags = resp.json()
+                tag = next((t for t in tags if t["name"] == tag_name), None)
+                if not tag:
+                    return {"data": {**data, cfg.response_key: {"ok": False, "error": f"Tag '{tag_name}' not found"}}}
 
-                    # Remove tag from entity
-                    entity_plural = f"{cfg.entity_type}s"
-                    resp = await client.request(
-                        "DELETE",
-                        f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}/tags",
-                        json={"tag_ids": [tag["id"]]},
-                        headers=headers,
-                    )
-                    if resp.status_code in (200, 204):
-                        result = {"ok": True, "tag_name": tag_name}
-                        logger.info("Tag '%s' removed from %s %s", tag_name, cfg.entity_type, entity_id)
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                entity_plural = f"{cfg.entity_type}s"
+                resp = await http_request_with_retry(
+                    "DELETE",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}/tags",
+                    json={"tag_ids": [tag["id"]]},
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="remove_tag.remove",
+                )
+                if resp.status_code in (200, 204):
+                    result = {"ok": True, "tag_name": tag_name}
+                    logger.info("Tag '%s' removed from %s %s", tag_name, cfg.entity_type, entity_id)
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
 
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

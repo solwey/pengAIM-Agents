@@ -9,7 +9,11 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import GenerateReportConfig
 
 logger = logging.getLogger(__name__)
@@ -46,38 +50,40 @@ class GenerateReportExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    response = await client.post(
-                        f"{settings.graphs.RAG_API_URL}/api/v1/reports/generate",
-                        json=payload,
-                        headers=headers,
+                response = await http_request_with_retry(
+                    "POST",
+                    f"{settings.graphs.RAG_API_URL}/api/v1/reports/generate",
+                    json=payload,
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="generate_report",
+                )
+
+                if response.status_code in (200, 201):
+                    body = response.json()
+                    result = {
+                        "ok": True,
+                        "report_id": body.get("id"),
+                        "status": body.get("status"),
+                    }
+                    logger.info(
+                        "Report generation started: report_id=%s",
+                        body.get("id"),
+                    )
+                else:
+                    result = {
+                        "ok": False,
+                        "status_code": response.status_code,
+                        "error": response.text[:500],
+                    }
+                    logger.warning(
+                        "Report generation failed: %d %s",
+                        response.status_code,
+                        response.text[:200],
                     )
 
-                    if response.status_code in (200, 201):
-                        body = response.json()
-                        result = {
-                            "ok": True,
-                            "report_id": body.get("id"),
-                            "status": body.get("status"),
-                        }
-                        logger.info(
-                            "Report generation started: report_id=%s",
-                            body.get("id"),
-                        )
-                    else:
-                        result = {
-                            "ok": False,
-                            "status_code": response.status_code,
-                            "error": response.text[:500],
-                        }
-                        logger.warning(
-                            "Report generation failed: %d %s",
-                            response.status_code,
-                            response.text[:200],
-                        )
-
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Report generation request timed out"}
+                result = {"ok": False, "error": f"Report generation timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

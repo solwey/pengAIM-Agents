@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import operator
 import time
+import traceback
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any, TypedDict
 
@@ -92,11 +93,14 @@ def _wrap_with_step_tracking(
                 for key, val in result["data"].items():
                     if key not in current_data and isinstance(val, dict) and val.get("ok") is False:
                         error_msg = val.get("error", "Node returned ok: false")
+                        full_msg = str(error_msg)
                         step["status"] = "failed"
-                        step["error"] = str(error_msg)[:500]
+                        step["error"] = full_msg[:500]
+                        step["error_full"] = full_msg
                         result["data"]["_error"] = {
                             "node": node_id,
-                            "message": str(error_msg)[:500],
+                            "message": full_msg[:500],
+                            "full_message": full_msg,
                         }
                         break
 
@@ -109,8 +113,12 @@ def _wrap_with_step_tracking(
                     result["data"].pop("_error", None)
 
         except Exception as exc:
+            full_exc_str = str(exc)
+            tb_str = traceback.format_exc()
             step["status"] = "failed"
-            step["error"] = str(exc)[:500]
+            step["error"] = full_exc_str[:500]
+            step["error_full"] = full_exc_str
+            step["error_traceback"] = tb_str
 
             if has_error_edge:
                 # Don't raise — route to error handler via _error in state
@@ -120,7 +128,9 @@ def _wrap_with_step_tracking(
                         **data,
                         "_error": {
                             "node": node_id,
-                            "message": str(exc)[:500],
+                            "message": full_exc_str[:500],
+                            "full_message": full_exc_str,
+                            "traceback": tb_str,
                         },
                     }
                 }

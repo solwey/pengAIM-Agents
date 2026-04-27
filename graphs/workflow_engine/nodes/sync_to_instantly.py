@@ -9,7 +9,12 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import SyncToInstantlyConfig
 
 logger = logging.getLogger(__name__)
@@ -49,24 +54,26 @@ class SyncToInstantlyExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    resp = await client.post(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/sync-to-instantly",
-                        json=payload,
-                        headers=headers,
-                    )
-                    if resp.status_code in (200, 201):
-                        body = resp.json()
-                        result = {
-                            "ok": True,
-                            "campaign_id": campaign_id,
-                            "instantly_campaign_id": body.get("instantly_campaign_id"),
-                        }
-                        logger.info("Campaign %s synced to Instantly", campaign_id)
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                resp = await http_request_with_retry(
+                    "POST",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/sync-to-instantly",
+                    json=payload,
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="sync_to_instantly",
+                )
+                if resp.status_code in (200, 201):
+                    body = resp.json()
+                    result = {
+                        "ok": True,
+                        "campaign_id": campaign_id,
+                        "instantly_campaign_id": body.get("instantly_campaign_id"),
+                    }
+                    logger.info("Campaign %s synced to Instantly", campaign_id)
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

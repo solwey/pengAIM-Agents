@@ -9,7 +9,11 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+)
 from graphs.workflow_engine.schema import AddToCampaignConfig
 
 logger = logging.getLogger(__name__)
@@ -56,24 +60,26 @@ class AddToCampaignExecutor(NodeExecutor):
             # Update campaign to link accounts
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    resp = await client.put(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}",
-                        json={"account_ids": account_ids},
-                        headers=headers,
-                    )
-                    if resp.status_code in (200, 201):
-                        result = {
-                            "ok": True,
-                            "campaign_id": campaign_id,
-                            "accounts_added": len(account_ids),
-                        }
-                        logger.info("Added %d accounts to campaign %s", len(account_ids), campaign_id)
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                resp = await http_request_with_retry(
+                    "PUT",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}",
+                    json={"account_ids": account_ids},
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="add_to_campaign",
+                )
+                if resp.status_code in (200, 201):
+                    result = {
+                        "ok": True,
+                        "campaign_id": campaign_id,
+                        "accounts_added": len(account_ids),
+                    }
+                    logger.info("Added %d accounts to campaign %s", len(account_ids), campaign_id)
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
 
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

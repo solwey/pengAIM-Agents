@@ -10,7 +10,12 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import UpdateAccountConfig
 
 logger = logging.getLogger(__name__)
@@ -54,19 +59,21 @@ class UpdateAccountExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    resp = await client.put(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/accounts/{account_id}",
-                        json=updates,
-                        headers=headers,
-                    )
-                    if resp.status_code == 200:
-                        result = {"ok": True, "account_id": account_id}
-                        logger.info("Account updated: %s", account_id)
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                resp = await http_request_with_retry(
+                    "PUT",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/accounts/{account_id}",
+                    json=updates,
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="update_account",
+                )
+                if resp.status_code == 200:
+                    result = {"ok": True, "account_id": account_id}
+                    logger.info("Account updated: %s", account_id)
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

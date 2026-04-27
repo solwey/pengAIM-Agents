@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from aegra_api.settings import settings
 from graphs.workflow_engine.nodes.base import (
     NodeExecutor,
+    http_request_with_retry,
     resolve_field,
     resolve_templates,
 )
@@ -95,24 +96,30 @@ class AddToInstantlyBlocklistExecutor(NodeExecutor):
             url = f"{settings.graphs.REVY_API_URL}/api/v1/instantly/blocklist"
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    resp = await client.post(url, json=body, headers=headers)
-                    if resp.status_code in (200, 201):
-                        payload = resp.json() if resp.content else {}
-                        result = {
-                            "ok": True,
-                            "added_count": len(values),
-                            "values": values,
-                            "result": payload,
-                        }
-                        logger.info(
-                            "Added %d entries to Instantly blocklist",
-                            len(values),
-                        )
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                resp = await http_request_with_retry(
+                    "POST",
+                    url,
+                    json=body,
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="add_to_instantly_blocklist",
+                )
+                if resp.status_code in (200, 201):
+                    payload = resp.json() if resp.content else {}
+                    result = {
+                        "ok": True,
+                        "added_count": len(values),
+                        "values": values,
+                        "result": payload,
+                    }
+                    logger.info(
+                        "Added %d entries to Instantly blocklist",
+                        len(values),
+                    )
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

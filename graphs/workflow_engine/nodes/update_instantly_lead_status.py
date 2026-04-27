@@ -9,7 +9,11 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+)
 from graphs.workflow_engine.schema import UpdateInstantlyLeadStatusConfig
 
 logger = logging.getLogger(__name__)
@@ -54,33 +58,35 @@ class UpdateInstantlyLeadStatusExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    resp = await client.post(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/leads/update-interest",
-                        json={
-                            "lead_email": lead_email,
-                            "interest_value": interest_value,
-                        },
-                        headers=headers,
+                resp = await http_request_with_retry(
+                    "POST",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/leads/update-interest",
+                    json={
+                        "lead_email": lead_email,
+                        "interest_value": interest_value,
+                    },
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="update_instantly_lead_status",
+                )
+                if resp.status_code in (200, 201):
+                    body = resp.json()
+                    result = {
+                        "ok": True,
+                        "lead_email": lead_email,
+                        "interest_value": interest_value,
+                        "result": body.get("result"),
+                    }
+                    logger.info(
+                        "Updated Instantly lead status: %s -> %s (campaign=%s)",
+                        lead_email,
+                        interest_value,
+                        campaign_id,
                     )
-                    if resp.status_code in (200, 201):
-                        body = resp.json()
-                        result = {
-                            "ok": True,
-                            "lead_email": lead_email,
-                            "interest_value": interest_value,
-                            "result": body.get("result"),
-                        }
-                        logger.info(
-                            "Updated Instantly lead status: %s -> %s (campaign=%s)",
-                            lead_email,
-                            interest_value,
-                            campaign_id,
-                        )
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 
