@@ -1,3 +1,4 @@
+from .activate_billcom import ActivateBillcomExecutor
 from .activate_instantly import ActivateInstantlyExecutor
 from .activate_netsuite import ActivateNetsuiteExecutor
 from .add_leads_to_instantly import AddLeadsToInstantlyExecutor
@@ -12,6 +13,7 @@ from .create_campaign import CreateCampaignExecutor
 from .create_contact import CreateContactExecutor
 from .delay import DelayExecutor
 from .email_message import EmailMessageExecutor
+from .fetch_bill_entity import FetchBillEntityExecutor
 from .fetch_bloomerang_entity import FetchBloomerangEntityExecutor
 from .fetch_lightningstep_entity import FetchLightningstepEntityExecutor
 from .fetch_maintainx_entity import FetchMaintainxEntityExecutor
@@ -70,6 +72,8 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch_bloomerang_entity": FetchBloomerangEntityExecutor,
     "fetch_maintainx_entity": FetchMaintainxEntityExecutor,
     "fetch_lightningstep_entity": FetchLightningstepEntityExecutor,
+    "fetch_bill_entity": FetchBillEntityExecutor,
+    "activate_billcom": ActivateBillcomExecutor,
 }
 
 __all__ = [

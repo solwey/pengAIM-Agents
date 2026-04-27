@@ -44,6 +44,8 @@ class NodeType(StrEnum):
     FETCH_BLOOMERANG_ENTITY = "fetch_bloomerang_entity"
     FETCH_MAINTAINX_ENTITY = "fetch_maintainx_entity"
     FETCH_LIGHTNINGSTEP_ENTITY = "fetch_lightningstep_entity"
+    FETCH_BILL_ENTITY = "fetch_bill_entity"
+    ACTIVATE_BILLCOM = "activate_billcom"
 
 
 class ComparisonOperator(StrEnum):
@@ -416,6 +418,35 @@ class FetchLightningstepEntityConfig(BaseModel):
     response_key: str = "lightningstep_entity"
 
 
+# Semantic record types — must stay aligned with revops RECORD_TYPES in
+# revops/app/components/workflow-editor/config-forms/fetch-bill-entity-config.tsx
+# and with the routers in api/src/api/bill/index.ts. The mapping to Bill.com
+# Connect v3 REST paths lives in
+# graphs/workflow_engine/nodes/fetch_bill_entity.py (_BILL_ENDPOINT).
+BillRecordType = Literal[
+    "bill",
+    "credit_memo",
+    "customer",
+    "invoice",
+    "payment",
+    "recurring_bill",
+    "recurring_invoice",
+    "vendor",
+]
+
+
+class FetchBillEntityConfig(BaseModel):
+    record_type: BillRecordType = "bill"
+    fields: list[str] = Field(default_factory=list)  # empty = all fields (client-side projection)
+    limit: int = Field(default=50, ge=1, le=200)  # maps to Bill.com's ?max=N
+    token_key: str = "bill_activate_result"  # state.data key where activate_billcom writes its session
+    response_key: str = "bill_entity"
+
+
+class ActivateBillcomConfig(BaseModel):
+    response_key: str = "bill_activate_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -464,6 +495,8 @@ class NodeDef(BaseModel):
             NodeType.FETCH_BLOOMERANG_ENTITY: FetchBloomerangEntityConfig,
             NodeType.FETCH_MAINTAINX_ENTITY: FetchMaintainxEntityConfig,
             NodeType.FETCH_LIGHTNINGSTEP_ENTITY: FetchLightningstepEntityConfig,
+            NodeType.FETCH_BILL_ENTITY: FetchBillEntityConfig,
+            NodeType.ACTIVATE_BILLCOM: ActivateBillcomConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
