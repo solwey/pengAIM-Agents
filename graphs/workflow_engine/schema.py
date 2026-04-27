@@ -40,6 +40,7 @@ class NodeType(StrEnum):
     PAUSE_INSTANTLY = "pause_instantly"
     UPDATE_INSTANTLY_LEAD_STATUS = "update_instantly_lead_status"
     FETCH_INSTANTLY_REPLIES = "fetch_instantly_replies"
+    ADD_TO_INSTANTLY_BLOCKLIST = "add_to_instantly_blocklist"
 
 
 class ComparisonOperator(StrEnum):
@@ -75,7 +76,7 @@ class ConditionConfig(BaseModel):
 
 
 class TransformConfig(BaseModel):
-    set: dict[str, Any]  # key-value pairs to merge into state["data"]
+    set: dict[str, Any] = Field(min_length=1)
 
 
 class SlackMessageConfig(BaseModel):
@@ -97,6 +98,24 @@ class EmailMessageConfig(BaseModel):
     smtp_password_key_id: str | None = None
     smtp_from: str | None = None
     response_key: str = "email_response"
+
+    @model_validator(mode="after")
+    def _check_smtp_overrides(self) -> EmailMessageConfig:
+        smtp_fields = {
+            "smtp_host": self.smtp_host,
+            "smtp_port": self.smtp_port,
+            "smtp_user": self.smtp_user,
+            "smtp_password_key_id": self.smtp_password_key_id,
+        }
+        provided = {k for k, v in smtp_fields.items() if v}
+        if provided and provided != set(smtp_fields):
+            missing = sorted(set(smtp_fields) - provided)
+            raise ValueError(
+                "SMTP override is incomplete: when any of "
+                f"{sorted(smtp_fields)} is set, all must be provided. "
+                f"Missing: {missing}"
+            )
+        return self
 
 
 class SwitchCase(BaseModel):
@@ -180,6 +199,7 @@ class LLMCompleteConfig(BaseModel):
     system_prompt: str = ""
     model: str = ""  # LLM model (e.g. "openai:gpt-4o-mini"), empty = env default
     max_tokens: int = Field(default=1000, ge=1, le=4000)
+    timeout_seconds: int = Field(default=120, ge=10, le=600)
     response_key: str = "llm_result"
 
 
@@ -296,6 +316,14 @@ class FetchInstantlyRepliesConfig(BaseModel):
     limit: int = 50
     response_key: str = "instantly_replies"
 
+
+class AddToInstantlyBlocklistConfig(BaseModel):
+    bl_value: str = ""  # direct email or domain (supports {{template}})
+    bl_value_key: str = ""  # dot-path to single email/domain in state
+    bl_values_key: str = ""  # dot-path to a list of emails/domains in state
+    response_key: str = "instantly_blocklist_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -340,6 +368,7 @@ class NodeDef(BaseModel):
             NodeType.PAUSE_INSTANTLY: PauseInstantlyConfig,
             NodeType.UPDATE_INSTANTLY_LEAD_STATUS: UpdateInstantlyLeadStatusConfig,
             NodeType.FETCH_INSTANTLY_REPLIES: FetchInstantlyRepliesConfig,
+            NodeType.ADD_TO_INSTANTLY_BLOCKLIST: AddToInstantlyBlocklistConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

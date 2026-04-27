@@ -19,8 +19,8 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Request
-from graphs.workflow_engine.nodes.base import resolve_templates, reveal_api_key
-from graphs.workflow_engine.nodes.icp_score import score_account
+from graphs.workflow_engine.nodes.base import fetch_ingestion_configurable, resolve_templates, reveal_api_key
+from graphs.workflow_engine.nodes.icp_score import resolve_llm_key, score_account
 from graphs.workflow_engine.schema import (
     ApiRequestConfig,
     EmailMessageConfig,
@@ -83,13 +83,19 @@ async def preview_icp_score(
 
     auth_token = request.headers.get("authorization", "")
 
+    ingestion_cfg = await fetch_ingestion_configurable(auth_token)
+    synthetic_config: RunnableConfig = {"configurable": {"auth_token": auth_token, **ingestion_cfg}}
+    api_key = await resolve_llm_key(synthetic_config)
+    effective_model = cfg.model or ingestion_cfg.get("llm_model") or ""
+
     result = await score_account(
         body.account_data,
-        model=cfg.model,
+        model=effective_model,
         hot_threshold=cfg.hot_threshold,
         warm_threshold=cfg.warm_threshold,
         custom_criteria=cfg.custom_criteria,
         auth_token=auth_token,
+        api_key=api_key,
     )
 
     return ICPScorePreviewResponse(

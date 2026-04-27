@@ -129,3 +129,43 @@ async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
     except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError) as exc:
         logger.warning("Failed to reveal api key %s: %s", key_id, exc)
         return None
+
+
+async def fetch_ingestion_configurable(auth_token: str) -> dict[str, Any]:
+    """Read the team's Ingestion Configuration and return a configurable-ready dict.
+
+    Populates the same keys that react_agent/open_deep_research read from
+    ``config.configurable`` — ``llm_provider``, ``llm_model``, and either
+    ``rag_openai_api_key`` or ``rag_google_api_key`` with ``{"keyId": ...}``.
+    Returns an empty dict on any failure — callers should merge with their
+    existing configurable and fall back gracefully.
+    """
+    if not auth_token:
+        return {}
+
+    url = f"{settings.graphs.RAG_API_URL}/integrations/ingestion_config"
+    headers = {"authorization": auth_token, "Accept": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return {}
+            cfg = (resp.json() or {}).get("config_json") or {}
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
+        logger.warning("Failed to fetch ingestion config: %s", exc)
+        return {}
+
+    provider = "google" if (cfg.get("llm_provider") or "").lower() in ("gemini", "google") else "openai"
+    api_key_id = cfg.get("api_key_id") or ""
+    model_name = cfg.get("llm_model") or ""
+
+    out: dict[str, Any] = {"llm_provider": provider}
+    if api_key_id:
+        key_field = "rag_google_api_key" if provider == "google" else "rag_openai_api_key"
+        out[key_field] = {"keyId": api_key_id}
+    if model_name:
+        # LangChain's init_chat_model expects a prefixed string like "openai:gpt-4o-mini"
+        prefix = "google_genai" if provider == "google" else "openai"
+        out["llm_model"] = f"{prefix}:{model_name}"
+    return out

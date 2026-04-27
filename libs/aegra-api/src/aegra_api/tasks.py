@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import structlog
 from croniter import croniter as croniter_cls
 from graphs.workflow_engine.compiler import compile_workflow
+from graphs.workflow_engine.nodes.base import fetch_ingestion_configurable
 from graphs.workflow_engine.schema import WorkflowDefinition
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -284,10 +285,12 @@ def execute_workflow(self, workflow_run_id: str, tenant_uuid: str, auth_token: s
             async def _run():
                 async_engine = await _get_async_engine()
                 try:
+                    ingestion_cfg = await fetch_ingestion_configurable(auth_token)
+                    configurable = {"auth_token": auth_token, **ingestion_cfg}
                     return await _run_with_cancellation(
                         compiled.ainvoke(
                             initial_state,
-                            config={"configurable": {"auth_token": auth_token}},
+                            config={"configurable": configurable},
                         ),
                         workflow_run_id,
                         async_engine,

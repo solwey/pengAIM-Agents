@@ -2,6 +2,7 @@ from .activate_instantly import ActivateInstantlyExecutor
 from .add_leads_to_instantly import AddLeadsToInstantlyExecutor
 from .add_tag import AddTagExecutor
 from .add_to_campaign import AddToCampaignExecutor
+from .add_to_instantly_blocklist import AddToInstantlyBlocklistExecutor
 from .add_to_list import AddToListExecutor
 from .api_request import ApiRequestExecutor
 from .condition import ConditionExecutor, build_condition_router
@@ -62,6 +63,7 @@ NODE_REGISTRY: dict[str, type] = {
     "pause_instantly": PauseInstantlyExecutor,
     "update_instantly_lead_status": UpdateInstantlyLeadStatusExecutor,
     "fetch_instantly_replies": FetchInstantlyRepliesExecutor,
+    "add_to_instantly_blocklist": AddToInstantlyBlocklistExecutor,
 }
 
 __all__ = [

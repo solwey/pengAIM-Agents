@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
+from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, reveal_api_key
 from graphs.workflow_engine.schema import ICPScoreConfig
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,21 @@ async def _fetch_team_context(auth_token: str) -> tuple[str, str]:
     return "Not defined", "Not defined"
 
 
+async def resolve_llm_key(config: RunnableConfig) -> str | None:
+    """Reveal the LLM API key from ``configurable`` following the react_agent convention.
+
+    Reads ``llm_provider`` + ``rag_openai_api_key.keyId`` / ``rag_google_api_key.keyId``
+    (populated from Ingestion Configuration by the workflow trigger). Matches
+    ``graphs/open_deep_research/utils.py::rag_search`` exactly.
+    """
+    configurable = config.get("configurable", {})
+    provider = configurable.get("llm_provider", "openai")
+    key_field = "rag_google_api_key" if provider == "google" else "rag_openai_api_key"
+    key_data = configurable.get(key_field) or {}
+    key_id = key_data.get("keyId")
+    return await reveal_api_key(config, key_id) if key_id else None
+
+
 def _classify(score: int, hot_threshold: int, warm_threshold: int) -> str:
     if score >= hot_threshold:
         return "hot"
@@ -79,6 +94,7 @@ async def score_account(
     warm_threshold: int,
     custom_criteria: str,
     auth_token: str,
+    api_key: str | None = None,
 ) -> dict[str, Any]:
     """Score one account against the team ICP. Status is recomputed from thresholds.
 
@@ -99,7 +115,10 @@ async def score_account(
 
     try:
         llm_model = model or settings.graphs.WORKFLOW_LLM_MODEL
-        llm = init_chat_model(llm_model, temperature=0, max_tokens=200)
+        init_kwargs: dict[str, Any] = {"temperature": 0, "max_tokens": 200}
+        if api_key:
+            init_kwargs["api_key"] = api_key
+        llm = init_chat_model(llm_model, **init_kwargs)
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         content = str(response.content or "")
     except Exception as exc:  # LLM providers raise diverse exceptions
@@ -144,13 +163,17 @@ class ICPScoreExecutor(NodeExecutor):
             else:
                 account_data = data
 
+            api_key = await resolve_llm_key(config)
+            effective_model = cfg.model or configurable.get("llm_model") or ""
+
             result = await score_account(
                 account_data,
-                model=cfg.model,
+                model=effective_model,
                 hot_threshold=cfg.hot_threshold,
                 warm_threshold=cfg.warm_threshold,
                 custom_criteria=cfg.custom_criteria,
                 auth_token=auth_token,
+                api_key=api_key,
             )
             return {"data": {**data, cfg.response_key: result}}
 
