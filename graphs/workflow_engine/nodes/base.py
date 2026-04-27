@@ -7,7 +7,9 @@ subclass NodeExecutor, and register in nodes/__init__.py.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Coroutine
@@ -19,6 +21,88 @@ from langchain_core.runnables import RunnableConfig
 from aegra_api.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+# Default retry-able status codes — covers Instantly/RAG transient failures
+DEFAULT_RETRY_STATUS: tuple[int, ...] = (429, 500, 502, 503, 504)
+
+
+async def http_request_with_retry(
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    json: Any | None = None,
+    params: dict[str, Any] | None = None,
+    timeout_seconds: int = 30,
+    max_attempts: int = 3,
+    retry_on_status: tuple[int, ...] = DEFAULT_RETRY_STATUS,
+    op_name: str = "request",
+) -> httpx.Response:
+    """Issue an HTTP request with exponential backoff on 429/5xx + timeout.
+
+    Returns the final response (which the caller still needs to validate via
+    ``raise_for_status``). Honors the ``Retry-After`` header for 429s.
+
+    Raises the last httpx exception if all attempts fail.
+    """
+    last_exc: BaseException | None = None
+    last_resp: httpx.Response | None = None
+    for attempt in range(max_attempts):
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as client:
+                resp = await client.request(
+                    method.upper(),
+                    url,
+                    headers=headers,
+                    json=json,
+                    params=params,
+                )
+            last_resp = resp
+            if resp.status_code not in retry_on_status:
+                return resp
+
+            # Compute backoff: prefer Retry-After when available
+            retry_after = resp.headers.get("Retry-After")
+            if retry_after is not None:
+                try:
+                    delay = float(retry_after)
+                except ValueError:
+                    delay = 2.0 * (2**attempt)
+            else:
+                delay = 2.0 * (2**attempt)
+            # ±25% jitter to avoid thundering herd (not security-sensitive)
+            delay = delay * (1.0 + random.uniform(-0.25, 0.25))  # noqa: S311  # nosec B311
+            logger.warning(
+                "%s: %s %s -> %d, retry %d/%d in %.2fs",
+                op_name,
+                method,
+                url,
+                resp.status_code,
+                attempt + 1,
+                max_attempts,
+                delay,
+            )
+            if attempt + 1 < max_attempts:
+                await asyncio.sleep(delay)
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            last_exc = exc
+            logger.warning(
+                "%s: %s %s network error (%s), retry %d/%d",
+                op_name,
+                method,
+                url,
+                exc,
+                attempt + 1,
+                max_attempts,
+            )
+            if attempt + 1 < max_attempts:
+                await asyncio.sleep(2.0 * (2**attempt))
+
+    if last_resp is not None:
+        return last_resp
+    assert last_exc is not None
+    raise last_exc
 
 
 class NodeExecutor(ABC):

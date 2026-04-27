@@ -9,7 +9,12 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import AddTagConfig
 
 logger = logging.getLogger(__name__)
@@ -46,34 +51,46 @@ class AddTagExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    # Step 1: Ensure tag exists (create if needed)
-                    resp = await client.post(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/tags/ensure",
-                        json={"name": tag_name, "color": cfg.tag_color},
-                        headers=headers,
-                    )
-                    if resp.status_code not in (200, 201):
-                        result = {"ok": False, "error": f"Tag ensure failed: {resp.text[:500]}"}
-                        return {"data": {**data, cfg.response_key: result}}
+                # Step 1: Ensure tag exists (create if needed)
+                resp = await http_request_with_retry(
+                    "POST",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/tags/ensure",
+                    json={"name": tag_name, "color": cfg.tag_color},
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="add_tag.ensure",
+                )
+                if resp.status_code not in (200, 201):
+                    return {
+                        "data": {
+                            **data,
+                            cfg.response_key: {
+                                "ok": False,
+                                "error": f"Tag ensure failed: {resp.text[:500]}",
+                            },
+                        }
+                    }
 
-                    tag = resp.json()
+                tag = resp.json()
 
-                    # Step 2: Assign tag to entity
-                    entity_plural = f"{cfg.entity_type}s"
-                    resp = await client.post(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}/tags",
-                        json={"tag_ids": [tag["id"]]},
-                        headers=headers,
-                    )
-                    if resp.status_code in (200, 201, 204):
-                        result = {"ok": True, "tag_id": tag["id"], "tag_name": tag_name}
-                        logger.info("Tag '%s' assigned to %s %s", tag_name, cfg.entity_type, entity_id)
-                    else:
-                        result = {"ok": False, "error": f"Tag assign failed: {resp.text[:500]}"}
+                # Step 2: Assign tag to entity
+                entity_plural = f"{cfg.entity_type}s"
+                resp = await http_request_with_retry(
+                    "POST",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}/tags",
+                    json={"tag_ids": [tag["id"]]},
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="add_tag.assign",
+                )
+                if resp.status_code in (200, 201, 204):
+                    result = {"ok": True, "tag_id": tag["id"], "tag_name": tag_name}
+                    logger.info("Tag '%s' assigned to %s %s", tag_name, cfg.entity_type, entity_id)
+                else:
+                    result = {"ok": False, "error": f"Tag assign failed: {resp.text[:500]}"}
 
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

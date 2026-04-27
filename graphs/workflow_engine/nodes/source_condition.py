@@ -9,7 +9,12 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import SourceConditionConfig
 
 logger = logging.getLogger(__name__)
@@ -43,40 +48,40 @@ class SourceConditionExecutor(NodeExecutor):
                 }
 
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    entity_plural = f"{cfg.entity_type}s"
-                    resp = await client.get(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}",
-                        headers=headers,
-                    )
-                    if resp.status_code != 200:
-                        return {
-                            "data": {**data, cfg.response_key: {"ok": False, "match": False, "error": resp.text[:500]}}
-                        }
+                entity_plural = f"{cfg.entity_type}s"
+                resp = await http_request_with_retry(
+                    "GET",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}",
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="source_condition",
+                )
+                if resp.status_code != 200:
+                    return {"data": {**data, cfg.response_key: {"ok": False, "match": False, "error": resp.text[:500]}}}
 
-                    entity = resp.json()
-                    entity_source = entity.get("source", {})
-                    entity_source_name = entity_source.get("name", "") if entity_source else ""
+                entity = resp.json()
+                entity_source = entity.get("source", {})
+                entity_source_name = entity_source.get("name", "") if entity_source else ""
 
-                    match = entity_source_name.lower() == source_name.lower()
+                match = entity_source_name.lower() == source_name.lower()
 
-                    result = {
-                        "ok": True,
-                        "match": match,
-                        "entity_source": entity_source_name,
-                        "expected_source": source_name,
-                    }
-                    logger.info(
-                        "Source check %s %s: match=%s (expected=%s, actual=%s)",
-                        cfg.entity_type,
-                        entity_id,
-                        match,
-                        source_name,
-                        entity_source_name,
-                    )
+                result = {
+                    "ok": True,
+                    "match": match,
+                    "entity_source": entity_source_name,
+                    "expected_source": source_name,
+                }
+                logger.info(
+                    "Source check %s %s: match=%s (expected=%s, actual=%s)",
+                    cfg.entity_type,
+                    entity_id,
+                    match,
+                    source_name,
+                    entity_source_name,
+                )
 
             except httpx.TimeoutException:
-                result = {"ok": False, "match": False, "error": "Request timed out"}
+                result = {"ok": False, "match": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "match": False, "error": f"Request failed: {exc}"}
 

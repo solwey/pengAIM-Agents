@@ -9,7 +9,11 @@ from urllib.parse import urlparse
 import httpx
 from langchain_core.runnables import RunnableConfig
 
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import SlackMessageConfig
 
 logger = logging.getLogger(__name__)
@@ -41,43 +45,42 @@ class SlackMessageExecutor(NodeExecutor):
                     }
                 }
 
+            payload: dict[str, Any] = {"text": resolved_message}
+            if cfg.username:
+                payload["username"] = resolve_templates(cfg.username, data)
+            if cfg.icon_emoji:
+                payload["icon_emoji"] = cfg.icon_emoji
+
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(15)) as client:
-                    payload: dict[str, Any] = {"text": resolved_message}
-                    if cfg.username:
-                        payload["username"] = resolve_templates(cfg.username, data)
-                    if cfg.icon_emoji:
-                        payload["icon_emoji"] = cfg.icon_emoji
-
-                    response = await client.post(
-                        resolved_url,
-                        json=payload,
-                        headers={"Content-Type": "application/json"},
+                response = await http_request_with_retry(
+                    "POST",
+                    resolved_url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="slack_message",
+                )
+                result = {
+                    "ok": response.status_code == 200,
+                    "status_code": response.status_code,
+                    "body": response.text,
+                }
+                if response.status_code == 200:
+                    logger.info(
+                        "Slack message sent successfully to %s",
+                        parsed.hostname,
                     )
-
-                    result = {
-                        "ok": response.status_code == 200,
-                        "status_code": response.status_code,
-                        "body": response.text,
-                    }
-
-                    if response.status_code == 200:
-                        logger.info(
-                            "Slack message sent successfully to %s",
-                            parsed.hostname,
-                        )
-                    else:
-                        logger.warning(
-                            "Slack webhook returned %d: %s",
-                            response.status_code,
-                            response.text[:200],
-                        )
-
+                else:
+                    logger.warning(
+                        "Slack webhook returned %d: %s",
+                        response.status_code,
+                        response.text[:200],
+                    )
             except httpx.TimeoutException:
                 result = {
                     "ok": False,
-                    "error": "Slack webhook request timed out",
+                    "error": f"Slack webhook timed out after {cfg.timeout_seconds}s",
                 }
             except httpx.RequestError as exc:
                 result = {

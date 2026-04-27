@@ -9,7 +9,12 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import SetSourceConfig
 
 logger = logging.getLogger(__name__)
@@ -37,48 +42,52 @@ class SetSourceExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    # Find source by name
-                    resp = await client.get(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/sources",
-                        headers=headers,
-                    )
-                    if resp.status_code != 200:
-                        return {
-                            "data": {
-                                **data,
-                                cfg.response_key: {"ok": False, "error": f"Failed to list sources: {resp.text[:500]}"},
-                            }
+                resp = await http_request_with_retry(
+                    "GET",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/sources",
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="set_source.list",
+                )
+                if resp.status_code != 200:
+                    return {
+                        "data": {
+                            **data,
+                            cfg.response_key: {
+                                "ok": False,
+                                "error": f"Failed to list sources: {resp.text[:500]}",
+                            },
                         }
+                    }
 
-                    sources_data = resp.json()
-                    sources = (
-                        sources_data.get("items", sources_data) if isinstance(sources_data, dict) else sources_data
-                    )
-                    source = next((s for s in sources if s["name"] == source_name), None)
-                    if not source:
-                        return {
-                            "data": {
-                                **data,
-                                cfg.response_key: {"ok": False, "error": f"Source '{source_name}' not found"},
-                            }
+                sources_data = resp.json()
+                sources = sources_data.get("items", sources_data) if isinstance(sources_data, dict) else sources_data
+                source = next((s for s in sources if s["name"] == source_name), None)
+                if not source:
+                    return {
+                        "data": {
+                            **data,
+                            cfg.response_key: {"ok": False, "error": f"Source '{source_name}' not found"},
                         }
+                    }
 
-                    # Update entity with source_id
-                    entity_plural = f"{cfg.entity_type}s"
-                    resp = await client.put(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}",
-                        json={"source_id": source["id"]},
-                        headers=headers,
-                    )
-                    if resp.status_code == 200:
-                        result = {"ok": True, "source_name": source_name, "source_id": source["id"]}
-                        logger.info("Source '%s' set on %s %s", source_name, cfg.entity_type, entity_id)
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                entity_plural = f"{cfg.entity_type}s"
+                resp = await http_request_with_retry(
+                    "PUT",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}",
+                    json={"source_id": source["id"]},
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="set_source.set",
+                )
+                if resp.status_code == 200:
+                    result = {"ok": True, "source_name": source_name, "source_id": source["id"]}
+                    logger.info("Source '%s' set on %s %s", source_name, cfg.entity_type, entity_id)
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
 
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

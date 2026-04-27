@@ -9,7 +9,11 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+)
 from graphs.workflow_engine.schema import TagConditionConfig
 
 logger = logging.getLogger(__name__)
@@ -42,37 +46,37 @@ class TagConditionExecutor(NodeExecutor):
                 }
 
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    entity_plural = f"{cfg.entity_type}s"
-                    resp = await client.get(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}",
-                        headers=headers,
-                    )
-                    if resp.status_code != 200:
-                        return {
-                            "data": {**data, cfg.response_key: {"ok": False, "match": False, "error": resp.text[:500]}}
-                        }
+                entity_plural = f"{cfg.entity_type}s"
+                resp = await http_request_with_retry(
+                    "GET",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/{entity_plural}/{entity_id}",
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="tag_condition",
+                )
+                if resp.status_code != 200:
+                    return {"data": {**data, cfg.response_key: {"ok": False, "match": False, "error": resp.text[:500]}}}
 
-                    entity = resp.json()
-                    entity_tags = {t["name"] for t in entity.get("tags", [])}
+                entity = resp.json()
+                entity_tags = {t["name"] for t in entity.get("tags", [])}
 
-                    if cfg.match_mode == "all":
-                        match = all(tn in entity_tags for tn in cfg.tag_names)
-                    else:  # "any"
-                        match = any(tn in entity_tags for tn in cfg.tag_names)
+                if cfg.match_mode == "all":
+                    match = all(tn in entity_tags for tn in cfg.tag_names)
+                else:  # "any"
+                    match = any(tn in entity_tags for tn in cfg.tag_names)
 
-                    result = {"ok": True, "match": match, "entity_tags": list(entity_tags)}
-                    logger.info(
-                        "Tag check %s %s: match=%s (mode=%s, tags=%s)",
-                        cfg.entity_type,
-                        entity_id,
-                        match,
-                        cfg.match_mode,
-                        cfg.tag_names,
-                    )
+                result = {"ok": True, "match": match, "entity_tags": list(entity_tags)}
+                logger.info(
+                    "Tag check %s %s: match=%s (mode=%s, tags=%s)",
+                    cfg.entity_type,
+                    entity_id,
+                    match,
+                    cfg.match_mode,
+                    cfg.tag_names,
+                )
 
             except httpx.TimeoutException:
-                result = {"ok": False, "match": False, "error": "Request timed out"}
+                result = {"ok": False, "match": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "match": False, "error": f"Request failed: {exc}"}
 

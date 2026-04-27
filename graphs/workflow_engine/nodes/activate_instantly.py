@@ -9,7 +9,11 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+)
 from graphs.workflow_engine.schema import ActivateInstantlyConfig
 
 logger = logging.getLogger(__name__)
@@ -43,22 +47,24 @@ class ActivateInstantlyExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    resp = await client.post(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/activate",
-                        headers=headers,
-                    )
-                    if resp.status_code in (200, 201):
-                        result = {
-                            "ok": True,
-                            "campaign_id": campaign_id,
-                            "status": "activated",
-                        }
-                        logger.info("Instantly campaign %s activated", campaign_id)
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                resp = await http_request_with_retry(
+                    "POST",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/activate",
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="activate_instantly",
+                )
+                if resp.status_code in (200, 201):
+                    result = {
+                        "ok": True,
+                        "campaign_id": campaign_id,
+                        "status": "activated",
+                    }
+                    logger.info("Instantly campaign %s activated", campaign_id)
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

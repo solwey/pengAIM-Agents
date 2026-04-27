@@ -9,7 +9,12 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, resolve_templates
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+    resolve_templates,
+)
 from graphs.workflow_engine.schema import CreateContactConfig
 
 logger = logging.getLogger(__name__)
@@ -107,32 +112,34 @@ class CreateContactExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    resp = await client.post(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/contacts/bulk",
-                        json={"items": contacts, "dedup_mode": cfg.dedup_mode},
-                        headers=headers,
-                    )
-                    if resp.status_code in (200, 201):
-                        body = resp.json()
-                        results_list = body.get("results", [])
-                        success_ids = [r["item_id"] for r in results_list if r.get("success") and r.get("item_id")]
-                        deduplicated_count = sum(1 for r in results_list if r.get("deduplicated"))
-                        result = {
-                            "ok": True,
-                            "total": body.get("total", len(contacts)),
-                            "successful": body.get("successful", 0),
-                            "failed": body.get("failed", 0),
-                            "deduplicated": deduplicated_count,
-                            "results": results_list,
-                            "contact_id": success_ids[0] if success_ids else None,
-                            "contact_ids": success_ids,
-                        }
-                        logger.info("Contacts created: %d/%d", result["successful"], result["total"])
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                resp = await http_request_with_retry(
+                    "POST",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/contacts/bulk",
+                    json={"items": contacts, "dedup_mode": cfg.dedup_mode},
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="create_contact",
+                )
+                if resp.status_code in (200, 201):
+                    body = resp.json()
+                    results_list = body.get("results", [])
+                    success_ids = [r["item_id"] for r in results_list if r.get("success") and r.get("item_id")]
+                    deduplicated_count = sum(1 for r in results_list if r.get("deduplicated"))
+                    result = {
+                        "ok": True,
+                        "total": body.get("total", len(contacts)),
+                        "successful": body.get("successful", 0),
+                        "failed": body.get("failed", 0),
+                        "deduplicated": deduplicated_count,
+                        "results": results_list,
+                        "contact_id": success_ids[0] if success_ids else None,
+                        "contact_ids": success_ids,
+                    }
+                    logger.info("Contacts created: %d/%d", result["successful"], result["total"])
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

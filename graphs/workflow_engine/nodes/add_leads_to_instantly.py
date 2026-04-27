@@ -9,7 +9,11 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+)
 from graphs.workflow_engine.schema import AddLeadsToInstantlyConfig
 
 logger = logging.getLogger(__name__)
@@ -56,26 +60,28 @@ class AddLeadsToInstantlyExecutor(NodeExecutor):
 
             result: dict[str, Any]
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(60)) as client:
-                    resp = await client.post(
-                        f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/leads",
-                        json={"contact_ids": contact_ids},
-                        headers=headers,
-                    )
-                    if resp.status_code in (200, 201):
-                        body = resp.json()
-                        leads_added = body.get("leads_sent", len(contact_ids))
-                        result = {
-                            "ok": True,
-                            "campaign_id": campaign_id,
-                            "leads_added": leads_added,
-                            "skipped_emails": body.get("skipped_emails", []),
-                        }
-                        logger.info("Added %d leads to Instantly campaign %s", leads_added, campaign_id)
-                    else:
-                        result = {"ok": False, "error": resp.text[:500]}
+                resp = await http_request_with_retry(
+                    "POST",
+                    f"{settings.graphs.REVY_API_URL}/api/v1/campaigns/{campaign_id}/instantly/leads",
+                    json={"contact_ids": contact_ids},
+                    headers=headers,
+                    timeout_seconds=cfg.timeout_seconds,
+                    op_name="add_leads_to_instantly",
+                )
+                if resp.status_code in (200, 201):
+                    body = resp.json()
+                    leads_added = body.get("leads_sent", len(contact_ids))
+                    result = {
+                        "ok": True,
+                        "campaign_id": campaign_id,
+                        "leads_added": leads_added,
+                        "skipped_emails": body.get("skipped_emails", []),
+                    }
+                    logger.info("Added %d leads to Instantly campaign %s", leads_added, campaign_id)
+                else:
+                    result = {"ok": False, "error": resp.text[:500]}
             except httpx.TimeoutException:
-                result = {"ok": False, "error": "Request timed out"}
+                result = {"ok": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "error": f"Request failed: {exc}"}
 

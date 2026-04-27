@@ -9,7 +9,11 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
+from graphs.workflow_engine.nodes.base import (
+    NodeExecutor,
+    http_request_with_retry,
+    resolve_field,
+)
 from graphs.workflow_engine.schema import ListConditionConfig
 
 logger = logging.getLogger(__name__)
@@ -43,40 +47,42 @@ class ListConditionExecutor(NodeExecutor):
                 }
 
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-                    # Fetch all members page by page to check membership
-                    # For large lists, a dedicated endpoint would be better
-                    found = False
-                    page = 1
-                    while True:
-                        resp = await client.get(
-                            f"{settings.graphs.REVY_API_URL}/api/v1/lists/{list_id}/members",
-                            params={"page": page, "page_size": 100},
-                            headers=headers,
-                        )
-                        if resp.status_code != 200:
-                            return {
-                                "data": {
-                                    **data,
-                                    cfg.response_key: {"ok": False, "match": False, "error": resp.text[:500]},
-                                }
+                # Fetch all members page by page to check membership
+                # For large lists, a dedicated endpoint would be better
+                found = False
+                page = 1
+                while True:
+                    resp = await http_request_with_retry(
+                        "GET",
+                        f"{settings.graphs.REVY_API_URL}/api/v1/lists/{list_id}/members",
+                        params={"page": page, "page_size": 100},
+                        headers=headers,
+                        timeout_seconds=cfg.timeout_seconds,
+                        op_name="list_condition",
+                    )
+                    if resp.status_code != 200:
+                        return {
+                            "data": {
+                                **data,
+                                cfg.response_key: {"ok": False, "match": False, "error": resp.text[:500]},
                             }
+                        }
 
-                        body = resp.json()
-                        items = body.get("items", [])
-                        for item in items:
-                            if item.get("id") == entity_id:
-                                found = True
-                                break
-                        if found or not body.get("meta", {}).get("has_next", False):
+                    body = resp.json()
+                    items = body.get("items", [])
+                    for item in items:
+                        if item.get("id") == entity_id:
+                            found = True
                             break
-                        page += 1
+                    if found or not body.get("meta", {}).get("has_next", False):
+                        break
+                    page += 1
 
-                    result = {"ok": True, "match": found, "list_id": list_id}
-                    logger.info("List check %s in list %s: match=%s", entity_id, list_id, found)
+                result = {"ok": True, "match": found, "list_id": list_id}
+                logger.info("List check %s in list %s: match=%s", entity_id, list_id, found)
 
             except httpx.TimeoutException:
-                result = {"ok": False, "match": False, "error": "Request timed out"}
+                result = {"ok": False, "match": False, "error": f"Request timed out after {cfg.timeout_seconds}s"}
             except httpx.RequestError as exc:
                 result = {"ok": False, "match": False, "error": f"Request failed: {exc}"}
 
