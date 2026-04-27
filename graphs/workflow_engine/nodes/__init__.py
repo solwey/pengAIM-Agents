@@ -18,6 +18,7 @@ from .fetch_bloomerang_entity import FetchBloomerangEntityExecutor
 from .fetch_lightningstep_entity import FetchLightningstepEntityExecutor
 from .fetch_maintainx_entity import FetchMaintainxEntityExecutor
 from .fetch_netsuite_entity import FetchNetsuiteEntityExecutor
+from .fetch_relias_entity import FetchReliasEntityExecutor
 from .generate_report import GenerateReportExecutor
 from .icp_score import ICPScoreExecutor
 from .list_condition import ListConditionExecutor, build_list_condition_router
@@ -74,6 +75,7 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch_lightningstep_entity": FetchLightningstepEntityExecutor,
     "fetch_bill_entity": FetchBillEntityExecutor,
     "activate_billcom": ActivateBillcomExecutor,
+    "fetch_relias_entity": FetchReliasEntityExecutor,
 }
 
 __all__ = [

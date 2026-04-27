@@ -46,6 +46,7 @@ class NodeType(StrEnum):
     FETCH_LIGHTNINGSTEP_ENTITY = "fetch_lightningstep_entity"
     FETCH_BILL_ENTITY = "fetch_bill_entity"
     ACTIVATE_BILLCOM = "activate_billcom"
+    FETCH_RELIAS_ENTITY = "fetch_relias_entity"
 
 
 class ComparisonOperator(StrEnum):
@@ -447,6 +448,26 @@ class ActivateBillcomConfig(BaseModel):
     response_key: str = "bill_activate_result"
 
 
+# Semantic record types — must stay aligned with revops RECORD_TYPES in
+# revops/app/components/workflow-editor/config-forms/fetch-relias-entity-config.tsx
+# and with ReliasEntity in api/src/api/relias/relias.api.ts. Each maps to an
+# ASMX method name on /webservices/elapi.asmx (see _RELIAS_METHOD in
+# graphs/workflow_engine/nodes/fetch_relias_entity.py).
+ReliasRecordType = Literal[
+    "department",
+    "hierarchy",
+    "student",
+    "license",
+    "course",
+]
+
+
+class FetchReliasEntityConfig(BaseModel):
+    record_type: ReliasRecordType = "student"
+    fields: list[str] = Field(default_factory=list)  # empty = all fields (client-side projection)
+    response_key: str = "relias_entity"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -497,6 +518,7 @@ class NodeDef(BaseModel):
             NodeType.FETCH_LIGHTNINGSTEP_ENTITY: FetchLightningstepEntityConfig,
             NodeType.FETCH_BILL_ENTITY: FetchBillEntityConfig,
             NodeType.ACTIVATE_BILLCOM: ActivateBillcomConfig,
+            NodeType.FETCH_RELIAS_ENTITY: FetchReliasEntityConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
