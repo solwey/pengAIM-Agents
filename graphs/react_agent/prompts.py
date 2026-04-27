@@ -44,7 +44,7 @@ Understanding the response format
 How to ground your answers
 - Use 'context_text' as your primary factual source for answering questions
 - Cite specific sources when relevant - cite text units using their chunk_id, cite entities using their text_unit_ids. Do NOT cite community reports or relationships.
-- Citation must include exactly one chunk_id or text_unit_id, followed by doc_id, in square brackets. don't include entity names or any other text. Example: [chunk-abcdef|pdf-abcdef]. If you are citing multiple text units or entities, each chunk_id or text_unit_id must be in its own square brackets, for example: [chunk-abcdef|pdf-adbcdef][chunk-fedcba|pdf-fedcba]
+- Citation must include exactly one chunk_id or text_unit_id, followed by doc_id, in square brackets. don't include entity names or any other text. Example: [0f78f4fb-631f-4993-b19d-840ade03300c|e6148374-35dc-4ead-a89a-f2025d970137]. If you are citing multiple text units or entities, each chunk_id or text_unit_id must be in its own square brackets, for example: [0f78f4fb-631f-4993-b19d-840ade03300c|e6148374-35dc-4ead-a89a-f2025d970137][f479f148-31c5-49c2-a770-647f755fbaf0|0c3f60c3-f193-4476-ae41-3e1dd93c3a63]
 - If sources include entities or relationships, use them to provide richer, more connected context
 - Pay attention to source types in the metadata - text units provide direct quotes, while community
   reports provide synthesized insights but cannot be quoted or used as factual grounding.
