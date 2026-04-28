@@ -459,6 +459,7 @@ async def run_sub_prompts(state: AgentState, config: RunnableConfig):
         try:
             observation = await researcher_subgraph.ainvoke(
                 {
+                    "messages": state.get("messages", []),
                     "researcher_messages": [HumanMessage(content=final_text)],
                     "research_topic": final_text,
                 },
@@ -579,6 +580,7 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
     try:
         observation = await researcher_subgraph.ainvoke(
             {
+                "messages": state.get("messages", []),
                 "researcher_messages": [HumanMessage(content=sub_text)],
                 "research_topic": sub_text,
             },
@@ -611,6 +613,7 @@ async def parallel_subprompt(state: AgentState, config: RunnableConfig):
                     truncated_text = truncate_result(sub_text, char_limit)
                     observation = await researcher_subgraph.ainvoke(
                         {
+                            "messages": state.get("messages", []),
                             "researcher_messages": [HumanMessage(content=truncated_text)],
                             "research_topic": truncated_text,
                         },
@@ -1230,6 +1233,7 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                 research_tasks = [
                     researcher_subgraph.ainvoke(
                         {
+                            "messages": state.get("messages", []),
                             "researcher_messages": [HumanMessage(content=tool_call["args"]["research_topic"])],
                             "research_topic": tool_call["args"]["research_topic"],
                         },
