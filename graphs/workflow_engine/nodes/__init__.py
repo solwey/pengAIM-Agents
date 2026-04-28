@@ -15,6 +15,8 @@ from .delay import DelayExecutor
 from .email_message import EmailMessageExecutor
 from .fetch_bill_entity import FetchBillEntityExecutor
 from .fetch_bloomerang_entity import FetchBloomerangEntityExecutor
+from .fetch_google_form_response import FetchGoogleFormResponseExecutor
+from .fetch_google_form_structure import FetchGoogleFormStructureExecutor
 from .fetch_lightningstep_entity import FetchLightningstepEntityExecutor
 from .fetch_maintainx_entity import FetchMaintainxEntityExecutor
 from .fetch_netsuite_entity import FetchNetsuiteEntityExecutor
@@ -76,6 +78,8 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch_bill_entity": FetchBillEntityExecutor,
     "activate_billcom": ActivateBillcomExecutor,
     "fetch_relias_entity": FetchReliasEntityExecutor,
+    "fetch_google_form_structure": FetchGoogleFormStructureExecutor,
+    "fetch_google_form_response": FetchGoogleFormResponseExecutor,
 }
 
 __all__ = [

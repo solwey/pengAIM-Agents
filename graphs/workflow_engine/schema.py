@@ -47,6 +47,8 @@ class NodeType(StrEnum):
     FETCH_BILL_ENTITY = "fetch_bill_entity"
     ACTIVATE_BILLCOM = "activate_billcom"
     FETCH_RELIAS_ENTITY = "fetch_relias_entity"
+    FETCH_GOOGLE_FORM_STRUCTURE = "fetch_google_form_structure"
+    FETCH_GOOGLE_FORM_RESPONSE = "fetch_google_form_response"
 
 
 class ComparisonOperator(StrEnum):
@@ -468,6 +470,18 @@ class FetchReliasEntityConfig(BaseModel):
     response_key: str = "relias_entity"
 
 
+class FetchGoogleFormStructureConfig(BaseModel):
+    form_id: str = ""  # blank = use the form_id stored on the Google Forms integration
+    response_key: str = "google_form_structure"
+
+
+class FetchGoogleFormResponseConfig(BaseModel):
+    form_id: str = ""  # blank = use the form_id stored on the Google Forms integration
+    page_size: int = Field(default=100, ge=1, le=5000)  # maps to ?pageSize=N
+    page_token: str = ""  # supports {{template}} for paging via prior result's next_page_token
+    response_key: str = "google_form_responses"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -519,6 +533,8 @@ class NodeDef(BaseModel):
             NodeType.FETCH_BILL_ENTITY: FetchBillEntityConfig,
             NodeType.ACTIVATE_BILLCOM: ActivateBillcomConfig,
             NodeType.FETCH_RELIAS_ENTITY: FetchReliasEntityConfig,
+            NodeType.FETCH_GOOGLE_FORM_STRUCTURE: FetchGoogleFormStructureConfig,
+            NodeType.FETCH_GOOGLE_FORM_RESPONSE: FetchGoogleFormResponseConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
