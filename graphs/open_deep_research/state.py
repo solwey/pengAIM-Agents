@@ -5,6 +5,7 @@ from typing import Annotated
 
 from langchain_core.messages import MessageLikeRepresentation
 from langgraph.graph import MessagesState
+from langgraph.graph.message import add_messages
 from langgraph.types import Send
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -122,6 +123,7 @@ class AgentState(MessagesState):
 class SupervisorState(TypedDict):
     """State for the supervisor that manages research tasks."""
 
+    messages: Annotated[list[MessageLikeRepresentation], add_messages]
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
     research_brief: str
     notes: Annotated[list[str], override_reducer] = []
@@ -132,6 +134,7 @@ class SupervisorState(TypedDict):
 class ResearcherState(TypedDict):
     """State for individual researchers conducting research."""
 
+    messages: Annotated[list[MessageLikeRepresentation], add_messages]
     researcher_messages: Annotated[list[MessageLikeRepresentation], operator.add]
     tool_call_iterations: int = 0
     research_topic: str
@@ -142,5 +145,6 @@ class ResearcherState(TypedDict):
 class ResearcherOutputState(BaseModel):
     """Output state from individual researchers."""
 
+    messages: Annotated[list[MessageLikeRepresentation], add_messages] = []
     compressed_research: str
     raw_notes: Annotated[list[str], override_reducer] = []
