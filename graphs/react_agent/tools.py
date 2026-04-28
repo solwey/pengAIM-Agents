@@ -64,6 +64,10 @@ async def create_rag_tool(rag_url: str):
                     rag_retrieval_relationship_ratio = configurable.get("rag_retrieval_relationship_ratio")
                     rag_retrieval_top_k_relationships = configurable.get("rag_retrieval_top_k_relationships")
                     rag_retrieval_top_k_entities = configurable.get("rag_retrieval_top_k_entities")
+                    relationship_vector_top_k = configurable.get("rag_relationship_vector_top_k")
+                    chunk_load_batch_size = configurable.get("rag_chunk_load_batch_size")
+                    community_retrieval_top_k = configurable.get("rag_community_retrieval_top_k")
+                    rrf_enable_hyde_branch = configurable.get("rag_rrf_enable_hyde_branch")
                     rag_retrieval_chunk_top_k_per_entity = configurable.get("rag_retrieval_chunk_top_k_per_entity")
                     rag_retrieval_chunk_ranking_overfetch = configurable.get("rag_retrieval_chunk_ranking_overfetch")
                     rag_retrieval_chunk_rank_weight_similarity = configurable.get(
@@ -112,6 +116,10 @@ async def create_rag_tool(rag_url: str):
                     "relationship_ratio": rag_retrieval_relationship_ratio,
                     "top_k_relationships": rag_retrieval_top_k_relationships,
                     "top_k_entities": rag_retrieval_top_k_entities,
+                    "relationship_vector_top_k": relationship_vector_top_k,
+                    "chunk_load_batch_size": chunk_load_batch_size,
+                    "community_retrieval_top_k": community_retrieval_top_k,
+                    "rrf_enable_hyde_branch": rrf_enable_hyde_branch,
                     "chunk_top_k_per_entity": rag_retrieval_chunk_top_k_per_entity,
                     "chunk_ranking_overfetch": rag_retrieval_chunk_ranking_overfetch,
                     "chunk_rank_weight_similarity": rag_retrieval_chunk_rank_weight_similarity,
