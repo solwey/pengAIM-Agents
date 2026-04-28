@@ -520,6 +520,65 @@ class Context(BaseModel, McpConfigMixin):
             }
         },
     )
+    rag_relationship_vector_top_k: int = Field(
+        default=10,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 10,
+                "min": 1,
+                "description": "Top-K relationships to retrieve from vector search.",
+                "group": "retrieval_top_k_limits",
+                "group_label": "Retrieval Top-K Limits",
+                "group_order": 20,
+                "field_order": 25,
+            }
+        },
+    )
+    rag_chunk_load_batch_size: int = Field(
+        default=10,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 10,
+                "min": 1,
+                "description": "Batch size for loading chunks during retrieval.",
+                "group": "retrieval_top_k_limits",
+                "group_label": "Retrieval Top-K Limits",
+                "group_order": 20,
+                "field_order": 27,
+            }
+        },
+    )
+    rag_community_retrieval_top_k: int = Field(
+        default=10,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 10,
+                "min": 1,
+                "description": "Top-K communities to retrieve for context assembly.",
+                "group": "retrieval_top_k_limits",
+                "group_label": "Retrieval Top-K Limits",
+                "group_order": 20,
+                "field_order": 28,
+            }
+        },
+    )
+    rag_rrf_enable_hyde_branch: bool = Field(
+        default=False,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "switch",
+                "default": False,
+                "description": "Enable HyDE branch inside RRF retrieval flow.",
+                "group": "retrieval_settings",
+                "group_label": "Retrieval Settings",
+                "group_order": 5,
+                "field_order": 15,
+            }
+        },
+    )
     rag_retrieval_chunk_top_k_per_entity: int = Field(
         default=3,
         metadata={
@@ -773,6 +832,9 @@ class Context(BaseModel, McpConfigMixin):
         "rag_retrieval_context_token_budget",
         "rag_retrieval_top_k_relationships",
         "rag_retrieval_top_k_entities",
+        "rag_relationship_vector_top_k",
+        "rag_chunk_load_batch_size",
+        "rag_community_retrieval_top_k",
         "rag_retrieval_chunk_top_k_per_entity",
         "rag_retrieval_chunk_ranking_overfetch",
         mode="before",
@@ -783,6 +845,9 @@ class Context(BaseModel, McpConfigMixin):
             "rag_retrieval_context_token_budget": 128000,
             "rag_retrieval_top_k_relationships": 10,
             "rag_retrieval_top_k_entities": 10,
+            "rag_relationship_vector_top_k": 10,
+            "rag_chunk_load_batch_size": 10,
+            "rag_community_retrieval_top_k": 10,
             "rag_retrieval_chunk_top_k_per_entity": 3,
             "rag_retrieval_chunk_ranking_overfetch": 4,
         }
