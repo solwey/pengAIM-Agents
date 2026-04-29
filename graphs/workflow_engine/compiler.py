@@ -157,17 +157,46 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
     # Collect disabled node IDs
     disabled_ids = {n.id for n in definition.nodes if not n.enabled}
 
-    # Build a mapping: disabled node → its outgoing target (for rewiring)
-    # Only handles sequential edges for simplicity
+    # Build a mapping: disabled node → its outgoing target (for rewiring).
+    # For sequential edges: use the single outgoing target.
+    # For disabled condition/switch nodes: pick a default branch so the graph
+    # stays connected (switch → default_label, condition → "yes" branch),
+    # falling back to the first defined branch.
     disabled_bypass: dict[str, str | None] = {}
-    if disabled_ids:
-        for node_id in disabled_ids:
-            target = None
-            for edge in definition.edges:
-                if edge.from_node == node_id and edge.type == "sequential":
-                    target = edge.to_node
-                    break
-            disabled_bypass[node_id] = target
+    for node_id in disabled_ids:
+        node_def = definition.get_node(node_id)
+        target: str | None = None
+
+        seq_edge = next(
+            (e for e in definition.edges if e.from_node == node_id and e.type == "sequential"),
+            None,
+        )
+        if seq_edge:
+            target = seq_edge.to_node
+        else:
+            cond_edge = next(
+                (
+                    e
+                    for e in definition.edges
+                    if e.from_node == node_id and e.type in ("conditional", "switch") and e.branches
+                ),
+                None,
+            )
+            if cond_edge and cond_edge.branches:
+                preferred: str | None = None
+                if node_def and node_def.type == NodeType.SWITCH:
+                    sw_cfg = SwitchConfig(**node_def.config)
+                    preferred = cond_edge.branches.get(sw_cfg.default_label)
+                elif node_def and node_def.type in (
+                    NodeType.CONDITION,
+                    NodeType.TAG_CONDITION,
+                    NodeType.LIST_CONDITION,
+                    NodeType.SOURCE_CONDITION,
+                ):
+                    preferred = cond_edge.branches.get("yes")
+                target = preferred or next(iter(cond_edge.branches.values()), None)
+
+        disabled_bypass[node_id] = target
 
     # Collect nodes that have on_error edges
     nodes_with_error_edges: set[str] = set()
