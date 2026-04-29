@@ -49,6 +49,7 @@ class NodeType(StrEnum):
     FETCH_RELIAS_ENTITY = "fetch_relias_entity"
     FETCH_GOOGLE_FORM_STRUCTURE = "fetch_google_form_structure"
     FETCH_GOOGLE_FORM_RESPONSE = "fetch_google_form_response"
+    SAVE_TO_STORAGE = "save_to_storage"
 
 
 class ComparisonOperator(StrEnum):
@@ -482,6 +483,20 @@ class FetchGoogleFormResponseConfig(BaseModel):
     response_key: str = "google_form_responses"
 
 
+# Must stay aligned with revops save-to-storage-config.tsx STORAGE_TYPES/FORMATS.
+StorageType = Literal["s3", "gcs", "azure_blob", "local"]
+StorageFormat = Literal["json", "ndjson", "csv", "raw"]
+
+
+class SaveToStorageConfig(BaseModel):
+    storage_type: StorageType = "s3"
+    bucket: str = ""  # bucket / container name; empty for local filesystem
+    path: str = ""  # object path / key; supports {{template}}
+    data_key: str = ""  # dot-path to the workflow variable to persist
+    format: StorageFormat = "json"
+    response_key: str = "storage_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -535,6 +550,7 @@ class NodeDef(BaseModel):
             NodeType.FETCH_RELIAS_ENTITY: FetchReliasEntityConfig,
             NodeType.FETCH_GOOGLE_FORM_STRUCTURE: FetchGoogleFormStructureConfig,
             NodeType.FETCH_GOOGLE_FORM_RESPONSE: FetchGoogleFormResponseConfig,
+            NodeType.SAVE_TO_STORAGE: SaveToStorageConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

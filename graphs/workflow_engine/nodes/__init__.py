@@ -30,6 +30,7 @@ from .read_google_sheet import ReadGoogleSheetExecutor
 from .remove_from_list import RemoveFromListExecutor
 from .remove_tag import RemoveTagExecutor
 from .run_agent import RunAgentExecutor
+from .save_to_storage import SaveToStorageExecutor
 from .set_source import SetSourceExecutor
 from .slack_message import SlackMessageExecutor
 from .source_condition import SourceConditionExecutor, build_source_condition_router
@@ -80,6 +81,7 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch_relias_entity": FetchReliasEntityExecutor,
     "fetch_google_form_structure": FetchGoogleFormStructureExecutor,
     "fetch_google_form_response": FetchGoogleFormResponseExecutor,
+    "save_to_storage": SaveToStorageExecutor,
 }
 
 __all__ = [
