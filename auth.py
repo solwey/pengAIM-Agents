@@ -1,6 +1,8 @@
 import base64
+import time
 from typing import Any
 
+import httpx
 from jose import JWTError, jwt
 from langgraph_sdk import Auth
 
@@ -35,13 +37,66 @@ def decode_jwt_key(v):
         return v
 
 
+# --- JWKS cache ----------------------------------------------------------------
+# Fetched on first use, refreshed on TTL expiry or `kid` miss
+
+_jwks_cache: dict[str, Any] | None = None
+_jwks_fetched_at: float = 0.0
+
+
+def _fetch_jwks(*, force: bool = False) -> dict[str, Any]:
+    global _jwks_cache, _jwks_fetched_at
+    ttl = settings.app.JWKS_CACHE_TTL_SECONDS
+    now = time.time()
+    if (
+        not force
+        and _jwks_cache is not None
+        and now - _jwks_fetched_at < ttl
+    ):
+        return _jwks_cache
+
+    resp = httpx.get(f"{settings.graphs.RAG_API_URL}/.well-known/jwks.json", timeout=5.0)
+    resp.raise_for_status()
+    _jwks_cache = resp.json()
+    _jwks_fetched_at = now
+    return _jwks_cache
+
+
+def _find_jwk_by_kid(jwks: dict[str, Any], kid: str | None) -> dict[str, Any] | None:
+    keys = jwks.get("keys") or []
+    if kid is None:
+        return keys[0] if keys else None
+    for key in keys:
+        if key.get("kid") == kid:
+            return key
+    return None
+
+
+def _resolve_verification_key(token: str) -> dict[str, Any]:
+    try:
+        header = jwt.get_unverified_header(token)
+    except JWTError as e:
+        raise ValueError(f"Invalid JWT header: {e}") from e
+    kid = header.get("kid")
+
+    jwks = _fetch_jwks()
+    jwk = _find_jwk_by_kid(jwks, kid)
+    if jwk is None and kid is not None:
+        # Possible key rotation - refresh once and retry.
+        jwks = _fetch_jwks(force=True)
+        jwk = _find_jwk_by_kid(jwks, kid)
+    if jwk is None:
+        raise ValueError(f"No JWKS key matches kid={kid!r}")
+    return jwk
+
+
 async def verify_token_status(token: str, aud: str) -> tuple[str, str, str]:
     try:
-        verification_key = decode_jwt_key(settings.app.JWT_PUBLIC_KEY)
+        verification_key = _resolve_verification_key(token)
         payload = jwt.decode(
             token,
             verification_key,
-            algorithms=[settings.app.JWT_ALG],
+            algorithms=[verification_key.get("alg")],
             audience=aud,
             options={"verify_aud": True, "require_aud": True},
         )

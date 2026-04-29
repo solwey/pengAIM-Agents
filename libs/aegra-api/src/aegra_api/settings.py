@@ -85,8 +85,8 @@ class AppSettings(EnvBase):
 
     # Auth
     JWT_PRIVATE_KEY: str
-    JWT_PUBLIC_KEY: str
     JWT_ALG: str = "RS256"
+    JWKS_CACHE_TTL_SECONDS: int = 3600
 
 
 class RedisSettings(EnvBase):
