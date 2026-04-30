@@ -50,6 +50,7 @@ class NodeType(StrEnum):
     FETCH_GOOGLE_FORM_STRUCTURE = "fetch_google_form_structure"
     FETCH_GOOGLE_FORM_RESPONSE = "fetch_google_form_response"
     SAVE_TO_STORAGE = "save_to_storage"
+    READ_FROM_STORAGE = "read_from_storage"
 
 
 class ComparisonOperator(StrEnum):
@@ -497,6 +498,14 @@ class SaveToStorageConfig(BaseModel):
     response_key: str = "storage_result"
 
 
+class ReadFromStorageConfig(BaseModel):
+    storage_type: StorageType = "s3"
+    bucket: str = ""  # bucket / container name; empty for local filesystem
+    path: str = ""  # object path / key; supports {{template}}
+    format: StorageFormat = "json"
+    response_key: str = "storage_data"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -551,6 +560,7 @@ class NodeDef(BaseModel):
             NodeType.FETCH_GOOGLE_FORM_STRUCTURE: FetchGoogleFormStructureConfig,
             NodeType.FETCH_GOOGLE_FORM_RESPONSE: FetchGoogleFormResponseConfig,
             NodeType.SAVE_TO_STORAGE: SaveToStorageConfig,
+            NodeType.READ_FROM_STORAGE: ReadFromStorageConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
