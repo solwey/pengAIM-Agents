@@ -59,33 +59,39 @@ def get_provider_from_model_name(model_name: str) -> str | None:
     return None
 
 
+class ApiKeyResolutionError(RuntimeError):
+    pass
+
+
 async def get_api_key_for_model(model_name: str, config: RunnableConfig) -> str | None:
-    """Get the appropriate API key based on the model provider.
-
-    Args:
-        model_name: Model name in format "provider:model" (e.g., "openai:gpt-4o")
-        config: The runnable config containing key information
-
-    Returns:
-        The decrypted API key or None if not found
-    """
     model_name_lower = model_name.lower()
     model_prefixes = ["openai", "anthropic", "google"]
     provider = next((prefix for prefix in model_prefixes if model_name_lower.startswith(prefix)), None)
     if not provider:
+        logger.warning("[KEY] no provider matched for model_name=%s", model_name)
         return None
 
-    # Select the appropriate API key based on provider
-    if provider == "google":
-        key_data = config.get("configurable", {}).get("agent_google_api_key", {})
-    else:
-        key_data = config.get("configurable", {}).get("agent_openai_api_key", {})
+    field_name = "agent_google_api_key" if provider == "google" else "agent_openai_api_key"
+    configurable = config.get("configurable", {}) if config else {}
+    key_data = configurable.get(field_name, {})
 
     if not key_data:
-        return None
+        raise ApiKeyResolutionError(
+            f"Missing {field_name} in assistant config for model={model_name}; "
+            f"configurable_keys={list(configurable.keys())}"
+        )
 
-    key = await get_api_key(config, key_data.get("keyId"))
-    return key
+    if not isinstance(key_data, dict):
+        raise ApiKeyResolutionError(
+            f"{field_name} has unexpected shape (type={type(key_data).__name__}, repr={key_data!r}); "
+            f"expected dict with keyId"
+        )
+
+    key_id = key_data.get("keyId")
+    if not key_id:
+        raise ApiKeyResolutionError(f"{field_name} present but missing keyId; payload={key_data!r}")
+
+    return await get_api_key(config, key_id)
 
 
 async def get_api_key(
@@ -93,21 +99,13 @@ async def get_api_key(
     key_id: str,
     provider: str | None = None,
     name: str | None = None,
-) -> str | None:
-    """Get API key from environment or config by key name.
+) -> str:
+    if not key_id:
+        raise ApiKeyResolutionError("empty key_id passed to get_api_key")
 
-    Args:
-        config: The runnable config containing auth information
-        key_id: The ID of the key to reveal
-        provider: Optional provider name for query params
-        name: Optional name for query params
-
-    Returns:
-        The decrypted API key or None if not found
-    """
     authorization = _extract_authorization(config)
-    if not authorization or not key_id:
-        return None
+    if not authorization:
+        raise ApiKeyResolutionError(f"no authorization token in langgraph_auth_user; cannot reveal keyId={key_id}")
 
     search_params = f"provider={provider}&name={name}" if provider and name else ""
     search_endpoint = f"{_rag_base_url(config)}/keys/{key_id}/reveal{f'?{search_params}' if search_params else ''}"
@@ -117,12 +115,20 @@ async def get_api_key(
         async with httpx.AsyncClient() as client:
             search_response = await client.get(search_endpoint, headers=headers)
         search_response.raise_for_status()
-        key = search_response.text
+    except httpx.HTTPStatusError as e:
+        raise ApiKeyResolutionError(
+            f"reveal failed: HTTP {e.response.status_code} for keyId={key_id} "
+            f"endpoint={search_endpoint} body={e.response.text[:200]}"
+        ) from e
+    except httpx.HTTPError as e:
+        raise ApiKeyResolutionError(
+            f"reveal request failed: {type(e).__name__}: {e} (keyId={key_id} endpoint={search_endpoint})"
+        ) from e
 
-        return key
-    except Exception:
-        logger.warning("Failed to fetch API key", exc_info=True)
-        return None
+    key = search_response.text
+    if not key:
+        raise ApiKeyResolutionError(f"reveal returned empty body for keyId={key_id}")
+    return key
 
 
 def _extract_authorization(config: RunnableConfig | None) -> str | None:
