@@ -52,6 +52,7 @@ class NodeType(StrEnum):
     SAVE_TO_STORAGE = "save_to_storage"
     READ_FROM_STORAGE = "read_from_storage"
     PARSE_CLARITY_ANNUAL = "parse_clarity_annual"
+    CALCULATE_SHELTER_METRIC = "calculate_shelter_metric"
 
 
 class ComparisonOperator(StrEnum):
@@ -514,6 +515,23 @@ class ParseClarityAnnualConfig(BaseModel):
     response_key: str = "clarity_annual"
 
 
+# Mirrors HMISights api/src/api/metrics/shelter/* — operates on the report shape
+# emitted by parse_clarity_annual ({reportTitle, dateRange, sheets:[...]}).
+ShelterMetric = Literal[
+    "length_of_stay",
+    "persons_served",
+    "exit_destinations",
+    "bed_availability",
+    "success_rate",
+]
+
+
+class CalculateShelterMetricConfig(BaseModel):
+    metric: ShelterMetric = "length_of_stay"
+    report_key: str = "clarity_annual"  # dot-path to the parse_clarity_annual result
+    response_key: str = "shelter_metric"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -570,6 +588,7 @@ class NodeDef(BaseModel):
             NodeType.SAVE_TO_STORAGE: SaveToStorageConfig,
             NodeType.READ_FROM_STORAGE: ReadFromStorageConfig,
             NodeType.PARSE_CLARITY_ANNUAL: ParseClarityAnnualConfig,
+            NodeType.CALCULATE_SHELTER_METRIC: CalculateShelterMetricConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

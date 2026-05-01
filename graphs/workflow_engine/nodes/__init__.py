@@ -7,6 +7,7 @@ from .add_to_campaign import AddToCampaignExecutor
 from .add_to_list import AddToListExecutor
 from .api_request import ApiRequestExecutor
 from .calculate_netsuite_metric import CalculateNetsuiteMetricExecutor
+from .calculate_shelter_metric import CalculateShelterMetricExecutor
 from .condition import ConditionExecutor, build_condition_router
 from .create_account import CreateAccountExecutor
 from .create_campaign import CreateCampaignExecutor
@@ -86,6 +87,7 @@ NODE_REGISTRY: dict[str, type] = {
     "save_to_storage": SaveToStorageExecutor,
     "read_from_storage": ReadFromStorageExecutor,
     "parse_clarity_annual": ParseClarityAnnualExecutor,
+    "calculate_shelter_metric": CalculateShelterMetricExecutor,
 }
 
 __all__ = [
