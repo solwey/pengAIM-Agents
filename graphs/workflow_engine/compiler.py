@@ -29,7 +29,7 @@ from graphs.workflow_engine.nodes import (
     build_switch_router,
     build_tag_condition_router,
 )
-from graphs.workflow_engine.nodes.base import compare, resolve_field
+from graphs.workflow_engine.nodes.base import compare, resolve_field_strict
 from graphs.workflow_engine.schema import ConditionConfig, NodeType, SwitchConfig, WorkflowDefinition
 
 logger = logging.getLogger(__name__)
@@ -68,19 +68,29 @@ def _wrap_with_step_tracking(
             if node_type == "condition" and condition_config:
                 cfg = ConditionConfig(**condition_config)
                 data = state.get("data", {})
-                actual = resolve_field(data, cfg.field)
-                branch = "yes" if compare(actual, cfg.operator.value, cfg.value) else "no"
-                step["branch"] = branch
+                found, actual = resolve_field_strict(data, cfg.field)
+                if not found:
+                    step["branch"] = "no"
+                    step["field_missing"] = cfg.field
+                else:
+                    branch = "yes" if compare(actual, cfg.operator.value, cfg.value) else "no"
+                    step["branch"] = branch
             elif node_type == "switch" and condition_config:
                 sw_cfg = SwitchConfig(**condition_config)
                 data = state.get("data", {})
                 matched = sw_cfg.default_label
+                missing_fields: list[str] = []
                 for case in sw_cfg.cases:
-                    actual = resolve_field(data, case.field)
+                    found, actual = resolve_field_strict(data, case.field)
+                    if not found:
+                        missing_fields.append(case.field)
+                        continue
                     if compare(actual, case.operator.value, case.value):
                         matched = case.label
                         break
                 step["branch"] = matched
+                if missing_fields:
+                    step["field_missing"] = missing_fields
             elif "data" in result:
                 current_data = state.get("data", {})
                 changed = {k: v for k, v in result["data"].items() if k not in current_data or current_data[k] != v}
@@ -162,7 +172,7 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
     # For disabled condition/switch nodes: pick a default branch so the graph
     # stays connected (switch → default_label, condition → "yes" branch),
     # falling back to the first defined branch.
-    disabled_bypass: dict[str, str | None] = {}
+    disabled_bypass: dict[str, str] = {}
     for node_id in disabled_ids:
         node_def = definition.get_node(node_id)
         target: str | None = None
@@ -187,6 +197,13 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
                 if node_def and node_def.type == NodeType.SWITCH:
                     sw_cfg = SwitchConfig(**node_def.config)
                     preferred = cond_edge.branches.get(sw_cfg.default_label)
+                    if sw_cfg.default_label not in cond_edge.branches:
+                        logger.warning(
+                            "Disabled switch node '%s' has no edge for default_label '%s'; "
+                            "falling back to first available branch",
+                            node_id,
+                            sw_cfg.default_label,
+                        )
                 elif node_def and node_def.type in (
                     NodeType.CONDITION,
                     NodeType.TAG_CONDITION,
@@ -195,6 +212,13 @@ def compile_workflow(definition: WorkflowDefinition) -> StateGraph:
                 ):
                     preferred = cond_edge.branches.get("yes")
                 target = preferred or next(iter(cond_edge.branches.values()), None)
+
+        if target is None:
+            logger.warning(
+                "Disabled node '%s' has no resolvable bypass target; routing to END",
+                node_id,
+            )
+            target = "__end__"
 
         disabled_bypass[node_id] = target
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -10,9 +11,11 @@ from langchain_core.runnables import RunnableConfig
 from graphs.workflow_engine.nodes.base import (
     NodeExecutor,
     compare,
-    resolve_field,
+    resolve_field_strict,
 )
 from graphs.workflow_engine.schema import ConditionConfig
+
+logger = logging.getLogger(__name__)
 
 
 class ConditionExecutor(NodeExecutor):
@@ -39,7 +42,10 @@ def build_condition_router(
 
     def route(state: dict[str, Any]) -> Literal["yes", "no"]:
         data = state.get("data", {})
-        actual = resolve_field(data, cfg.field)
+        found, actual = resolve_field_strict(data, cfg.field)
+        if not found:
+            logger.warning("Condition field '%s' missing from state.data — routing to 'no'", cfg.field)
+            return "no"
         result = compare(actual, cfg.operator.value, cfg.value)
         return "yes" if result else "no"
 
