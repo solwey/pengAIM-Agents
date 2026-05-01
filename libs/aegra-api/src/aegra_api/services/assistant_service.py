@@ -403,7 +403,49 @@ class AssistantService:
         )
         assistant = await self.session.scalar(stmt)
         if not assistant:
-            raise HTTPException(404, f"Assistant '{assistant_id}' not found")
+            graph_id = request.graph_id
+            if not graph_id:
+                raise HTTPException(
+                    404,
+                    f"Assistant '{assistant_id}' not found and request has no graph_id to provision it",
+                )
+            available_graphs = self.langgraph_service.list_graphs()
+            if graph_id not in available_graphs:
+                raise HTTPException(
+                    400,
+                    f"Graph '{graph_id}' not found in aegra.json. Available: {list(available_graphs.keys())}",
+                )
+            now = datetime.now(UTC)
+            assistant_orm = AssistantORM(
+                assistant_id=assistant_id,
+                name=request.name or f"Assistant for {graph_id}",
+                description=request.description,
+                config=config,
+                context=context,
+                graph_id=graph_id,
+                team_id=team_id,
+                metadata_dict=metadata,
+                type=request.type,
+                version=1,
+            )
+            self.session.add(assistant_orm)
+            await self.session.commit()
+            await self.session.refresh(assistant_orm)
+
+            assistant_version_orm = AssistantVersionORM(
+                assistant_id=assistant_id,
+                version=1,
+                graph_id=graph_id,
+                config=config,
+                context=context,
+                created_at=now,
+                name=assistant_orm.name,
+                description=request.description,
+                metadata_dict=metadata,
+            )
+            self.session.add(assistant_version_orm)
+            await self.session.commit()
+            return self._to_pydantic_for_user(assistant_orm, user)
 
         if restore and assistant.deleted_at is not None:
             assistant.deleted_at = None

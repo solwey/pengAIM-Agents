@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aegra_api.settings import settings
@@ -143,6 +143,7 @@ async def list_workflows(
     page_size: int = Query(50, ge=1, le=100),
     is_active: bool | None = None,
     show_deleted: bool = False,
+    search: str | None = Query(None, description="Search by name or description"),
 ):
     """List workflows for the current team."""
     query = _scope_workflow_query(select(Workflow), user)
@@ -152,6 +153,10 @@ async def list_workflows(
 
     if is_active is not None:
         query = query.where(Workflow.is_active == is_active)
+
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(or_(Workflow.name.ilike(pattern), Workflow.description.ilike(pattern)))
 
     # Count
     count_query = select(func.count()).select_from(query.subquery())

@@ -5,14 +5,27 @@ def test_merge_jsonb_and_should_skip_event():
     # Import inside test to ensure package import resolution in test env
     from aegra_api.utils.run_utils import _merge_jsonb, _should_skip_event
 
-    # _merge_jsonb should merge dicts and ignore None
     a = {"x": 1, "y": {"a": 2}}
     b = {"y": {"b": 3}, "z": 4}
     merged = _merge_jsonb(a, None, b)
     assert merged["x"] == 1
     assert merged["z"] == 4
-    # b should override a for top-level keys
-    assert merged["y"] == {"b": 3}
+    assert merged["y"] == {"a": 2, "b": 3}
+
+    parent = {"configurable": {"model": "gpt-4o", "api_key": {"keyId": "abc"}}}
+    override = {"configurable": {"steps": [{"text": "hi"}]}}
+    deep = _merge_jsonb(parent, override)
+    assert deep["configurable"]["model"] == "gpt-4o"
+    assert deep["configurable"]["api_key"] == {"keyId": "abc"}
+    assert deep["configurable"]["steps"] == [{"text": "hi"}]
+
+    base = {"x": [1, 2]}
+    later = {"x": [3]}
+    assert _merge_jsonb(base, later) == {"x": [3]}
+
+    nested_base = {"cfg": {"keyId": "old"}}
+    scalar_override = {"cfg": "replaced"}
+    assert _merge_jsonb(nested_base, scalar_override) == {"cfg": "replaced"}
 
     # _should_skip_event: tuple with last element being (something, metadata_dict)
     raw_event = ("values", {"foo": "bar"}, ("meta", {"tags": ["langsmith:nostream"]}))

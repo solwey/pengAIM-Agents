@@ -47,11 +47,16 @@ def _should_skip_event(raw_event: Any) -> bool:
 
 
 def _merge_jsonb(*objects: dict) -> dict:
-    """Mimics PostgreSQL's JSONB merge behavior"""
-    result = {}
+    result: dict = {}
     for obj in objects:
-        if obj is not None:
-            result.update(copy.deepcopy(obj))
+        if obj is None:
+            continue
+        for key, value in obj.items():
+            existing = result.get(key)
+            if isinstance(value, dict) and isinstance(existing, dict):
+                result[key] = _merge_jsonb(existing, value)
+            else:
+                result[key] = copy.deepcopy(value)
     return result
 
 
