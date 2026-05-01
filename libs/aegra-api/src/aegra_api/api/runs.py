@@ -8,12 +8,12 @@ from datetime import UTC, datetime
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aegra_api.core.active_runs import active_runs
 from aegra_api.core.auth_deps import auth_dependency, get_current_user
-from aegra_api.core.auth_handlers import build_auth_context, handle_event
+from aegra_api.core.auth_handlers import build_auth_context, get_scope_filters, handle_event
 from aegra_api.core.orm import Assistant as AssistantORM
 from aegra_api.core.orm import Run as RunORM
 from aegra_api.core.orm import RunEvent as RunEventORM
@@ -44,6 +44,24 @@ logger = structlog.getLogger(__name__)
 
 # Default stream modes for background run execution
 DEFAULT_STREAM_MODES = ["values"]
+
+
+def _run_scope_clause(filters: dict | None):
+    """Auth-filter clause for run queries that join `ThreadORM` and respect `is_shared`.
+
+    Mirrors `_thread_scope_clause` in `threads.py`: own/team scope OR a shared
+    thread. With tenant-wide reach (`runs.read.all` / `runs.update.all` etc.)
+    the filter dict is empty and we impose no restriction.
+    """
+    if not filters:
+        return true()
+    return or_(
+        and_(*get_scope_filters(RunORM, filters)),
+        and_(
+            *get_scope_filters(RunORM, filters, exclude={"user_id"}),
+            ThreadORM.is_shared.is_(True),
+        ),
+    )
 
 
 @router.post("/threads/{thread_id}/runs", response_model=Run, responses={**NOT_FOUND, **CONFLICT})
@@ -104,6 +122,8 @@ async def create_and_stream_run(
     after the client disconnects (default is `"cancel"`). Use `stream_mode`
     to control which event types are emitted.
     """
+    ctx = build_auth_context(user, "threads", "create_run")
+    await handle_event(ctx, {**request.model_dump(), "thread_id": thread_id})
     run_id, run, _job = await _prepare_run(session, thread_id, request, user, tenant, initial_status="pending")
 
     # Default to cancel on disconnect - this matches user expectation that clicking
@@ -142,7 +162,7 @@ async def get_run(
     # Authorization check (read action on runs resource)
     ctx = build_auth_context(user, "runs", "read")
     value = {"run_id": run_id, "thread_id": thread_id}
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, value)
 
     stmt = (
         select(RunORM)
@@ -150,11 +170,7 @@ async def get_run(
         .where(
             RunORM.run_id == str(run_id),
             RunORM.thread_id == thread_id,
-            RunORM.team_id == user.team_id,
-            or_(
-                RunORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            ),
+            _run_scope_clause(filters),
         )
     )
     logger.info(f"[get_run] querying DB run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}")
@@ -187,24 +203,20 @@ async def list_runs(
     Returns runs ordered by creation time (newest first). Use `status` to
     filter and `limit`/`offset` to paginate.
     """
+    ctx = build_auth_context(user, "runs", "read")
+    filters = await handle_event(ctx, {"thread_id": thread_id})
+
     stmt = (
         select(RunORM)
         .join(ThreadORM, ThreadORM.thread_id == RunORM.thread_id)
         .where(
             RunORM.thread_id == thread_id,
-            RunORM.team_id == user.team_id,
+            _run_scope_clause(filters),
         )
     )
 
     if status:
         stmt = stmt.where(RunORM.status == status)
-
-    stmt = stmt.where(
-        or_(
-            RunORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
-        )
-    )
 
     stmt = stmt.order_by(RunORM.created_at.desc()).limit(limit).offset(offset)
 
@@ -230,6 +242,8 @@ async def update_run(
     Primarily used to interrupt a running execution. Set `status` to
     `"interrupted"` to cooperatively stop the run.
     """
+    ctx = build_auth_context(user, "runs", "update")
+    filters = await handle_event(ctx, {"run_id": run_id, "thread_id": thread_id, **request.model_dump()})
     logger.info(f"[update_run] fetch for update run_id={run_id} thread_id={thread_id} user={user.id}")
     stmt = (
         select(RunORM)
@@ -237,14 +251,7 @@ async def update_run(
         .where(
             RunORM.run_id == str(run_id),
             RunORM.thread_id == thread_id,
-            RunORM.team_id == user.team_id,
-        )
-    )
-
-    stmt = stmt.where(
-        or_(
-            RunORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
+            _run_scope_clause(filters),
         )
     )
     run_orm = await session.scalar(stmt)
@@ -299,6 +306,9 @@ async def join_run(
     Sessions are managed manually (not via ``Depends``) to avoid holding a
     pool connection during the long wait.
     """
+    ctx = build_auth_context(user, "runs", "read")
+    filters = await handle_event(ctx, {"run_id": run_id, "thread_id": thread_id})
+
     # Short-lived session: validate run exists and check terminal state
     async for session in get_session(tenant):
         stmt = (
@@ -307,14 +317,7 @@ async def join_run(
             .where(
                 RunORM.run_id == str(run_id),
                 RunORM.thread_id == thread_id,
-                RunORM.team_id == user.team_id,
-            )
-        )
-
-        stmt = stmt.where(
-            or_(
-                RunORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
+                _run_scope_clause(filters),
             )
         )
 
@@ -361,6 +364,9 @@ async def wait_for_run(
     Sessions are managed manually (not via ``Depends``) to avoid holding a
     pool connection during the long wait.
     """
+    ctx = build_auth_context(user, "threads", "create_run")
+    await handle_event(ctx, {**request.model_dump(), "thread_id": thread_id})
+
     # Session block: all pre-execution DB work (validate, create run, submit)
     async for session in get_session(tenant):
         run_id, _run, _job = await _prepare_run(session, thread_id, request, user, tenant, initial_status="pending")
@@ -400,6 +406,8 @@ async def stream_run(
     finished, a single `end` event is emitted. Use the `Last-Event-ID`
     header to resume from a specific event after a disconnect.
     """
+    ctx = build_auth_context(user, "runs", "read")
+    filters = await handle_event(ctx, {"run_id": run_id, "thread_id": thread_id})
     logger.info(
         f"[stream_run] fetch for stream run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}"
     )
@@ -409,13 +417,7 @@ async def stream_run(
         .where(
             RunORM.run_id == str(run_id),
             RunORM.thread_id == thread_id,
-            RunORM.team_id == user.team_id,
-        )
-    )
-    stmt = stmt.where(
-        or_(
-            RunORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
+            _run_scope_clause(filters),
         )
     )
     run_orm = await session.scalar(stmt)
@@ -486,6 +488,8 @@ async def cancel_run_endpoint(
     interrupt and save partial state). Set `wait=1` to block until the
     background task has fully settled before returning the updated run.
     """
+    ctx = build_auth_context(user, "runs", "update")
+    filters = await handle_event(ctx, {"run_id": run_id, "thread_id": thread_id, "action": action})
     logger.info(f"[cancel_run] fetch run run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}")
     stmt = (
         select(RunORM)
@@ -493,13 +497,7 @@ async def cancel_run_endpoint(
         .where(
             RunORM.run_id == run_id,
             RunORM.thread_id == thread_id,
-            RunORM.team_id == user.team_id,
-        )
-    )
-    stmt = stmt.where(
-        or_(
-            RunORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
+            _run_scope_clause(filters),
         )
     )
     run_orm = await session.scalar(stmt)
@@ -540,13 +538,12 @@ async def cancel_run_endpoint(
                 break
 
     # Reload and return updated Run (do NOT delete here; deletion is a separate endpoint)
-    run_orm = await session.scalar(
-        select(RunORM).where(
-            RunORM.run_id == run_id,
-            RunORM.thread_id == thread_id,
-            RunORM.team_id == user.team_id,
-        )
+    reload_stmt = select(RunORM).where(
+        RunORM.run_id == run_id,
+        RunORM.thread_id == thread_id,
+        *get_scope_filters(RunORM, filters),
     )
+    run_orm = await session.scalar(reload_stmt)
     if not run_orm:
         raise HTTPException(404, f"Run '{run_id}' not found after cancellation")
 
@@ -575,7 +572,7 @@ async def delete_run(
     # Authorization check (delete action on runs resource)
     ctx = build_auth_context(user, "runs", "delete")
     value = {"run_id": run_id, "thread_id": thread_id}
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, value)
     logger.info(f"[delete_run] fetch run run_id={run_id} thread_id={thread_id} user={user.id} team={user.team_id}")
     stmt = (
         select(RunORM)
@@ -583,13 +580,7 @@ async def delete_run(
         .where(
             RunORM.run_id == str(run_id),
             RunORM.thread_id == thread_id,
-            RunORM.team_id == user.team_id,
-        )
-    )
-    stmt = stmt.where(
-        or_(
-            RunORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
+            _run_scope_clause(filters),
         )
     )
     run_orm = await session.scalar(stmt)
@@ -657,16 +648,19 @@ async def list_runs_history(
     session: AsyncSession = Depends(get_session),
 ):
     """Paginated run history with optional status/date/assistant/search filters."""
+    ctx = build_auth_context(user, "runs", "search")
+    filters = await handle_event(ctx, {})
+    scope = get_scope_filters(RunORM, filters)
     base = (
         select(RunORM, AssistantORM.name)
         .outerjoin(AssistantORM, RunORM.assistant_id == AssistantORM.assistant_id)
-        .where(RunORM.team_id == user.team_id)
+        .where(*scope)
     )
     count_base = (
         select(func.count())
         .select_from(RunORM)
         .outerjoin(AssistantORM, RunORM.assistant_id == AssistantORM.assistant_id)
-        .where(RunORM.team_id == user.team_id)
+        .where(*scope)
     )
 
     if status:
@@ -738,12 +732,10 @@ async def get_run_status_history(
     session: AsyncSession = Depends(get_session),
 ):
     """Status transition timeline for a specific run."""
-    run = await session.scalar(
-        select(RunORM).where(
-            RunORM.run_id == run_id,
-            RunORM.team_id == user.team_id,
-        )
-    )
+    ctx = build_auth_context(user, "runs", "read")
+    filters = await handle_event(ctx, {"run_id": run_id})
+    stmt = select(RunORM).where(RunORM.run_id == run_id, *get_scope_filters(RunORM, filters))
+    run = await session.scalar(stmt)
     if not run:
         raise HTTPException(404, f"Run '{run_id}' not found")
 
@@ -772,10 +764,12 @@ async def get_run_detail(
     session: AsyncSession = Depends(get_session),
 ):
     """Full detail view of a single run including input/output/config."""
+    ctx = build_auth_context(user, "runs", "read")
+    filters = await handle_event(ctx, {"run_id": run_id})
     stmt = (
         select(RunORM, AssistantORM.name)
         .outerjoin(AssistantORM, RunORM.assistant_id == AssistantORM.assistant_id)
-        .where(RunORM.run_id == run_id, RunORM.team_id == user.team_id)
+        .where(RunORM.run_id == run_id, *get_scope_filters(RunORM, filters))
     )
     row = (await session.execute(stmt)).first()
     if not row:
@@ -818,12 +812,10 @@ async def get_run_events(
     session: AsyncSession = Depends(get_session),
 ):
     """Get stored SSE events for a run (available for ~1 hour after execution)."""
-    run = await session.scalar(
-        select(RunORM).where(
-            RunORM.run_id == run_id,
-            RunORM.team_id == user.team_id,
-        )
-    )
+    ctx = build_auth_context(user, "runs", "read")
+    filters = await handle_event(ctx, {"run_id": run_id})
+    stmt = select(RunORM).where(RunORM.run_id == run_id, *get_scope_filters(RunORM, filters))
+    run = await session.scalar(stmt)
     if not run:
         raise HTTPException(404, f"Run '{run_id}' not found")
 
@@ -859,13 +851,11 @@ async def cancel_run_by_id(
     session: AsyncSession = Depends(get_session),
 ):
     """Cancel a running task (team-scoped)."""
+    ctx = build_auth_context(user, "runs", "update")
+    filters = await handle_event(ctx, {"run_id": run_id})
     logger.info("cancel_run_requested", run_id=run_id, user_id=user.id)
-    run = await session.scalar(
-        select(RunORM).where(
-            RunORM.run_id == run_id,
-            RunORM.team_id == user.team_id,
-        )
-    )
+    stmt = select(RunORM).where(RunORM.run_id == run_id, *get_scope_filters(RunORM, filters))
+    run = await session.scalar(stmt)
     if not run:
         raise HTTPException(404, f"Run '{run_id}' not found")
     if run.status not in ("pending", "running"):

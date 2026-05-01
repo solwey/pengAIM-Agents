@@ -3,11 +3,12 @@
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth_deps import auth_dependency, get_current_user
+from ..core.auth_handlers import build_auth_context, handle_event
 from ..core.orm import Assistant as AssistantORM
 from ..core.orm import Run as RunORM
 from ..core.orm import WorkerHeartbeat, get_session
@@ -42,11 +43,12 @@ async def get_overview(
     session: AsyncSession = Depends(get_session),
 ):
     """Combined dashboard snapshot: workers + active runs + 24h stats."""
-    _require_admin(user)
+    filters = await _require_control_plane_permission(user, "read")
     workers = await _get_workers(session)
     celery_workers = await _get_celery_workers()
-    active = await _get_active_runs(session, team_id=None if user.is_superadmin else user.team_id)
-    stats = await _get_stats(session, team_id=None if user.is_superadmin else user.team_id)
+    scope_team = filters.get("team_id")
+    active = await _get_active_runs(session, team_id=scope_team)
+    stats = await _get_stats(session, team_id=scope_team)
     return ControlPlaneOverview(
         workers=workers,
         celery_workers=celery_workers,
@@ -63,7 +65,7 @@ async def list_workers(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    _require_admin(user)
+    await _require_control_plane_permission(user, "read")
     return await _get_workers(session)
 
 
@@ -94,7 +96,7 @@ async def cleanup_offline_workers(
     session: AsyncSession = Depends(get_session),
 ):
     """Delete all offline worker heartbeat records."""
-    _require_admin(user)
+    await _require_control_plane_permission(user, "cleanup")
     result = await session.execute(delete(WorkerHeartbeat).where(WorkerHeartbeat.status == "offline"))
     await session.commit()
     removed = result.rowcount
@@ -109,7 +111,7 @@ async def cleanup_offline_workers(
 @router.get("/celery-workers", response_model=list[CeleryWorkerStatus])
 async def list_celery_workers(user: User = Depends(get_current_user)):
     """List Celery workers and their status."""
-    _require_admin(user)
+    await _require_control_plane_permission(user, "read")
     return await _get_celery_workers()
 
 
@@ -240,6 +242,11 @@ async def _get_stats(session: AsyncSession, team_id: str | None = None) -> Dashb
     )
 
 
-def _require_admin(user: User) -> None:
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
+async def _require_control_plane_permission(user: User, action: str = "read") -> dict[str, str]:
+    """Authorize a control-plane action via the permission-based auth handler.
+
+    Returns the filter dict (e.g. {"team_id": ...} for team-scoped users, {} for
+    tenant-wide). Caller uses it to scope queries that span teams.
+    """
+    ctx = build_auth_context(user, "control_plane", action)
+    return await handle_event(ctx, {}) or {}

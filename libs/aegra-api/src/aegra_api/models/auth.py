@@ -42,17 +42,30 @@ class User(BaseModel):
             return extra[name]
         raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
+    def has_permission(self, perm: str) -> bool:
+        """Return True if `perm` is granted (exact string match against scope)."""
+        return perm in self.permissions
+
+    def has_any_permission(self, *perms: str) -> bool:
+        return any(p in self.permissions for p in perms)
+
     @property
-    def allows_share_new_chats_by_default(self):
+    def allows_share_new_chats_by_default(self) -> bool:
         return "share_new_chats_by_default:true" in self.permissions
 
     @property
-    def is_admin(self):
-        return any(role in self.permissions for role in ("role:admin", "role:superadmin"))
+    def is_admin(self) -> bool:
+        """Transitional: True for anyone holding any tenant-wide (`*.all`) permission.
+
+        New code should check the specific permission required (e.g.
+        `user.has_permission("thread.read.all")`) instead of using this flag.
+        """
+        return self.is_superadmin or any(p.endswith(".all") for p in self.permissions)
 
     @property
-    def is_superadmin(self):
-        return "role:superadmin" in self.permissions
+    def is_superadmin(self) -> bool:
+        """Transitional: True when the user holds the `superadmin` permission."""
+        return "superadmin" in self.permissions
 
 
 class AuthContext(BaseModel):

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aegra_api.settings import settings
 
 from ..core.auth_deps import auth_dependency, get_current_user
+from ..core.auth_handlers import build_auth_context, get_scope_filters, handle_event
 from ..core.orm import Tenant, Workflow, WorkflowVersion, get_session
 from ..core.tenant import get_current_tenant
 from ..models.auth import User
@@ -98,12 +99,15 @@ def _build_webhook_url(tenant_uuid: str, webhook_path: str) -> str:
     return f"{settings.app.SERVER_URL.rstrip('/')}/tenant/{tenant_uuid}/webhook/{webhook_path}"
 
 
-def _scope_workflow_query(query, user: User):
-    """Apply team + owner scope (admins can access whole team)."""
-    query = query.where(Workflow.team_id == user.team_id)
-    if not user.is_admin:
-        query = query.where(Workflow.user_id == user.id)
-    return query
+async def _resolve_workflow_filters(user: User, action: str) -> dict[str, Any]:
+    """Resolve auth-handler filters for a workflow operation."""
+    ctx = build_auth_context(user, "workflows", action)
+    return await handle_event(ctx, {}) or {}
+
+
+def _scope_workflow_query(query, filters: dict[str, Any]):
+    """Apply auth-handler filter dict to a workflow query."""
+    return query.where(*get_scope_filters(Workflow, filters))
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +123,7 @@ async def create_workflow(
     tenant: Tenant = Depends(get_current_tenant),
 ):
     """Create a new workflow. Validates the definition on creation."""
+    await _resolve_workflow_filters(user, "create")
     _validate_definition(body.definition)
 
     workflow = Workflow(
@@ -146,7 +151,8 @@ async def list_workflows(
     search: str | None = Query(None, description="Search by name or description"),
 ):
     """List workflows for the current team."""
-    query = _scope_workflow_query(select(Workflow), user)
+    filters = await _resolve_workflow_filters(user, "search")
+    query = _scope_workflow_query(select(Workflow), filters)
 
     if not show_deleted:
         query = query.where(Workflow.deleted_at.is_(None))
@@ -201,7 +207,7 @@ async def update_workflow(
 
     When the definition changes, a new version snapshot is created automatically.
     """
-    workflow = await _get_workflow_or_404(session, workflow_id, user)
+    workflow = await _get_workflow_or_404(session, workflow_id, user, action="update")
 
     definition_changed = False
     if body.definition is not None:
@@ -244,13 +250,14 @@ async def restore_workflow(
     tenant: Tenant = Depends(get_current_tenant),
 ):
     """Restore a soft-deleted workflow."""
+    filters = await _resolve_workflow_filters(user, "update")
     result = await session.execute(
         _scope_workflow_query(
             select(Workflow).where(
                 Workflow.id == workflow_id,
                 Workflow.deleted_at.is_not(None),
             ),
-            user,
+            filters,
         )
     )
     workflow = result.scalar_one_or_none()
@@ -271,7 +278,7 @@ async def delete_workflow(
     tenant: Tenant = Depends(get_current_tenant),
 ):
     """Soft-delete a workflow by setting deleted_at."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user)
+    workflow = await _get_workflow_or_404(session, workflow_id, user, action="delete")
     workflow.deleted_at = datetime.now(UTC)
     await session.commit()
 
@@ -336,7 +343,7 @@ async def restore_workflow_version(
     tenant: Tenant = Depends(get_current_tenant),
 ):
     """Restore a workflow to a previous version."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user)
+    workflow = await _get_workflow_or_404(session, workflow_id, user, action="update")
 
     result = await session.execute(
         select(WorkflowVersion).where(
@@ -391,7 +398,7 @@ async def enable_webhook(
     Generates a unique webhook URL and secret.  The secret is returned
     only in this response — store it securely.
     """
-    workflow = await _get_workflow_or_404(session, workflow_id, user)
+    workflow = await _get_workflow_or_404(session, workflow_id, user, action="update")
 
     if workflow.webhook_enabled and workflow.webhook_path:
         raise HTTPException(
@@ -426,7 +433,7 @@ async def disable_webhook(
     tenant: Tenant = Depends(get_current_tenant),
 ):
     """Disable webhook trigger for a workflow."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user)
+    workflow = await _get_workflow_or_404(session, workflow_id, user, action="update")
 
     workflow.webhook_enabled = False
     workflow.webhook_path = None
@@ -447,7 +454,7 @@ async def regenerate_webhook_secret(
     tenant: Tenant = Depends(get_current_tenant),
 ):
     """Regenerate the webhook secret.  Keeps the same URL path."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user)
+    workflow = await _get_workflow_or_404(session, workflow_id, user, action="update")
 
     if not workflow.webhook_enabled or not workflow.webhook_path:
         raise HTTPException(status_code=400, detail="Webhook is not enabled")
@@ -472,16 +479,19 @@ async def regenerate_webhook_secret(
 # ---------------------------------------------------------------------------
 
 
-async def _get_workflow_or_404(session: AsyncSession, workflow_id: str, user: User) -> Workflow:
-    result = await session.execute(
-        _scope_workflow_query(
-            select(Workflow).where(
-                Workflow.id == workflow_id,
-                Workflow.deleted_at.is_(None),
-            ),
-            user,
-        )
-    )
+async def _get_workflow_or_404(
+    session: AsyncSession,
+    workflow_id: str,
+    user: User,
+    *,
+    action: str = "read",
+    include_deleted: bool = False,
+) -> Workflow:
+    filters = await _resolve_workflow_filters(user, action)
+    base = select(Workflow).where(Workflow.id == workflow_id)
+    if not include_deleted:
+        base = base.where(Workflow.deleted_at.is_(None))
+    result = await session.execute(_scope_workflow_query(base, filters))
     workflow = result.scalar_one_or_none()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -516,7 +526,7 @@ async def export_workflow(
     session: AsyncSession = Depends(get_session),
 ):
     """Export a workflow as portable JSON (can be imported into another workspace)."""
-    workflow = await _get_workflow_or_404(session, workflow_id, user.team_id)
+    workflow = await _get_workflow_or_404(session, workflow_id, user)
     return WorkflowExport(
         name=workflow.name,
         description=workflow.description,
@@ -531,6 +541,7 @@ async def import_workflow(
     session: AsyncSession = Depends(get_session),
 ):
     """Import a workflow from JSON. Creates a new workflow in the current team."""
+    await _resolve_workflow_filters(user, "create")
     _validate_definition(body.definition)
 
     workflow = Workflow(

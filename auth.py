@@ -13,7 +13,7 @@ from aegra_api.settings import settings
 auth = Auth()
 
 
-def decode_jwt_key(v):
+def decode_jwt_key(v: str | None) -> str | None:
     """
     Decode base64-encoded JWT public key to PEM format.
     If the value is already in PEM format (starts with -----BEGIN), return as-is.
@@ -24,16 +24,13 @@ def decode_jwt_key(v):
 
     v = v.strip()
 
-    # If already in PEM format, return as-is
     if v.startswith("-----BEGIN"):
         return v
 
-    # Try to decode from base64
     try:
         decoded = base64.b64decode(v).decode("utf-8")
         return decoded
     except Exception:
-        # If decoding fails, return original value (might be empty or invalid)
         return v
 
 
@@ -48,11 +45,7 @@ def _fetch_jwks(*, force: bool = False) -> dict[str, Any]:
     global _jwks_cache, _jwks_fetched_at
     ttl = settings.app.JWKS_CACHE_TTL_SECONDS
     now = time.time()
-    if (
-        not force
-        and _jwks_cache is not None
-        and now - _jwks_fetched_at < ttl
-    ):
+    if not force and _jwks_cache is not None and now - _jwks_fetched_at < ttl:
         return _jwks_cache
 
     resp = httpx.get(f"{settings.graphs.RAG_API_URL}/.well-known/jwks.json", timeout=5.0)
@@ -90,7 +83,8 @@ def _resolve_verification_key(token: str) -> dict[str, Any]:
     return jwk
 
 
-async def verify_token_status(token: str, aud: str) -> tuple[str, str, str]:
+async def verify_token_status(token: str, aud: str) -> tuple[str, str, list[str]]:
+    """Verify a JWT and return (sub, team_id, permissions)."""
     try:
         verification_key = _resolve_verification_key(token)
         payload = jwt.decode(
@@ -101,28 +95,25 @@ async def verify_token_status(token: str, aud: str) -> tuple[str, str, str]:
             options={"verify_aud": True, "require_aud": True},
         )
 
-        # Verify token type
         if payload.get("typ") != "access":
             raise ValueError("Invalid token type. Use access token, not refresh token.")
 
         sub = payload.get("sub")
         team_id = payload.get("team_id")
-        role = payload.get("role")
-        return sub, team_id, role
+        scope = payload.get("scope") or ""
+        permissions = [p for p in str(scope).split() if p]
+        return sub, team_id, permissions
 
     except JWTError:
         raise ValueError("Invalid or expired token")
 
 
-# The `authenticate` decorator tells LangGraph to call this function as middleware
-# for every request. This will determine whether the request is allowed or not
 @auth.authenticate
 async def get_current_user(
     headers: dict[str, str] | None,
     tenant: Tenant | None = None,
-):
-    """Check if the user's JWT token is valid using custom logic"""
-    # Extract authorization header
+) -> dict[str, Any]:
+    """Validate the request's JWT and return the user context."""
     authorization = (
         headers.get("authorization")
         or headers.get("Authorization")
@@ -130,11 +121,9 @@ async def get_current_user(
         or headers.get(b"Authorization")
     )
 
-    # Handle bytes headers
     if isinstance(authorization, bytes):
         authorization = authorization.decode("utf-8")
 
-    # Ensure we have the authorization header
     if not authorization:
         if headers.get("x-auth-scheme") == "langsmith":
             return {
@@ -145,7 +134,6 @@ async def get_current_user(
 
         raise Auth.exceptions.HTTPException(status_code=401, detail="Authorization header missing")
 
-    # Parse the authorization header
     try:
         scheme, token = authorization.split()
         assert scheme.lower() == "bearer" and token
@@ -153,7 +141,7 @@ async def get_current_user(
         raise Auth.exceptions.HTTPException(status_code=401, detail="Invalid authorization header format")
 
     try:
-        user_id, team_id, role = await verify_token_status(token, tenant.uuid)
+        user_id, team_id, permissions = await verify_token_status(token, tenant.uuid)
         if not team_id:
             raise ValueError("Team id not found in verification response")
 
@@ -163,34 +151,123 @@ async def get_current_user(
             "team_id": team_id,
             "is_authenticated": True,
             "authorization": authorization,
-            "permissions": [
-                f"role:{role}",
-            ],
+            "permissions": permissions,
         }
     except Exception as e:
         raise Auth.exceptions.HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
 
 
+# --- Permission-based authorization -------------------------------------------
+# Permissions in the JWT scope claim follow `<resource>.<action>[.<reach>]`.
+#   <reach> omitted  → own records only
+#   .team            → all records in the user's team
+#   .all             → all records (any team)
+# Actions: read, update (covers create+update), delete.
+
+# SDK action → permission action.  create/update merged into "update".
+_ACTION_MAP: dict[str, str] = {
+    "create": "update",
+    "update": "update",
+    "put": "update",
+    "read": "read",
+    "search": "read",
+    "get": "read",
+    "list_namespaces": "read",
+    "delete": "delete",
+}
+
+
+def _scope_filter(
+    permissions: list[str],
+    user_id: str,
+    team_id: str,
+    resource: str,
+    action: str,
+) -> dict[str, Any]:
+    """Return a filter dict for the given resource/action.
+
+    Returns:
+        - {} when the user has `<resource>.<action>.all` (no scoping).
+        - {"team_id": ...} when the user has `<resource>.<action>.team`.
+        - {"user_id": ..., "team_id": ...} when the user has `<resource>.<action>` (own).
+
+    Raises:
+        Auth.exceptions.HTTPException(403) when no matching permission is held.
+    """
+    perm_action = _ACTION_MAP.get(action, action)
+    base = f"{resource}.{perm_action}"
+    if f"{base}.all" in permissions:
+        return {}
+    if f"{base}.team" in permissions:
+        return {"team_id": team_id}
+    if base in permissions:
+        return {"user_id": user_id, "team_id": team_id}
+    raise Auth.exceptions.HTTPException(
+        status_code=403,
+        detail=f"Missing permission for {resource}.{perm_action}",
+    )
+
+
+def _stamp_metadata(value: dict[str, Any], user_id: str, team_id: str) -> None:
+    """Attach owner/team metadata to a mutating request payload."""
+    metadata = value.setdefault("metadata", {})
+    if not isinstance(metadata, dict):
+        return
+    metadata.setdefault("user_id", user_id)
+    metadata.setdefault("team_id", team_id)
+    metadata.setdefault("owner", f"{user_id}:{team_id}")
+
+
+def _is_mutating(action: str) -> bool:
+    return _ACTION_MAP.get(action, action) == "update"
+
+
+def _check(
+    ctx: Auth.types.AuthContext,
+    value: dict[str, Any],
+) -> dict[str, Any]:
+    user = ctx.user
+    user_id = getattr(user, "id", None) or user.identity
+    team_id = getattr(user, "team_id", None) or ""
+
+    if not user_id:
+        raise Auth.exceptions.HTTPException(status_code=401, detail="Invalid user identity")
+
+    resource = ctx.resource
+    action = ctx.action
+    if resource == "threads" and action == "create_run":
+        resource = "runs"
+        action = "update"
+
+    filters = _scope_filter(
+        permissions=list(ctx.permissions or []),
+        user_id=str(user_id),
+        team_id=str(team_id),
+        resource=resource,
+        action=action,
+    )
+    if _is_mutating(action):
+        _stamp_metadata(value, str(user_id), str(team_id))
+    return filters
+
+
+_AEGRA_RESOURCES: list[str] = [
+    "assistants",
+    "threads",
+    "store",
+    "runs",
+    "workflows",
+    "workflow_runs",
+    "workflow_schedules",
+    "control_plane"
+]
+
 @auth.on
-async def authorize(ctx: Auth.types.AuthContext, value: dict[str, Any]) -> dict[str, Any]:
-    try:
-        # Get user identity from authentication context
-        user_id = ctx.user.identity
-
-        if not user_id:
-            raise Auth.exceptions.HTTPException(status_code=401, detail="Invalid user identity")
-
-        # Create owner filter for resource access control
-        owner_filter = {"owner": user_id}
-
-        # Add owner information to metadata for create/update operations
-        metadata = value.setdefault("metadata", {})
-        metadata.update(owner_filter)
-
-        # Return filter for database operations
-        return owner_filter
-
-    except Auth.exceptions.HTTPException:
-        raise
-    except Exception as e:
-        raise Auth.exceptions.HTTPException(status_code=500, detail="Authorization system error") from e
+async def _global(ctx: Auth.types.AuthContext, value: dict[str, Any]) -> dict[str, Any]:
+    if not ctx.resource in _AEGRA_RESOURCES:
+        # Unknown resource: deny by default.
+        raise Auth.exceptions.HTTPException(
+            status_code=403,
+            detail=f"No authorization rule for resource {ctx.resource!r}",
+        )
+    return _check(ctx, value)
