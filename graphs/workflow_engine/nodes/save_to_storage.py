@@ -30,6 +30,7 @@ _CONTENT_TYPES: dict[str, str] = {
     "ndjson": "application/x-ndjson",
     "csv": "text/csv",
     "raw": "application/octet-stream",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
 
@@ -69,7 +70,40 @@ def _serialize_payload(value: Any, fmt: str) -> bytes:
             writer.writerow(row)
         return buf.getvalue().encode("utf-8")
 
+    if fmt == "xlsx":
+        from openpyxl import Workbook
+
+        rows = value if isinstance(value, list) else [value]
+        wb = Workbook(write_only=True)
+        ws = wb.create_sheet("Sheet1")
+        if not rows:
+            buf = io.BytesIO()
+            wb.save(buf)
+            return buf.getvalue()
+        fieldnames = []
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("xlsx format requires a list of dicts")
+            for key in row:
+                if key not in seen:
+                    seen.add(key)
+                    fieldnames.append(key)
+        ws.append(fieldnames)
+        for row in rows:
+            ws.append([_xlsx_cell(row.get(k)) for k in fieldnames])
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
     raise ValueError(f"unknown storage format: '{fmt}'")
+
+
+def _xlsx_cell(value: Any) -> Any:
+    """Coerce a value to something openpyxl can write to a cell."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return json.dumps(value, default=str)
 
 
 async def _upload_s3(

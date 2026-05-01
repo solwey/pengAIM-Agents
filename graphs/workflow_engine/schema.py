@@ -486,7 +486,7 @@ class FetchGoogleFormResponseConfig(BaseModel):
 
 # Must stay aligned with revops save-to-storage-config.tsx STORAGE_TYPES/FORMATS.
 StorageType = Literal["s3", "gcs", "azure_blob", "local"]
-StorageFormat = Literal["json", "ndjson", "csv", "raw"]
+StorageFormat = Literal["json", "ndjson", "csv", "raw", "xlsx"]
 
 
 class SaveToStorageConfig(BaseModel):

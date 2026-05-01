@@ -10,6 +10,7 @@ local remain stubs.
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 import json
 import logging
@@ -45,7 +46,40 @@ def _deserialize_payload(payload: bytes, fmt: str) -> Any:
         reader = csv.DictReader(io.StringIO(text))
         return list(reader)
 
+    if fmt == "xlsx":
+        return _parse_xlsx(payload)
+
     raise ValueError(f"unknown storage format: '{fmt}'")
+
+
+def _xlsx_cell_value(value: Any) -> Any:
+    """Coerce openpyxl cell values into JSON-serializable types."""
+    if isinstance(value, dt.datetime | dt.date | dt.time):
+        return value.isoformat()
+    if isinstance(value, dt.timedelta):
+        return value.total_seconds()
+    return value
+
+
+def _parse_xlsx(payload: bytes) -> list[dict[str, Any]]:
+    """Parse an xlsx workbook into [{name, rows}] — one entry per sheet, rows of column values."""
+    import zipfile
+
+    from openpyxl import load_workbook
+    from openpyxl.utils.exceptions import InvalidFileException
+
+    try:
+        wb = load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
+    except (InvalidFileException, zipfile.BadZipFile) as exc:
+        raise ValueError(f"invalid xlsx payload: {exc}") from exc
+
+    return [
+        {
+            "name": ws.title,
+            "rows": [[_xlsx_cell_value(c) for c in row] for row in ws.iter_rows(values_only=True)],
+        }
+        for ws in wb.worksheets
+    ]
 
 
 async def _download_s3(

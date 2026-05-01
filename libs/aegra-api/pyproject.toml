@@ -49,6 +49,7 @@ dependencies = [
     "firecrawl>=4.6.0",
     "tavily-python>=0.5.0",
     "croniter>=3.0.0",
+    "openpyxl>=3.1.0",
     # Redis (optional broker backend for multi-instance streaming)
     "redis[hiredis]>=5.0.0",
 ]
