@@ -290,6 +290,8 @@ def execute_workflow(self, workflow_run_id: str, tenant_uuid: str, auth_token: s
                         "auth_token": auth_token,
                         "team_id": run.team_id,
                         "user_id": run.user_id,
+                        "tenant_schema": tenant_schema,
+                        "workflow_chain": [run.workflow_id],
                         **ingestion_cfg,
                     }
                     return await _run_with_cancellation(

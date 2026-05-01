@@ -24,6 +24,7 @@ from .run_agent import RunAgentExecutor
 from .set_source import SetSourceExecutor
 from .slack_message import SlackMessageExecutor
 from .source_condition import SourceConditionExecutor, build_source_condition_router
+from .sub_workflow import SubWorkflowExecutor
 from .switch import SwitchExecutor, build_switch_router
 from .sync_to_instantly import SyncToInstantlyExecutor
 from .tag_condition import TagConditionExecutor, build_tag_condition_router
@@ -64,6 +65,7 @@ NODE_REGISTRY: dict[str, type] = {
     "update_instantly_lead_status": UpdateInstantlyLeadStatusExecutor,
     "fetch_instantly_replies": FetchInstantlyRepliesExecutor,
     "add_to_instantly_blocklist": AddToInstantlyBlocklistExecutor,
+    "sub_workflow": SubWorkflowExecutor,
 }
 
 __all__ = [
