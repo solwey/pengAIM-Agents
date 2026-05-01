@@ -25,6 +25,7 @@ from .generate_report import GenerateReportExecutor
 from .icp_score import ICPScoreExecutor
 from .list_condition import ListConditionExecutor, build_list_condition_router
 from .llm_complete import LLMCompleteExecutor
+from .parse_clarity_annual import ParseClarityAnnualExecutor
 from .pause_instantly import PauseInstantlyExecutor
 from .read_from_storage import ReadFromStorageExecutor
 from .read_google_sheet import ReadGoogleSheetExecutor
@@ -84,6 +85,7 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch_google_form_response": FetchGoogleFormResponseExecutor,
     "save_to_storage": SaveToStorageExecutor,
     "read_from_storage": ReadFromStorageExecutor,
+    "parse_clarity_annual": ParseClarityAnnualExecutor,
 }
 
 __all__ = [

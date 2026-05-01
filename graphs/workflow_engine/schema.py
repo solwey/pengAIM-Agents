@@ -51,6 +51,7 @@ class NodeType(StrEnum):
     FETCH_GOOGLE_FORM_RESPONSE = "fetch_google_form_response"
     SAVE_TO_STORAGE = "save_to_storage"
     READ_FROM_STORAGE = "read_from_storage"
+    PARSE_CLARITY_ANNUAL = "parse_clarity_annual"
 
 
 class ComparisonOperator(StrEnum):
@@ -506,6 +507,13 @@ class ReadFromStorageConfig(BaseModel):
     response_key: str = "storage_data"
 
 
+# Mirrors HMISights api/clarity/parseAnnualReport.ts — input is the [{name, rows}]
+# shape produced by read_from_storage with format=xlsx (rows of cell values).
+class ParseClarityAnnualConfig(BaseModel):
+    data_key: str = "storage_data.value"  # dot-path to the [{name, rows}] sheets array
+    response_key: str = "clarity_annual"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -561,6 +569,7 @@ class NodeDef(BaseModel):
             NodeType.FETCH_GOOGLE_FORM_RESPONSE: FetchGoogleFormResponseConfig,
             NodeType.SAVE_TO_STORAGE: SaveToStorageConfig,
             NodeType.READ_FROM_STORAGE: ReadFromStorageConfig,
+            NodeType.PARSE_CLARITY_ANNUAL: ParseClarityAnnualConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:
