@@ -41,6 +41,7 @@ class NodeType(StrEnum):
     UPDATE_INSTANTLY_LEAD_STATUS = "update_instantly_lead_status"
     FETCH_INSTANTLY_REPLIES = "fetch_instantly_replies"
     ADD_TO_INSTANTLY_BLOCKLIST = "add_to_instantly_blocklist"
+    SUB_WORKFLOW = "sub_workflow"
 
 
 class ComparisonOperator(StrEnum):
@@ -346,6 +347,11 @@ class AddToInstantlyBlocklistConfig(BaseModel):
     timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
+class SubWorkflowConfig(BaseModel):
+    workflow_id: str = Field(min_length=1)
+    response_key: str = "subflow_result"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -391,6 +397,7 @@ class NodeDef(BaseModel):
             NodeType.UPDATE_INSTANTLY_LEAD_STATUS: UpdateInstantlyLeadStatusConfig,
             NodeType.FETCH_INSTANTLY_REPLIES: FetchInstantlyRepliesConfig,
             NodeType.ADD_TO_INSTANTLY_BLOCKLIST: AddToInstantlyBlocklistConfig,
+            NodeType.SUB_WORKFLOW: SubWorkflowConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

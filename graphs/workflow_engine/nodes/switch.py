@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from graphs.workflow_engine.nodes.base import NodeExecutor, compare, resolve_field
+from graphs.workflow_engine.nodes.base import NodeExecutor, compare, resolve_field_strict
 from graphs.workflow_engine.schema import SwitchConfig
+
+logger = logging.getLogger(__name__)
 
 
 class SwitchExecutor(NodeExecutor):
@@ -29,7 +32,14 @@ def build_switch_router(config: dict[str, Any]) -> Callable[..., str]:
     def route(state: dict[str, Any]) -> str:
         data = state.get("data", {})
         for case in cfg.cases:
-            actual = resolve_field(data, case.field)
+            found, actual = resolve_field_strict(data, case.field)
+            if not found:
+                logger.warning(
+                    "Switch case field '%s' missing from state.data — skipping case '%s'",
+                    case.field,
+                    case.label,
+                )
+                continue
             if compare(actual, case.operator.value, case.value):
                 return case.label
         return cfg.default_label

@@ -27,6 +27,18 @@ logger = logging.getLogger(__name__)
 DEFAULT_RETRY_STATUS: tuple[int, ...] = (429, 500, 502, 503, 504)
 
 
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        _HTTP_CLIENT = httpx.AsyncClient(
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        )
+    return _HTTP_CLIENT
+
+
 async def http_request_with_retry(
     method: str,
     url: str,
@@ -48,16 +60,17 @@ async def http_request_with_retry(
     """
     last_exc: BaseException | None = None
     last_resp: httpx.Response | None = None
+    client = _get_http_client()
     for attempt in range(max_attempts):
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as client:
-                resp = await client.request(
-                    method.upper(),
-                    url,
-                    headers=headers,
-                    json=json,
-                    params=params,
-                )
+            resp = await client.request(
+                method.upper(),
+                url,
+                headers=headers,
+                json=json,
+                params=params,
+                timeout=httpx.Timeout(timeout_seconds),
+            )
             last_resp = resp
             if resp.status_code not in retry_on_status:
                 return resp
@@ -129,6 +142,32 @@ class NodeExecutor(ABC):
 _TEMPLATE_RE = re.compile(r"\{\{(\w+(?:\.\w+)*)\}\}")
 
 
+_MISSING = object()
+
+
+def resolve_field_strict(data: dict[str, Any], field_path: str) -> tuple[bool, Any]:
+    """Resolve a dot-notation path, distinguishing missing from null.
+
+    Returns (found, value). When the path is missing at any segment,
+    returns (False, None). When found, returns (True, value) — value may be None.
+    """
+    parts = field_path.split(".")
+    current: Any = data
+    for part in parts:
+        if isinstance(current, dict):
+            current = current.get(part, _MISSING)
+            if current is _MISSING:
+                return False, None
+        elif isinstance(current, list):
+            try:
+                current = current[int(part)]
+            except (IndexError, ValueError):
+                return False, None
+        else:
+            return False, None
+    return True, current
+
+
 def resolve_field(data: dict[str, Any], field_path: str) -> Any:
     """Resolve a dot-notation path against a nested dict.
 
@@ -136,19 +175,8 @@ def resolve_field(data: dict[str, Any], field_path: str) -> Any:
         resolve_field({"api_response": {"status_code": 200}}, "api_response.status_code")
         → 200
     """
-    parts = field_path.split(".")
-    current: Any = data
-    for part in parts:
-        if isinstance(current, dict):
-            current = current.get(part)
-        elif isinstance(current, list):
-            try:
-                current = current[int(part)]
-            except (IndexError, ValueError):
-                return None
-        else:
-            return None
-    return current
+    _, value = resolve_field_strict(data, field_path)
+    return value
 
 
 def resolve_templates(value: str, data: dict[str, Any]) -> str:
@@ -206,10 +234,10 @@ async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
     headers = {"authorization": auth_token, "Accept": "text/plain"}
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-            return resp.text
+        client = _get_http_client()
+        resp = await client.get(url, headers=headers, timeout=httpx.Timeout(10))
+        resp.raise_for_status()
+        return resp.text
     except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError) as exc:
         logger.warning("Failed to reveal api key %s: %s", key_id, exc)
         return None
@@ -231,11 +259,11 @@ async def fetch_ingestion_configurable(auth_token: str) -> dict[str, Any]:
     headers = {"authorization": auth_token, "Accept": "application/json"}
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code != 200:
-                return {}
-            cfg = (resp.json() or {}).get("config_json") or {}
+        client = _get_http_client()
+        resp = await client.get(url, headers=headers, timeout=httpx.Timeout(10))
+        if resp.status_code != 200:
+            return {}
+        cfg = (resp.json() or {}).get("config_json") or {}
     except (httpx.TimeoutException, httpx.RequestError) as exc:
         logger.warning("Failed to fetch ingestion config: %s", exc)
         return {}
