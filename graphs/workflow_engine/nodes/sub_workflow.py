@@ -6,7 +6,10 @@ team_id / auth_token / ingestion config propagate naturally.
 
 Cycle protection: each invocation appends its workflow_id to
 ``configurable["workflow_chain"]``; the executor refuses to run a child
-already present in the chain.
+already present in the chain. ``max_depth`` caps recursion length.
+
+Optional input/output mappings keep parent and child state isolated when
+configured; otherwise legacy full pass-through behavior is preserved.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from langchain_core.runnables import RunnableConfig
 from sqlalchemy import select
 
 from aegra_api.core.orm import Workflow, new_tenant_sync_session
-from graphs.workflow_engine.nodes.base import NodeExecutor
+from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field
 from graphs.workflow_engine.schema import SubWorkflowConfig, WorkflowDefinition
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,24 @@ def _load_definition_sync(tenant_schema: str, workflow_id: str) -> dict[str, Any
         if row is None:
             return None
         return dict(row.definition)
+
+
+def _project_input(parent_data: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
+    if not mapping:
+        return dict(parent_data)
+    out: dict[str, Any] = {}
+    for child_key, parent_path in mapping.items():
+        out[child_key] = resolve_field(parent_data, parent_path)
+    return out
+
+
+def _project_output(child_data: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
+    if not mapping:
+        return child_data
+    out: dict[str, Any] = {}
+    for parent_key, child_path in mapping.items():
+        out[parent_key] = resolve_field(child_data, child_path)
+    return out
 
 
 class SubWorkflowExecutor(NodeExecutor):
@@ -63,6 +84,9 @@ class SubWorkflowExecutor(NodeExecutor):
                 logger.warning("Sub-workflow cycle blocked: %s", cycle)
                 return _fail(f"Sub-workflow cycle detected: {cycle}")
 
+            if len(chain) >= cfg.max_depth:
+                return _fail(f"Sub-workflow max_depth={cfg.max_depth} exceeded (chain length {len(chain)})")
+
             definition_dict = await asyncio.to_thread(_load_definition_sync, tenant_schema, cfg.workflow_id)
             if definition_dict is None:
                 return _fail(f"Workflow '{cfg.workflow_id}' not found or inactive")
@@ -75,8 +99,9 @@ class SubWorkflowExecutor(NodeExecutor):
                 logger.warning("Sub-workflow compile failed: %s", exc)
                 return _fail(f"Sub-workflow compile failed: {exc}")
 
+            child_input = _project_input(data, cfg.input_mapping)
             child_configurable = {**configurable, "workflow_chain": [*chain, cfg.workflow_id]}
-            child_state = {"messages": [], "data": dict(data), "steps": []}
+            child_state = {"messages": [], "data": child_input, "steps": []}
 
             try:
                 child_result = await compiled.ainvoke(child_state, config={"configurable": child_configurable})
@@ -85,12 +110,13 @@ class SubWorkflowExecutor(NodeExecutor):
                 return _fail(f"Sub-workflow execution failed: {exc}")
 
             child_data = child_result.get("data", {})
+            projected = _project_output(child_data, cfg.output_mapping)
             return {
                 "data": {
                     **data,
                     cfg.response_key: {
                         "ok": True,
-                        "data": child_data,
+                        "data": projected,
                         "steps": child_result.get("steps", []),
                     },
                 }

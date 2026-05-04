@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 from langchain_core.runnables import RunnableConfig
 
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_templates
+from graphs.workflow_engine.nodes.base import NodeExecutor, _get_http_client, resolve_templates
 from graphs.workflow_engine.schema import RunAgentConfig
 
 logger = logging.getLogger(__name__)
@@ -32,78 +32,74 @@ class RunAgentExecutor(NodeExecutor):
                 headers["Authorization"] = auth_token
 
             result: dict[str, Any]
+            client = _get_http_client()
+            timeout = httpx.Timeout(cfg.timeout_seconds)
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(cfg.timeout_seconds)) as client:
-                    # 1. Create thread
-                    thread_resp = await client.post(
-                        f"{base_url}/threads",
-                        json={},
-                        headers=headers,
-                    )
-                    if thread_resp.status_code not in (200, 201):
-                        result = {
-                            "ok": False,
-                            "error": f"Failed to create thread: {thread_resp.text[:500]}",
-                        }
-                        return {"data": {**data, cfg.response_key: result}}
-
-                    thread_id = thread_resp.json().get("thread_id")
-
-                    # 2. Create run and wait for completion via /runs/wait
-                    wait_resp = await client.post(
-                        f"{base_url}/threads/{thread_id}/runs/wait",
-                        json={
-                            "assistant_id": cfg.assistant_id,
-                            "input": {
-                                "messages": [
-                                    {
-                                        "type": "human",
-                                        "content": [{"type": "text", "text": resolved_prompt}],
-                                    }
-                                ]
-                            },
-                        },
-                        headers=headers,
-                    )
-
-                    if wait_resp.status_code not in (200, 201):
-                        result = {
-                            "ok": False,
-                            "error": f"Agent run failed: {wait_resp.text[:500]}",
-                        }
-                        return {"data": {**data, cfg.response_key: result}}
-
-                    output = wait_resp.json()
-
-                    # Extract final message from output
-                    agent_output = None
-                    # Try values.messages first (LangGraph format), then messages
-                    messages = output.get("values", {}).get("messages", []) or output.get("messages", [])
-                    if messages:
-                        last_msg = messages[-1]
-                        if isinstance(last_msg, dict):
-                            content = last_msg.get("content", "")
-                            # content can be a string or list of {type, text}
-                            if isinstance(content, list):
-                                agent_output = "\n".join(
-                                    part.get("text", "")
-                                    for part in content
-                                    if isinstance(part, dict) and part.get("text")
-                                )
-                            elif isinstance(content, str):
-                                agent_output = content
-                            else:
-                                agent_output = str(content)
-                        else:
-                            agent_output = str(last_msg)
-
+                thread_resp = await client.post(
+                    f"{base_url}/threads",
+                    json={},
+                    headers=headers,
+                    timeout=timeout,
+                )
+                if thread_resp.status_code not in (200, 201):
                     result = {
-                        "ok": True,
-                        "status": "success",
-                        "thread_id": thread_id,
-                        "output": agent_output,
+                        "ok": False,
+                        "error": f"Failed to create thread: {thread_resp.text[:500]}",
                     }
-                    logger.info("Agent run completed: thread_id=%s", thread_id)
+                    return {"data": {**data, cfg.response_key: result}}
+
+                thread_id = thread_resp.json().get("thread_id")
+
+                wait_resp = await client.post(
+                    f"{base_url}/threads/{thread_id}/runs/wait",
+                    json={
+                        "assistant_id": cfg.assistant_id,
+                        "input": {
+                            "messages": [
+                                {
+                                    "type": "human",
+                                    "content": [{"type": "text", "text": resolved_prompt}],
+                                }
+                            ]
+                        },
+                    },
+                    headers=headers,
+                    timeout=timeout,
+                )
+
+                if wait_resp.status_code not in (200, 201):
+                    result = {
+                        "ok": False,
+                        "error": f"Agent run failed: {wait_resp.text[:500]}",
+                    }
+                    return {"data": {**data, cfg.response_key: result}}
+
+                output = wait_resp.json()
+
+                agent_output = None
+                messages = output.get("values", {}).get("messages", []) or output.get("messages", [])
+                if messages:
+                    last_msg = messages[-1]
+                    if isinstance(last_msg, dict):
+                        content = last_msg.get("content", "")
+                        if isinstance(content, list):
+                            agent_output = "\n".join(
+                                part.get("text", "") for part in content if isinstance(part, dict) and part.get("text")
+                            )
+                        elif isinstance(content, str):
+                            agent_output = content
+                        else:
+                            agent_output = str(content)
+                    else:
+                        agent_output = str(last_msg)
+
+                result = {
+                    "ok": True,
+                    "status": "success",
+                    "thread_id": thread_id,
+                    "output": agent_output,
+                }
+                logger.info("Agent run completed: thread_id=%s", thread_id)
 
             except httpx.TimeoutException:
                 result = {"ok": False, "error": "Agent run timed out"}
