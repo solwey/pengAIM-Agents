@@ -53,6 +53,7 @@ class NodeType(StrEnum):
     READ_FROM_STORAGE = "read_from_storage"
     PARSE_CLARITY_ANNUAL = "parse_clarity_annual"
     CALCULATE_SHELTER_METRIC = "calculate_shelter_metric"
+    CALCULATE_BUDGET_METRIC = "calculate_budget_metric"
 
 
 class ComparisonOperator(StrEnum):
@@ -532,6 +533,19 @@ class CalculateShelterMetricConfig(BaseModel):
     response_key: str = "shelter_metric"
 
 
+BudgetMetric = Literal["per_person_cost"]
+
+
+class CalculateBudgetMetricConfig(BaseModel):
+    metric: BudgetMetric = "per_person_cost"
+    period: NetsuitePeriod = "ytd"
+    start_date: str = ""  # required when period == "custom"
+    end_date: str = ""  # required when period == "custom"
+    token_key: str = "netsuite_activate_result"  # state.data key from activate_netsuite
+    report_key: str = "clarity_annual"  # state.data key from parse_clarity_annual
+    response_key: str = "budget_metric"
+
+
 # ── Node & Edge definitions ──────────────────────────────────
 
 
@@ -589,6 +603,7 @@ class NodeDef(BaseModel):
             NodeType.READ_FROM_STORAGE: ReadFromStorageConfig,
             NodeType.PARSE_CLARITY_ANNUAL: ParseClarityAnnualConfig,
             NodeType.CALCULATE_SHELTER_METRIC: CalculateShelterMetricConfig,
+            NodeType.CALCULATE_BUDGET_METRIC: CalculateBudgetMetricConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

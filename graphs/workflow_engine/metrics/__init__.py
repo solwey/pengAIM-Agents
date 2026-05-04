@@ -6,8 +6,10 @@ Each module in this package exposes a single async function with the signature:
 
 from graphs.workflow_engine.metrics.actual_by_department import actual_by_department_metric
 from graphs.workflow_engine.metrics.cost_per_sqft import cost_per_sqft_metric
+from graphs.workflow_engine.metrics.per_person_cost import per_person_cost_metric
 
 __all__ = [
     "actual_by_department_metric",
     "cost_per_sqft_metric",
+    "per_person_cost_metric",
 ]
