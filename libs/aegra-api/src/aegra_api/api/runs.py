@@ -64,6 +64,41 @@ def _run_scope_clause(filters: dict | None):
     )
 
 
+def _thread_in_scope_clause(filters: dict | None):
+    """Auth-filter clause for the parent `ThreadORM` row of a run.
+
+    `create_run` / `wait_for_run` use this to refuse run creation on a
+    thread the caller can't see. Tenant-wide reach (`{}`) imposes no
+    restriction; otherwise apply the same own/team scope plus the
+    `is_shared` carve-out within the team.
+    """
+    if not filters:
+        return true()
+    return or_(
+        and_(*get_scope_filters(ThreadORM, filters)),
+        and_(
+            *get_scope_filters(ThreadORM, filters, exclude={"user_id"}),
+            ThreadORM.is_shared.is_(True),
+        ),
+    )
+
+
+async def _ensure_thread_in_scope(
+    session: AsyncSession,
+    thread_id: str,
+    filters: dict | None,
+) -> None:
+    """Raise 404 if the thread isn't visible under the caller's filter."""
+    found = await session.scalar(
+        select(ThreadORM.thread_id).where(
+            ThreadORM.thread_id == thread_id,
+            _thread_in_scope_clause(filters),
+        )
+    )
+    if not found:
+        raise HTTPException(404, f"Thread '{thread_id}' not found")
+
+
 @router.post("/threads/{thread_id}/runs", response_model=Run, responses={**NOT_FOUND, **CONFLICT})
 async def create_run(
     thread_id: str,
@@ -83,6 +118,7 @@ async def create_run(
     ctx = build_auth_context(user, "threads", "create_run")
     value = {**request.model_dump(), "thread_id": thread_id}
     filters = await handle_event(ctx, value)
+    await _ensure_thread_in_scope(session, thread_id, filters)
 
     # If handler modified config/context, update request
     if filters:
@@ -123,7 +159,8 @@ async def create_and_stream_run(
     to control which event types are emitted.
     """
     ctx = build_auth_context(user, "threads", "create_run")
-    await handle_event(ctx, {**request.model_dump(), "thread_id": thread_id})
+    filters = await handle_event(ctx, {**request.model_dump(), "thread_id": thread_id})
+    await _ensure_thread_in_scope(session, thread_id, filters)
     run_id, run, _job = await _prepare_run(session, thread_id, request, user, tenant, initial_status="pending")
 
     # Default to cancel on disconnect - this matches user expectation that clicking
@@ -365,10 +402,11 @@ async def wait_for_run(
     pool connection during the long wait.
     """
     ctx = build_auth_context(user, "threads", "create_run")
-    await handle_event(ctx, {**request.model_dump(), "thread_id": thread_id})
+    filters = await handle_event(ctx, {**request.model_dump(), "thread_id": thread_id})
 
     # Session block: all pre-execution DB work (validate, create run, submit)
     async for session in get_session(tenant):
+        await _ensure_thread_in_scope(session, thread_id, filters)
         run_id, _run, _job = await _prepare_run(session, thread_id, request, user, tenant, initial_status="pending")
         break
 

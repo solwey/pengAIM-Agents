@@ -24,6 +24,11 @@ from tests.fixtures.langgraph import (
     make_task,
     patch_langgraph_service,
 )
+from tests.fixtures.permissions import (  # noqa: F401 — exposed as fixtures
+    db_conn,
+    db_session,
+    project_auth,
+)
 from tests.fixtures.session_fixtures import (
     BasicSession,
     RunSession,
