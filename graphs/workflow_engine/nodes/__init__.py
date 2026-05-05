@@ -12,6 +12,7 @@ from .create_contact import CreateContactExecutor
 from .delay import DelayExecutor
 from .email_message import EmailMessageExecutor
 from .fetch_instantly_replies import FetchInstantlyRepliesExecutor
+from .for_each import ForEachExecutor
 from .generate_report import GenerateReportExecutor
 from .icp_score import ICPScoreExecutor
 from .list_condition import ListConditionExecutor, build_list_condition_router
@@ -66,6 +67,7 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch_instantly_replies": FetchInstantlyRepliesExecutor,
     "add_to_instantly_blocklist": AddToInstantlyBlocklistExecutor,
     "sub_workflow": SubWorkflowExecutor,
+    "for_each": ForEachExecutor,
 }
 
 __all__ = [

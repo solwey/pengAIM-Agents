@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 class NodeType(StrEnum):
     API_REQUEST = "api_request"
     CONDITION = "condition"
+    FOR_EACH = "for_each"
     TRANSFORM = "transform"
     SLACK_MESSAGE = "slack_message"
     EMAIL_MESSAGE = "email_message"
@@ -62,12 +63,13 @@ class ApiRequestConfig(BaseModel):
     method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = "GET"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
+    params: dict[str, str] = Field(default_factory=dict)
     body: dict[str, Any] | None = None
     timeout_seconds: int = Field(default=30, ge=1, le=300)
     response_key: str = "api_response"
     retry_count: int = Field(default=0, ge=0, le=5)
     retry_delay_seconds: float = Field(default=2.0, ge=0.5, le=30)
-    retry_on_status: list[int] = Field(default_factory=lambda: [500, 502, 503, 504])
+    retry_on_status: list[int] = Field(default_factory=lambda: [429, 500, 502, 503, 504])
 
 
 class ConditionConfig(BaseModel):
@@ -82,23 +84,49 @@ class TransformConfig(BaseModel):
 
 class SlackMessageConfig(BaseModel):
     webhook_url: str
-    message: str
+    message: str = ""
+    blocks: list[dict[str, Any]] | None = None
+    thread_ts: str = ""
     username: str = ""  # override bot display name
     icon_emoji: str = ""  # override bot icon (e.g. ":robot_face:")
     response_key: str = "slack_response"
     timeout_seconds: int = Field(default=15, ge=1, le=600)
 
+    @model_validator(mode="after")
+    def _check_payload(self) -> SlackMessageConfig:
+        if not self.message and not self.blocks:
+            raise ValueError("slack_message requires either 'message' or 'blocks'")
+        return self
+
+
+class EmailAttachment(BaseModel):
+    filename: str
+    content_b64: str = ""
+    url: str = ""  # alternative: fetch attachment over HTTP(S) at send time
+    content_type: str = "application/octet-stream"
+
+    @model_validator(mode="after")
+    def _check_source(self) -> EmailAttachment:
+        if not self.content_b64 and not self.url:
+            raise ValueError(f"Attachment '{self.filename}' must specify content_b64 or url")
+        return self
+
 
 class EmailMessageConfig(BaseModel):
     to: str
+    cc: str = ""
+    bcc: str = ""
     subject: str
     html_body: str
     text_body: str | None = None
+    from_name: str = ""
+    attachments: list[EmailAttachment] = Field(default_factory=list)
     smtp_host: str | None = None
     smtp_port: int | None = None
     smtp_user: str | None = None
     smtp_password_key_id: str | None = None
     smtp_from: str | None = None
+    use_ssl: bool = False  # True -> SMTPS on port 465; False -> SMTP+STARTTLS
     response_key: str = "email_response"
 
     @model_validator(mode="after")
@@ -133,7 +161,11 @@ class SwitchConfig(BaseModel):
 
 
 class DelayConfig(BaseModel):
-    seconds: float = Field(default=5, ge=0.1, le=3600)
+    seconds: float = Field(default=5, ge=0.1, le=86400)
+    until_iso: str = (
+        ""  # ISO 8601 timestamp (e.g. "2026-05-10T09:00:00Z"); supports {{template}}, overrides seconds when set
+    )
+    max_seconds: float = Field(default=86400, ge=1, le=604800)  # safety cap when until_iso resolves far in future
 
 
 class GenerateReportConfig(BaseModel):
@@ -184,6 +216,8 @@ class ICPScoreConfig(BaseModel):
     hot_threshold: int = Field(default=80, ge=0, le=100)
     warm_threshold: int = Field(default=50, ge=0, le=100)
     custom_criteria: str = ""  # extra rules appended to the scoring prompt
+    truncation_chars: int = Field(default=3000, ge=200, le=20000)
+    max_tokens: int = Field(default=200, ge=50, le=2000)
 
     @model_validator(mode="after")
     def _check_thresholds(self) -> ICPScoreConfig:
@@ -201,12 +235,21 @@ class ReadGoogleSheetConfig(BaseModel):
 
 
 class LLMCompleteConfig(BaseModel):
-    prompt: str  # supports {{template}} variables
+    prompt: str = ""  # supports {{template}} variables
     system_prompt: str = ""
+    messages: list[dict[str, str]] = Field(default_factory=list)
+    response_format: Literal["", "json"] = ""
     model: str = ""  # LLM model (e.g. "openai:gpt-4o-mini"), empty = env default
-    max_tokens: int = Field(default=1000, ge=1, le=4000)
+    max_tokens: int = Field(default=1000, ge=1, le=8000)
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     timeout_seconds: int = Field(default=120, ge=10, le=600)
     response_key: str = "llm_result"
+
+    @model_validator(mode="after")
+    def _check_input(self) -> LLMCompleteConfig:
+        if not self.prompt and not self.messages:
+            raise ValueError("llm_complete requires either 'prompt' or 'messages'")
+        return self
 
 
 class AddTagConfig(BaseModel):
@@ -347,9 +390,30 @@ class AddToInstantlyBlocklistConfig(BaseModel):
     timeout_seconds: int = Field(default=30, ge=1, le=600)
 
 
+class ForEachConfig(BaseModel):
+    items_key: str = Field(min_length=1)  # dot-path to a list in state["data"]
+    workflow_id: str = Field(min_length=1)  # child workflow to run per item
+    item_var: str = "item"  # key under which the current item is exposed in child data
+    index_var: str = "index"  # key under which the loop index is exposed in child data
+    concurrency: int = Field(default=1, ge=1, le=20)
+    max_items: int = Field(default=500, ge=1, le=10000)  # safety cap on iterations
+    fail_fast: bool = False  # if True, abort the loop on first child failure
+    response_key: str = "for_each_result"
+    max_depth: int = Field(default=5, ge=1, le=20)
+
+
 class SubWorkflowConfig(BaseModel):
     workflow_id: str = Field(min_length=1)
     response_key: str = "subflow_result"
+    max_depth: int = Field(default=5, ge=1, le=20)
+    # input_mapping: child_data_key -> parent dot-path (e.g. {"lead": "leads.rows.0"})
+    # When non-empty, the child only sees the mapped subset; otherwise it inherits
+    # the full parent data (legacy behavior).
+    input_mapping: dict[str, str] = Field(default_factory=dict)
+    # output_mapping: parent_data_key -> child dot-path (e.g. {"score": "icp_score.score"})
+    # When non-empty, only mapped values are written to the parent under response_key.data;
+    # otherwise the full child data dict is exposed (legacy behavior).
+    output_mapping: dict[str, str] = Field(default_factory=dict)
 
 
 # ── Node & Edge definitions ──────────────────────────────────
@@ -398,6 +462,7 @@ class NodeDef(BaseModel):
             NodeType.FETCH_INSTANTLY_REPLIES: FetchInstantlyRepliesConfig,
             NodeType.ADD_TO_INSTANTLY_BLOCKLIST: AddToInstantlyBlocklistConfig,
             NodeType.SUB_WORKFLOW: SubWorkflowConfig,
+            NodeType.FOR_EACH: ForEachConfig,
         }
         cls = config_map.get(self.type)
         if cls is None:

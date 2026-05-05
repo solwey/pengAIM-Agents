@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from aegra_api.settings import settings
-from graphs.workflow_engine.nodes.base import NodeExecutor, resolve_field, reveal_api_key
+from graphs.workflow_engine.nodes.base import NodeExecutor, _get_http_client, resolve_field, reveal_api_key
 from graphs.workflow_engine.schema import ICPScoreConfig
 
 logger = logging.getLogger(__name__)
@@ -46,20 +46,21 @@ async def _fetch_team_context(auth_token: str) -> tuple[str, str]:
     if auth_token:
         headers["Authorization"] = auth_token
 
+    client = _get_http_client()
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
-            resp = await client.get(
-                f"{settings.graphs.REVY_API_URL}/api/v1/team-context",
-                headers=headers,
-            )
-            if resp.status_code == 200:
-                ctx = resp.json()
-                icp = ctx.get("ideal_customer_profile") or "Not defined"
-                personas = ctx.get("buyer_personas") or "Not defined"
-                return icp, personas
+        resp = await client.get(
+            f"{settings.graphs.REVY_API_URL}/api/v1/team-context",
+            headers=headers,
+            timeout=httpx.Timeout(10),
+        )
     except (httpx.TimeoutException, httpx.RequestError) as exc:
         logger.warning("Failed to fetch team context: %s", exc)
         return "Not available", "Not available"
+    if resp.status_code == 200:
+        ctx = resp.json()
+        icp = ctx.get("ideal_customer_profile") or "Not defined"
+        personas = ctx.get("buyer_personas") or "Not defined"
+        return icp, personas
     return "Not defined", "Not defined"
 
 
@@ -95,6 +96,8 @@ async def score_account(
     custom_criteria: str,
     auth_token: str,
     api_key: str | None = None,
+    truncation_chars: int = 3000,
+    max_tokens: int = 200,
 ) -> dict[str, Any]:
     """Score one account against the team ICP. Status is recomputed from thresholds.
 
@@ -109,19 +112,19 @@ async def score_account(
     prompt = ICP_SCORING_PROMPT.format(
         icp=icp,
         personas=personas,
-        account_data=json.dumps(account_data, indent=2, default=str)[:3000],
+        account_data=json.dumps(account_data, indent=2, default=str)[:truncation_chars],
         custom_criteria_section=custom_section,
     )
 
     try:
         llm_model = model or settings.graphs.WORKFLOW_LLM_MODEL
-        init_kwargs: dict[str, Any] = {"temperature": 0, "max_tokens": 200}
+        init_kwargs: dict[str, Any] = {"temperature": 0, "max_tokens": max_tokens}
         if api_key:
             init_kwargs["api_key"] = api_key
         llm = init_chat_model(llm_model, **init_kwargs)
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         content = str(response.content or "")
-    except Exception as exc:  # LLM providers raise diverse exceptions
+    except Exception as exc:  # noqa: BLE001  # LLM SDKs raise provider-specific exceptions
         logger.warning("ICP score LLM call failed: %s", exc)
         return {"ok": False, "error": str(exc)[:500]}
 
@@ -174,6 +177,8 @@ class ICPScoreExecutor(NodeExecutor):
                 custom_criteria=cfg.custom_criteria,
                 auth_token=auth_token,
                 api_key=api_key,
+                truncation_chars=cfg.truncation_chars,
+                max_tokens=cfg.max_tokens,
             )
             return {"data": {**data, cfg.response_key: result}}
 
