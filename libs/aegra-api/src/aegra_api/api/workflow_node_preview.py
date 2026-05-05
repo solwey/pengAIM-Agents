@@ -18,7 +18,7 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Path, Request
 from graphs.workflow_engine.nodes.base import fetch_ingestion_configurable, resolve_templates, reveal_api_key
 from graphs.workflow_engine.nodes.icp_score import resolve_llm_key, score_account
 from graphs.workflow_engine.schema import (
@@ -70,6 +70,7 @@ class ICPScorePreviewResponse(BaseModel):
 async def preview_icp_score(
     body: ICPScorePreviewRequest,
     request: Request,
+    tenant_uuid: str = Path(..., description="Tenant UUID"),
     user: User = Depends(get_current_user),
 ) -> ICPScorePreviewResponse:
     """Run the ICP score node on a single account without persisting a WorkflowRun."""
@@ -83,8 +84,10 @@ async def preview_icp_score(
 
     auth_token = request.headers.get("authorization", "")
 
-    ingestion_cfg = await fetch_ingestion_configurable(auth_token)
-    synthetic_config: RunnableConfig = {"configurable": {"auth_token": auth_token, **ingestion_cfg}}
+    ingestion_cfg = await fetch_ingestion_configurable(auth_token, tenant_uuid)
+    synthetic_config: RunnableConfig = {
+        "configurable": {"auth_token": auth_token, "tenant_uuid": tenant_uuid, **ingestion_cfg}
+    }
     api_key = await resolve_llm_key(synthetic_config)
     effective_model = cfg.model or ingestion_cfg.get("llm_model") or ""
 
@@ -302,6 +305,7 @@ class EmailMessagePreviewResponse(BaseModel):
 async def preview_email_message(
     body: EmailMessagePreviewRequest,
     request: Request,
+    tenant_uuid: str = Path(..., description="Tenant UUID"),
     user: User = Depends(get_current_user),
 ) -> EmailMessagePreviewResponse:
     """Render the email and verify SMTP auth without actually sending anything."""
@@ -311,13 +315,14 @@ async def preview_email_message(
         return EmailMessagePreviewResponse(ok=False, error=_format_validation_error(exc))
 
     auth_token = request.headers.get("authorization", "")
-    return await _run_email_preview(cfg, body.sample_data, auth_token)
+    return await _run_email_preview(cfg, body.sample_data, auth_token, tenant_uuid)
 
 
 async def _run_email_preview(
     cfg: EmailMessageConfig,
     sample_data: dict[str, Any],
     auth_token: str,
+    tenant_uuid: str,
 ) -> EmailMessagePreviewResponse:
     resolved_to = resolve_templates(cfg.to, sample_data)
     resolved_subject = resolve_templates(cfg.subject, sample_data)
@@ -329,7 +334,7 @@ async def _run_email_preview(
 
     password = ""  # nosec B105
     if cfg.smtp_password_key_id:
-        rc_like = cast(RunnableConfig, {"configurable": {"auth_token": auth_token}})
+        rc_like = cast(RunnableConfig, {"configurable": {"auth_token": auth_token, "tenant_uuid": tenant_uuid}})
         password = await reveal_api_key(rc_like, cfg.smtp_password_key_id) or ""
     if not password:
         password = settings.graphs.SMTP_PASSWORD

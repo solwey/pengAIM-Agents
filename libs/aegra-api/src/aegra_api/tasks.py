@@ -285,9 +285,10 @@ def execute_workflow(self, workflow_run_id: str, tenant_uuid: str, auth_token: s
             async def _run():
                 async_engine = await _get_async_engine()
                 try:
-                    ingestion_cfg = await fetch_ingestion_configurable(auth_token)
+                    ingestion_cfg = await fetch_ingestion_configurable(auth_token, tenant_uuid)
                     configurable = {
                         "auth_token": auth_token,
+                        "tenant_uuid": tenant_uuid,
                         "team_id": run.team_id,
                         "user_id": run.user_id,
                         "tenant_schema": tenant_schema,
