@@ -84,9 +84,12 @@ class AppSettings(EnvBase):
     LOG_VERBOSITY: LowerStr = "verbose"
 
     # Auth
-    JWT_PRIVATE_KEY: str
     JWT_ALG: str = "RS256"
     JWKS_CACHE_TTL_SECONDS: int = 3600
+
+    # OAuth2 client_credentials (issued by pengAIM-RAG `create_oauth2_client`)
+    OAUTH2_CLIENT_ID: str | None = None
+    OAUTH2_CLIENT_SECRET: str | None = None
 
 
 class RedisSettings(EnvBase):

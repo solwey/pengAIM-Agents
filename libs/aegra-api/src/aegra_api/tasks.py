@@ -27,7 +27,7 @@ from .core.orm import (
     get_public_sync_session,
     new_tenant_sync_session,
 )
-from .services.internal_auth import create_internal_token
+from .services.internal_auth import fetch_oauth_token
 
 logger = structlog.getLogger(__name__)
 
@@ -394,13 +394,11 @@ def dispatch_scheduled_workflows():
                     schedule.updated_at = now
                     continue
 
-                # Generate internal JWT so downstream nodes can call backend
-                # on behalf of the workflow owner (aud = this tenant's uuid).
                 auth_token = ""  # nosec B105
-                token = create_internal_token(
-                    workflow.user_id,
-                    workflow.team_id,
-                    tenant.uuid,
+                token = fetch_oauth_token(
+                    tenant_uuid=tenant.uuid,
+                    team_id=workflow.team_id,
+                    user_id=workflow.user_id,
                 )
                 if token:
                     auth_token = f"Bearer {token}"

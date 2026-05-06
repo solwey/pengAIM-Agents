@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.orm import Tenant, Workflow, WorkflowRun, get_current_tenant, get_session
-from ..services.internal_auth import create_internal_token
+from ..services.internal_auth import fetch_oauth_token_async
 from ..services.webhook_security import (
     WebhookVerificationError,
     verify_bearer_token,
@@ -106,10 +106,11 @@ async def handle_workflow_webhook(
     await session.commit()
     await session.refresh(run)
 
-    # 6. Generate internal auth token for the workflow owner so that
-    #    downstream nodes (create_account, create_contact, etc.) can
-    #    call the revops-backend on behalf of the workflow creator.
-    internal_token = create_internal_token(workflow.user_id, workflow.team_id, tenant.uuid)
+    internal_token = await fetch_oauth_token_async(
+        tenant_uuid=tenant.uuid,
+        team_id=workflow.team_id,
+        user_id=workflow.user_id,
+    )
     auth_token = f"Bearer {internal_token}" if internal_token else ""
 
     # 7. Queue Celery task
