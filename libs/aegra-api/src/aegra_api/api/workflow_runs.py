@@ -1,29 +1,31 @@
 """Endpoints for executing and managing Workflow Runs."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth_deps import auth_dependency, get_current_user
+from ..core.auth_handlers import build_auth_context, get_scope_filters, handle_event
 from ..core.orm import Tenant, Workflow, WorkflowRun, get_current_tenant, get_session
 from ..models.auth import User
 
 router = APIRouter(tags=["Workflow Runs"], dependencies=auth_dependency)
 
 
-def _scope_workflow_query(query, user: User):
-    query = query.where(Workflow.team_id == user.team_id)
-    if not user.is_admin:
-        query = query.where(Workflow.user_id == user.id)
-    return query
+async def _resolve_filters(user: User, action: str) -> dict[str, Any]:
+    ctx = build_auth_context(user, "workflow_runs", action)
+    return await handle_event(ctx, {}) or {}
 
 
-def _scope_run_query(query, user: User):
-    query = query.where(WorkflowRun.team_id == user.team_id)
-    if not user.is_admin:
-        query = query.where(WorkflowRun.user_id == user.id)
-    return query
+def _scope_workflow_query(query, filters: dict[str, Any]):
+    return query.where(*get_scope_filters(Workflow, filters))
+
+
+def _scope_run_query(query, filters: dict[str, Any]):
+    return query.where(*get_scope_filters(WorkflowRun, filters))
 
 
 # ---------------------------------------------------------------------------
@@ -73,13 +75,14 @@ async def create_workflow_run(
     tenant: Tenant = Depends(get_current_tenant),
 ):
     """Create a workflow run and queue it for execution via Celery."""
+    filters = await _resolve_filters(user, "create")
     # Verify workflow exists and belongs to team
     result = await session.execute(
         _scope_workflow_query(
             select(Workflow).where(
                 Workflow.id == body.workflow_id,
             ),
-            user,
+            filters,
         )
     )
     workflow = result.scalar_one_or_none()
@@ -122,7 +125,8 @@ async def list_workflow_runs(
     page_size: int = Query(50, ge=1, le=100),
 ):
     """List workflow runs for the current team."""
-    query = _scope_run_query(select(WorkflowRun), user)
+    filters = await _resolve_filters(user, "search")
+    query = _scope_run_query(select(WorkflowRun), filters)
 
     if workflow_id:
         query = query.where(WorkflowRun.workflow_id == workflow_id)
@@ -155,7 +159,7 @@ async def get_workflow_run(
     session: AsyncSession = Depends(get_session),
 ):
     """Get a single workflow run by ID (used for polling)."""
-    run = await _get_run_or_404(session, run_id, user)
+    run = await _get_run_or_404(session, run_id, user, action="read")
     return _to_response(run)
 
 
@@ -171,7 +175,7 @@ async def cancel_workflow_run(
     Sets status to 'cancelled' in DB. The Celery task polls this field
     and cancels itself gracefully. Use force=true for emergency termination.
     """
-    run = await _get_run_or_404(session, run_id, user)
+    run = await _get_run_or_404(session, run_id, user, action="update")
 
     if run.status not in ("pending", "running"):
         raise HTTPException(
@@ -199,7 +203,7 @@ async def delete_workflow_run(
     session: AsyncSession = Depends(get_session),
 ):
     """Delete a workflow run record."""
-    run = await _get_run_or_404(session, run_id, user)
+    run = await _get_run_or_404(session, run_id, user, action="delete")
     await session.delete(run)
     await session.commit()
 
@@ -209,13 +213,20 @@ async def delete_workflow_run(
 # ---------------------------------------------------------------------------
 
 
-async def _get_run_or_404(session: AsyncSession, run_id: str, user: User) -> WorkflowRun:
+async def _get_run_or_404(
+    session: AsyncSession,
+    run_id: str,
+    user: User,
+    *,
+    action: str = "read",
+) -> WorkflowRun:
+    filters = await _resolve_filters(user, action)
     result = await session.execute(
         _scope_run_query(
             select(WorkflowRun).where(
                 WorkflowRun.id == run_id,
             ),
-            user,
+            filters,
         )
     )
     run = result.scalar_one_or_none()

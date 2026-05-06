@@ -210,6 +210,37 @@ def _get_handler(
     return None
 
 
+def get_scope_filters(
+    model: Any,
+    filters: dict[str, Any] | None,
+    *,
+    exclude: set[str] | frozenset[str] | tuple[str, ...] = (),
+) -> list[Any]:
+    """Translate an auth-handler filter dict into a list of WHERE conditions.
+
+    Handlers from `auth.py` return one of:
+      - `{}`        → caller has tenant-wide reach; returns `[]` (no scoping).
+      - `{"team_id": tid}` → returns `[model.team_id == tid]`.
+      - `{"user_id": uid, "team_id": tid}` → returns both column comparisons.
+
+    Any key not present on the model is silently skipped — handlers may return
+    annotations that don't map to a given table. Use `exclude` to drop specific
+    keys (e.g. `{"user_id"}` when building the shared-thread branch).
+    """
+    if not filters:
+        return []
+    excluded = set(exclude)
+    out: list[Any] = []
+    for key, value in filters.items():
+        if key in excluded:
+            continue
+        column = getattr(model, key, None)
+        if column is None:
+            continue
+        out.append(column == value)
+    return out
+
+
 def build_auth_context(
     user: User,
     resource: str,

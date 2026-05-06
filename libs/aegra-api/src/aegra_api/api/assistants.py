@@ -67,10 +67,9 @@ async def list_assistants(
 
     # Authorization check (search action for listing)
     ctx = build_auth_context(user, "assistants", "search")
-    value = {}
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, {})
 
-    assistants = await service.list_assistants(user)
+    assistants = await service.list_assistants(user, type=type, filters=filters)
     return AssistantList(assistants=assistants, total=len(assistants))
 
 
@@ -88,9 +87,9 @@ async def search_assistants(
     # Authorization check
     ctx = build_auth_context(user, "assistants", "search")
     value = request.model_dump()
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, value)
 
-    return await service.search_assistants(request, user)
+    return await service.search_assistants(request, user, filters=filters)
 
 
 @router.post("/assistants/count", response_model=int)
@@ -107,9 +106,9 @@ async def count_assistants(
     # Authorization check (search action for counting)
     ctx = build_auth_context(user, "assistants", "search")
     value = request.model_dump()
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, value)
 
-    return await service.count_assistants(request, user)
+    return await service.count_assistants(request, user, filters=filters)
 
 
 @router.get(
@@ -131,9 +130,9 @@ async def get_assistant(
     # Authorization check
     ctx = build_auth_context(user, "assistants", "read")
     value = {"assistant_id": assistant_id}
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, value)
 
-    return await service.get_assistant(assistant_id, user)
+    return await service.get_assistant(assistant_id, user, filters=filters)
 
 
 @router.patch(
@@ -164,7 +163,7 @@ async def update_assistant(
     elif value.get("metadata"):
         request.metadata = {**(request.metadata or {}), **value["metadata"]}
 
-    return await service.update_assistant(assistant_id, request, user)
+    return await service.update_assistant(assistant_id, request, user, filters=filters)
 
 
 @router.delete("/assistants/{assistant_id}", responses={**NOT_FOUND})
@@ -181,9 +180,9 @@ async def delete_assistant(
     # Authorization check
     ctx = build_auth_context(user, "assistants", "delete")
     value = {"assistant_id": assistant_id}
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, value)
 
-    return await service.delete_assistant(assistant_id, user)
+    return await service.delete_assistant(assistant_id, user, filters=filters)
 
 
 @router.post(
@@ -203,7 +202,9 @@ async def set_assistant_latest(
     After calling this endpoint, the assistant will use the specified version's
     configuration when executing runs.
     """
-    return await service.set_assistant_latest(assistant_id, version, user)
+    ctx = build_auth_context(user, "assistants", "update")
+    filters = await handle_event(ctx, {"assistant_id": assistant_id, "version": version})
+    return await service.set_assistant_latest(assistant_id, version, user, filters=filters)
 
 
 @router.post(
@@ -222,7 +223,9 @@ async def list_assistant_versions(
     Returns versions ordered from newest to oldest. Each version captures the
     assistant's configuration at the time of creation or update.
     """
-    return await service.list_assistant_versions(assistant_id, user)
+    ctx = build_auth_context(user, "assistants", "read")
+    filters = await handle_event(ctx, {"assistant_id": assistant_id})
+    return await service.list_assistant_versions(assistant_id, user, filters=filters)
 
 
 @router.get(
@@ -240,7 +243,9 @@ async def get_assistant_schemas(
     Returns the input, output, state, and config schemas derived from the
     underlying graph's type annotations.
     """
-    return await service.get_assistant_schemas(assistant_id, user)
+    ctx = build_auth_context(user, "assistants", "read")
+    filters = await handle_event(ctx, {"assistant_id": assistant_id})
+    return await service.get_assistant_schemas(assistant_id, user, filters=filters)
 
 
 @router.get("/assistants/{assistant_id}/graph", responses={**NOT_FOUND})
@@ -260,7 +265,9 @@ async def get_assistant_graph(
     """
     # Default to False if not provided
     xray_value = xray if xray is not None else False
-    return await service.get_assistant_graph(assistant_id, xray_value, user)
+    ctx = build_auth_context(user, "assistants", "read")
+    filters = await handle_event(ctx, {"assistant_id": assistant_id})
+    return await service.get_assistant_graph(assistant_id, xray_value, user, filters=filters)
 
 
 @router.get("/assistants/{assistant_id}/subgraphs", responses={**NOT_FOUND})
@@ -277,4 +284,6 @@ async def get_assistant_subgraphs(
     `recurse=true` to include deeply nested subgraphs, or filter to a single
     namespace.
     """
-    return await service.get_assistant_subgraphs(assistant_id, namespace, recurse, user)
+    ctx = build_auth_context(user, "assistants", "read")
+    filters = await handle_event(ctx, {"assistant_id": assistant_id})
+    return await service.get_assistant_subgraphs(assistant_id, namespace, recurse, user, filters=filters)

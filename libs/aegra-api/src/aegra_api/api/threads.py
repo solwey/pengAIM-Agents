@@ -9,12 +9,12 @@ from uuid import uuid4
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aegra_api.core.active_runs import active_runs
 from aegra_api.core.auth_deps import auth_dependency, get_current_user
-from aegra_api.core.auth_handlers import build_auth_context, handle_event
+from aegra_api.core.auth_handlers import build_auth_context, get_scope_filters, handle_event
 from aegra_api.core.orm import Run as RunORM
 from aegra_api.core.orm import Thread as ThreadORM
 from aegra_api.core.orm import get_session
@@ -117,10 +117,28 @@ def _serialize_thread(thread_orm: ThreadORM, default_metadata: dict[str, Any] | 
     )
 
 
-# Helper: sanitize ThreadState for non-admin users
+def _thread_scope_clause(filters: dict[str, Any] | None):
+    """Build a WHERE clause that scopes by the auth filter and includes shared threads.
+
+    The user's own/team scope OR any thread flagged ``is_shared``. With
+    tenant-wide reach (`thread.read.all`) the filter dict is empty and we
+    impose no restriction at all.
+    """
+    if not filters:
+        return true()
+    return or_(
+        and_(*get_scope_filters(ThreadORM, filters)),
+        and_(
+            *get_scope_filters(ThreadORM, filters, exclude={"user_id"}),
+            ThreadORM.is_shared.is_(True),
+        ),
+    )
+
+
+# Helper: sanitize ThreadState for users without tenant-wide read access
 def _sanitize_thread_state_for_user(state: ThreadState, user: User) -> ThreadState:
-    """Hide sensitive config/context fields in ThreadState for non-admin users."""
-    if user.is_admin:
+    """Hide sensitive metadata in ThreadState unless the user has `thread.read.all`."""
+    if user.has_permission("threads.read.all"):
         return state
     try:
         return state.model_copy(
@@ -219,17 +237,12 @@ async def list_threads(
     """
     # Authorization check (search action for listing)
     ctx = build_auth_context(user, "threads", "search")
-    value = {}
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, {})
 
     metadata = request.metadata or {}
     stmt = select(ThreadORM).where(
-        ThreadORM.team_id == user.team_id,
         ThreadORM.deleted_at.is_(None),
-        or_(
-            ThreadORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
-        ),
+        _thread_scope_clause(filters),
     )
 
     assistant_id = metadata.get("assistant_id")
@@ -259,15 +272,13 @@ async def get_thread(
     # Authorization check
     ctx = build_auth_context(user, "threads", "read")
     value = {"thread_id": thread_id}
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, value)
 
     stmt = select(ThreadORM).where(
         ThreadORM.thread_id == thread_id,
-        ThreadORM.team_id == user.team_id,
         ThreadORM.deleted_at.is_(None),
+        *get_scope_filters(ThreadORM, filters),
     )
-    if not user.is_admin:
-        stmt = stmt.where(ThreadORM.user_id == user.id)
     thread = await session.scalar(stmt)
     if not thread:
         raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -303,12 +314,8 @@ async def update_thread(
 
     stmt = select(ThreadORM).where(
         ThreadORM.thread_id == thread_id,
-        ThreadORM.team_id == user.team_id,
         ThreadORM.deleted_at.is_(None),
-        or_(
-            ThreadORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
-        ),
+        _thread_scope_clause(filters),
     )
     thread = await session.scalar(stmt)
 
@@ -343,13 +350,13 @@ async def get_thread_state(
     executed), returns an empty state.
     """
     try:
+        ctx = build_auth_context(user, "threads", "read")
+        filters = await handle_event(ctx, {"thread_id": thread_id})
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
-            ThreadORM.team_id == user.team_id,
             ThreadORM.deleted_at.is_(None),
+            _thread_scope_clause(filters),
         )
-        if not user.is_admin:
-            stmt = stmt.where(ThreadORM.user_id == user.id)
         thread = await session.scalar(stmt)
         if not thread:
             raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -460,14 +467,12 @@ async def update_thread_state(
         )
 
     try:
+        ctx = build_auth_context(user, "threads", "update")
+        filters = await handle_event(ctx, {"thread_id": thread_id, **request.model_dump()})
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
-            ThreadORM.team_id == user.team_id,
             ThreadORM.deleted_at.is_(None),
-            or_(
-                ThreadORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            ),
+            _thread_scope_clause(filters),
         )
         thread = await session.scalar(stmt)
         if not thread:
@@ -595,14 +600,12 @@ async def get_thread_state_at_checkpoint(
     execution history. Returns 404 if the checkpoint does not exist.
     """
     try:
+        ctx = build_auth_context(user, "threads", "read")
+        filters = await handle_event(ctx, {"thread_id": thread_id, "checkpoint_id": checkpoint_id})
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
-            ThreadORM.team_id == user.team_id,
             ThreadORM.deleted_at.is_(None),
-            or_(
-                ThreadORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            ),
+            _thread_scope_clause(filters),
         )
         thread = await session.scalar(stmt)
         if not thread:
@@ -723,14 +726,12 @@ async def get_thread_history_post(
         subgraphs = bool(request.subgraphs) if request.subgraphs is not None else False
         checkpoint_ns = request.checkpoint_ns
 
+        ctx = build_auth_context(user, "threads", "read")
+        filters = await handle_event(ctx, {"thread_id": thread_id})
         stmt = select(ThreadORM).where(
             ThreadORM.thread_id == thread_id,
-            ThreadORM.team_id == user.team_id,
             ThreadORM.deleted_at.is_(None),
-            or_(
-                ThreadORM.user_id == user.id,
-                ThreadORM.is_shared.is_(True),
-            ),
+            _thread_scope_clause(filters),
         )
         thread = await session.scalar(stmt)
         if not thread:
@@ -861,15 +862,13 @@ async def delete_thread(
     # Authorization check
     ctx = build_auth_context(user, "threads", "delete")
     value = {"thread_id": thread_id}
-    await handle_event(ctx, value)
+    filters = await handle_event(ctx, value)
 
     stmt = select(ThreadORM).where(
         ThreadORM.thread_id == thread_id,
-        ThreadORM.team_id == user.team_id,
         ThreadORM.deleted_at.is_(None),
+        *get_scope_filters(ThreadORM, filters),
     )
-    if not user.is_admin:
-        stmt = stmt.where(ThreadORM.user_id == user.id)
     thread = await session.scalar(stmt)
     if not thread:
         raise HTTPException(404, f"Thread '{thread_id}' not found")
@@ -916,22 +915,9 @@ async def search_threads(
     value = request.model_dump()
     filters = await handle_event(ctx, value)
 
-    # Merge handler filters with request metadata
-    # Note: ThreadSearchRequest doesn't have a filters field,
-    # so we merge authorization filters into metadata if needed
-    if filters and "metadata" in filters:
-        # If filters contain metadata, merge with request metadata
-        handler_meta = filters["metadata"]
-        if isinstance(handler_meta, dict):
-            request.metadata = {**(request.metadata or {}), **handler_meta}
-        # Other filter types can be handled here if needed
     stmt = select(ThreadORM).where(
-        ThreadORM.team_id == user.team_id,
         ThreadORM.deleted_at.is_(None),
-        or_(
-            ThreadORM.user_id == user.id,
-            ThreadORM.is_shared.is_(True),
-        ),
+        _thread_scope_clause(filters),
     )
 
     if request.status:

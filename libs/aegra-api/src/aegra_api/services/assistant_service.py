@@ -57,6 +57,22 @@ def to_pydantic(row: AssistantORM) -> Assistant:
     return Assistant.model_validate(row, from_attributes=True)
 
 
+def _scope_assistants(stmt, filters: dict[str, Any] | None):
+    """Apply auth-handler filters to an Assistant query.
+
+    Assistants are team-owned (no per-user column) but the "system" team is
+    visible to everyone. We always OR in `team_id == "system"` so built-in
+    assistants stay reachable; the team_id filter from the handler scopes
+    custom assistants to the caller's team (or any team for `*.all`).
+    """
+    if not filters:
+        return stmt
+    team_id = filters.get("team_id")
+    if team_id is not None:
+        stmt = stmt.where(or_(AssistantORM.team_id == team_id, AssistantORM.team_id == "system"))
+    return stmt
+
+
 def _state_jsonschema(graph) -> dict | None:
     """Extract state schema from graph channels"""
     fields: dict = {}
@@ -134,7 +150,9 @@ class AssistantService:
 
     def _to_pydantic_for_user(self, row: AssistantORM, user: User) -> Assistant:
         assistant = to_pydantic(row)
-        if not user.is_admin:
+        # Tenant-wide readers (assistant.read.all) see the full config; everyone
+        # else gets a sanitized view that only exposes UI-facing fields.
+        if not user.has_permission("assistants.read.all"):
             tool_calls_visibility = (
                 getattr(assistant, "config", {}).get("configurable", {}).get("tool_calls_visibility", "always_off")
             )
@@ -246,36 +264,38 @@ class AssistantService:
 
         return self._to_pydantic_for_user(assistant_orm, user)
 
-    async def list_assistants(self, user: User, type: str | None = None) -> list[Assistant]:
-        """List user's assistants, optionally filtered by type"""
-        conditions = [
-            AssistantORM.team_id == user.team_id,
-            AssistantORM.deleted_at.is_(None),
-        ]
+    async def list_assistants(
+        self,
+        user: User,
+        type: str | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> list[Assistant]:
+        """List assistants reachable by the caller, optionally filtered by type."""
+        stmt = select(AssistantORM).where(AssistantORM.deleted_at.is_(None))
+        stmt = _scope_assistants(stmt, filters)
 
         if type is not None:
-            conditions.append(AssistantORM.type == type)
+            stmt = stmt.where(AssistantORM.type == type)
 
-        stmt = select(AssistantORM).where(*conditions)
         result = await self.session.scalars(stmt)
-        user_assistants = [self._to_pydantic_for_user(a, user) for a in result.all()]
-        return user_assistants
+        return [self._to_pydantic_for_user(a, user) for a in result.all()]
 
     async def search_assistants(
         self,
         request: Any,  # AssistantSearchRequest
         user: User,
+        filters: dict[str, Any] | None = None,
     ) -> list[Assistant]:
         """Search assistants with filters"""
         metadata = request.metadata or {}
-        req_team_id = metadata.pop("team_id", None)
-        # Support both request field and legacy metadata for include_deleted
+        # Drop legacy cross-team override; tenant-wide reach now comes from
+        # holding `assistant.read.all`, which the auth handler expresses by
+        # returning an empty filter dict.
+        metadata.pop("team_id", None)
         include_deleted = request.include_deleted or metadata.pop("include_deleted", "false") == "true"
-        # Support include_disabled metadata to show all agents on dashboard
         include_disabled = metadata.pop("include_disabled", "false") == "true"
 
-        team_id = req_team_id if req_team_id and user.is_superadmin else user.team_id
-        stmt = select(AssistantORM).where(AssistantORM.team_id.in_([team_id, "system"]))
+        stmt = _scope_assistants(select(AssistantORM), filters)
 
         if request.status == "active":
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
@@ -321,16 +341,15 @@ class AssistantService:
         self,
         request: Any,  # AssistantSearchRequest
         user: User,
+        filters: dict[str, Any] | None = None,
     ) -> int:
         """Count assistants with filters"""
         metadata = request.metadata or {}
-        req_team_id = metadata.pop("team_id", None)
-        # Support both request field and legacy metadata for include_deleted
+        metadata.pop("team_id", None)
         include_deleted = request.include_deleted or metadata.pop("include_deleted", "false") == "true"
         include_disabled = metadata.pop("include_disabled", "false") == "true"
 
-        team_id = req_team_id if req_team_id and user.is_superadmin else user.team_id
-        stmt = select(func.count()).where(AssistantORM.team_id.in_([team_id, "system"]))
+        stmt = _scope_assistants(select(func.count()).select_from(AssistantORM), filters)
 
         if request.status == "active":
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
@@ -359,12 +378,19 @@ class AssistantService:
         total = await self.session.scalar(stmt)
         return total or 0
 
-    async def get_assistant(self, assistant_id: str, user: User) -> Assistant:
+    async def get_assistant(
+        self,
+        assistant_id: str,
+        user: User,
+        filters: dict[str, Any] | None = None,
+    ) -> Assistant:
         """Get assistant by ID"""
-        stmt = select(AssistantORM).where(
-            AssistantORM.assistant_id == assistant_id,
-            or_(AssistantORM.team_id == user.team_id, AssistantORM.team_id == "system"),
-            AssistantORM.deleted_at.is_(None),
+        stmt = _scope_assistants(
+            select(AssistantORM).where(
+                AssistantORM.assistant_id == assistant_id,
+                AssistantORM.deleted_at.is_(None),
+            ),
+            filters,
         )
         assistant = await self.session.scalar(stmt)
 
@@ -373,7 +399,13 @@ class AssistantService:
 
         return self._to_pydantic_for_user(assistant, user)
 
-    async def update_assistant(self, assistant_id: str, request: AssistantUpdate, user: User) -> Assistant:
+    async def update_assistant(
+        self,
+        assistant_id: str,
+        request: AssistantUpdate,
+        user: User,
+        filters: dict[str, Any] | None = None,
+    ) -> Assistant:
         """Update assistant by ID"""
         metadata = request.metadata or {}
         config = request.config or {}
@@ -385,7 +417,7 @@ class AssistantService:
                 detail="Cannot specify both configurable and context. Use only one.",
             )
 
-        req_team_id = metadata.pop("team_id", None)
+        metadata.pop("team_id", None)
         restore = str(metadata.pop("restore", False)).lower() == "true"
         enabled = metadata.pop("enabled", None)
 
@@ -395,11 +427,9 @@ class AssistantService:
         elif context:
             config["configurable"] = context
 
-        team_id = req_team_id if req_team_id and user.is_superadmin else user.team_id
-
-        stmt = select(AssistantORM).where(
-            AssistantORM.assistant_id == assistant_id,
-            AssistantORM.team_id == team_id,
+        stmt = _scope_assistants(
+            select(AssistantORM).where(AssistantORM.assistant_id == assistant_id),
+            filters,
         )
         assistant = await self.session.scalar(stmt)
         if not assistant:
@@ -497,10 +527,7 @@ class AssistantService:
 
         assistant_update = (
             update(AssistantORM)
-            .where(
-                AssistantORM.assistant_id == assistant_id,
-                AssistantORM.team_id == team_id,
-            )
+            .where(AssistantORM.assistant_id == assistant.assistant_id)
             .values(**update_values)
         )
         await self.session.execute(assistant_update)
@@ -508,12 +535,19 @@ class AssistantService:
         updated_assistant = await self.session.scalar(stmt)
         return self._to_pydantic_for_user(updated_assistant, user)
 
-    async def delete_assistant(self, assistant_id: str, user: User) -> dict:
+    async def delete_assistant(
+        self,
+        assistant_id: str,
+        user: User,
+        filters: dict[str, Any] | None = None,
+    ) -> dict:
         """Delete assistant by ID (soft delete)"""
-        stmt = select(AssistantORM).where(
-            AssistantORM.assistant_id == assistant_id,
-            AssistantORM.team_id == user.team_id,
-            AssistantORM.deleted_at.is_(None),
+        stmt = _scope_assistants(
+            select(AssistantORM).where(
+                AssistantORM.assistant_id == assistant_id,
+                AssistantORM.deleted_at.is_(None),
+            ),
+            filters,
         )
         assistant = await self.session.scalar(stmt)
 
@@ -525,12 +559,20 @@ class AssistantService:
 
         return {"status": "deleted"}
 
-    async def set_assistant_latest(self, assistant_id: str, version: int, user: User) -> Assistant:
+    async def set_assistant_latest(
+        self,
+        assistant_id: str,
+        version: int,
+        user: User,
+        filters: dict[str, Any] | None = None,
+    ) -> Assistant:
         """Set the given version as the latest version of an assistant"""
-        stmt = select(AssistantORM).where(
-            AssistantORM.assistant_id == assistant_id,
-            AssistantORM.team_id == user.team_id,
-            AssistantORM.deleted_at.is_(None),
+        stmt = _scope_assistants(
+            select(AssistantORM).where(
+                AssistantORM.assistant_id == assistant_id,
+                AssistantORM.deleted_at.is_(None),
+            ),
+            filters,
         )
         assistant = await self.session.scalar(stmt)
         if not assistant:
@@ -546,10 +588,7 @@ class AssistantService:
 
         assistant_update = (
             update(AssistantORM)
-            .where(
-                AssistantORM.assistant_id == assistant_id,
-                AssistantORM.team_id == user.team_id,
-            )
+            .where(AssistantORM.assistant_id == assistant.assistant_id)
             .values(
                 name=assistant_version.name,
                 description=assistant_version.description,
@@ -566,12 +605,19 @@ class AssistantService:
         updated_assistant = await self.session.scalar(stmt)
         return self._to_pydantic_for_user(updated_assistant, user)
 
-    async def list_assistant_versions(self, assistant_id: str, user: User) -> list[Assistant]:
+    async def list_assistant_versions(
+        self,
+        assistant_id: str,
+        user: User,
+        filters: dict[str, Any] | None = None,
+    ) -> list[Assistant]:
         """List all versions of an assistant"""
-        stmt = select(AssistantORM).where(
-            AssistantORM.assistant_id == assistant_id,
-            or_(AssistantORM.team_id == user.team_id, AssistantORM.team_id == "system"),
-            AssistantORM.deleted_at.is_(None),
+        stmt = _scope_assistants(
+            select(AssistantORM).where(
+                AssistantORM.assistant_id == assistant_id,
+                AssistantORM.deleted_at.is_(None),
+            ),
+            filters,
         )
         assistant = await self.session.scalar(stmt)
         if not assistant:
@@ -588,15 +634,16 @@ class AssistantService:
         if not versions:
             raise HTTPException(404, f"No versions found for Assistant '{assistant_id}'")
 
-        # Convert to Pydantic models, hide config/context for non-admins
-        is_admin = getattr(user, "is_admin", False)
+        # Convert to Pydantic models. Only callers with tenant-wide read see the
+        # raw config/context; everyone else gets an empty placeholder.
+        full_view = user.has_permission("assistants.read.all")
         version_list = [
             Assistant(
                 assistant_id=assistant_id,
                 name=v.name,
                 description=v.description,
-                config=v.config or {} if is_admin else {},
-                context=v.context or {} if is_admin else {},
+                config=v.config or {} if full_view else {},
+                context=v.context or {} if full_view else {},
                 graph_id=v.graph_id,
                 team_id=user.team_id,
                 version=v.version,
@@ -609,11 +656,16 @@ class AssistantService:
 
         return version_list
 
-    async def get_assistant_schemas(self, assistant_id: str, user: User) -> dict[str, Any]:
+    async def get_assistant_schemas(
+        self,
+        assistant_id: str,
+        user: User,
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Get input, output, state, config and context schemas for an assistant"""
-        stmt = select(AssistantORM).where(
-            AssistantORM.assistant_id == assistant_id,
-            or_(AssistantORM.team_id == user.team_id, AssistantORM.team_id == "system"),
+        stmt = _scope_assistants(
+            select(AssistantORM).where(AssistantORM.assistant_id == assistant_id),
+            filters,
         )
         assistant = await self.session.scalar(stmt)
 
@@ -634,12 +686,20 @@ class AssistantService:
         except Exception as e:
             raise HTTPException(400, f"Failed to extract schemas: {str(e)}") from e
 
-    async def get_assistant_graph(self, assistant_id: str, xray: bool | int, user: User) -> dict[str, Any]:
+    async def get_assistant_graph(
+        self,
+        assistant_id: str,
+        xray: bool | int,
+        user: User,
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Get the graph structure for visualization"""
-        stmt = select(AssistantORM).where(
-            AssistantORM.assistant_id == assistant_id,
-            or_(AssistantORM.team_id == user.team_id, AssistantORM.team_id == "system"),
-            AssistantORM.deleted_at.is_(None),
+        stmt = _scope_assistants(
+            select(AssistantORM).where(
+                AssistantORM.assistant_id == assistant_id,
+                AssistantORM.deleted_at.is_(None),
+            ),
+            filters,
         )
         assistant = await self.session.scalar(stmt)
 
@@ -681,12 +741,15 @@ class AssistantService:
         namespace: str | None,
         recurse: bool,
         user: User,
+        filters: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Get subgraphs of an assistant"""
-        stmt = select(AssistantORM).where(
-            AssistantORM.assistant_id == assistant_id,
-            or_(AssistantORM.team_id == user.team_id, AssistantORM.team_id == "system"),
-            AssistantORM.deleted_at.is_(None),
+        stmt = _scope_assistants(
+            select(AssistantORM).where(
+                AssistantORM.assistant_id == assistant_id,
+                AssistantORM.deleted_at.is_(None),
+            ),
+            filters,
         )
         assistant = await self.session.scalar(stmt)
 
