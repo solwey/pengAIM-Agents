@@ -18,7 +18,7 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, Request
 from graphs.workflow_engine.nodes.base import fetch_ingestion_configurable, resolve_templates, reveal_api_key
 from graphs.workflow_engine.nodes.icp_score import resolve_llm_key, score_account
 from graphs.workflow_engine.schema import (
@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field, ValidationError
 from aegra_api.settings import settings
 
 from ..core.auth_deps import auth_dependency, get_current_user
+from ..core.orm import Tenant, get_current_tenant
 from ..models.auth import User
 
 logger = logging.getLogger(__name__)
@@ -70,8 +71,8 @@ class ICPScorePreviewResponse(BaseModel):
 async def preview_icp_score(
     body: ICPScorePreviewRequest,
     request: Request,
-    tenant_uuid: str = Path(..., description="Tenant UUID"),
     user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> ICPScorePreviewResponse:
     """Run the ICP score node on a single account without persisting a WorkflowRun."""
     if not body.account_data:
@@ -84,9 +85,9 @@ async def preview_icp_score(
 
     auth_token = request.headers.get("authorization", "")
 
-    ingestion_cfg = await fetch_ingestion_configurable(auth_token, tenant_uuid)
+    ingestion_cfg = await fetch_ingestion_configurable(auth_token, tenant.uuid)
     synthetic_config: RunnableConfig = {
-        "configurable": {"auth_token": auth_token, "tenant_uuid": tenant_uuid, **ingestion_cfg}
+        "configurable": {"auth_token": auth_token, "tenant_uuid": tenant.uuid, **ingestion_cfg}
     }
     api_key = await resolve_llm_key(synthetic_config)
     effective_model = cfg.model or ingestion_cfg.get("llm_model") or ""
@@ -305,8 +306,8 @@ class EmailMessagePreviewResponse(BaseModel):
 async def preview_email_message(
     body: EmailMessagePreviewRequest,
     request: Request,
-    tenant_uuid: str = Path(..., description="Tenant UUID"),
     user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> EmailMessagePreviewResponse:
     """Render the email and verify SMTP auth without actually sending anything."""
     try:
@@ -315,7 +316,7 @@ async def preview_email_message(
         return EmailMessagePreviewResponse(ok=False, error=_format_validation_error(exc))
 
     auth_token = request.headers.get("authorization", "")
-    return await _run_email_preview(cfg, body.sample_data, auth_token, tenant_uuid)
+    return await _run_email_preview(cfg, body.sample_data, auth_token, tenant.uuid)
 
 
 async def _run_email_preview(
