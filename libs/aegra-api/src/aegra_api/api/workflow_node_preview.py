@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field, ValidationError
 from aegra_api.settings import settings
 
 from ..core.auth_deps import auth_dependency, get_current_user
+from ..core.auth_handlers import build_auth_context, handle_event
 from ..core.orm import Tenant, get_current_tenant
 from ..models.auth import User
 
@@ -67,6 +68,11 @@ class ICPScorePreviewResponse(BaseModel):
     error: str | None = None
 
 
+async def _check_preview_permission(user: User) -> None:
+    ctx = build_auth_context(user, "workflows", "preview")
+    await handle_event(ctx, {})
+
+
 @router.post("/workflow-nodes/icp-score/preview", response_model=ICPScorePreviewResponse)
 async def preview_icp_score(
     body: ICPScorePreviewRequest,
@@ -75,6 +81,7 @@ async def preview_icp_score(
     tenant: Tenant = Depends(get_current_tenant),
 ) -> ICPScorePreviewResponse:
     """Run the ICP score node on a single account without persisting a WorkflowRun."""
+    await _check_preview_permission(user)
     if not body.account_data:
         return ICPScorePreviewResponse(ok=False, error="account_data is required")
 
@@ -136,6 +143,7 @@ async def preview_api_request(
     user: User = Depends(get_current_user),
 ) -> ApiRequestPreviewResponse:
     """Execute a single HTTP request without retries; truncate the body for preview."""
+    await _check_preview_permission(user)
     if not body.config.get("url"):
         return ApiRequestPreviewResponse(ok=False, error="url is required")
 
@@ -227,6 +235,7 @@ async def preview_slack_message(
     user: User = Depends(get_current_user),
 ) -> SlackMessagePreviewResponse:
     """Send the configured Slack message with a visible [PREVIEW] prefix so the channel knows it's a test."""
+    await _check_preview_permission(user)
     try:
         cfg = SlackMessageConfig(**body.config)
     except ValidationError as exc:
@@ -310,6 +319,7 @@ async def preview_email_message(
     tenant: Tenant = Depends(get_current_tenant),
 ) -> EmailMessagePreviewResponse:
     """Render the email and verify SMTP auth without actually sending anything."""
+    await _check_preview_permission(user)
     try:
         cfg = EmailMessageConfig(**body.config)
     except ValidationError as exc:
@@ -433,6 +443,7 @@ async def preview_llm_complete(
     user: User = Depends(get_current_user),
 ) -> LLMCompletePreviewResponse:
     """Invoke the configured LLM with a capped token budget for interactive preview."""
+    await _check_preview_permission(user)
     try:
         cfg = LLMCompleteConfig(**body.config)
     except ValidationError as exc:
