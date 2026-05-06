@@ -137,8 +137,8 @@ def _thread_scope_clause(filters: dict[str, Any] | None):
 
 # Helper: sanitize ThreadState for users without tenant-wide read access
 def _sanitize_thread_state_for_user(state: ThreadState, user: User) -> ThreadState:
-    """Hide sensitive metadata in ThreadState unless the user has `thread.read.all`."""
-    if user.has_permission("threads.read.all"):
+    """Hide sensitive metadata in ThreadState unless the user has `threads.read_metadata`."""
+    if user.has_permission("threads.read_metadata"):
         return state
     try:
         return state.model_copy(
