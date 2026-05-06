@@ -288,14 +288,14 @@ class AssistantService:
     ) -> list[Assistant]:
         """Search assistants with filters"""
         metadata = request.metadata or {}
-        # Drop legacy cross-team override; tenant-wide reach now comes from
-        # holding `assistant.read.all`, which the auth handler expresses by
-        # returning an empty filter dict.
-        metadata.pop("team_id", None)
+        req_team_id = metadata.pop("team_id", None)
         include_deleted = request.include_deleted or metadata.pop("include_deleted", "false") == "true"
         include_disabled = metadata.pop("include_disabled", "false") == "true"
 
         stmt = _scope_assistants(select(AssistantORM), filters)
+
+        if req_team_id is not None:
+            stmt = stmt.where(AssistantORM.team_id == req_team_id)
 
         if request.status == "active":
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
@@ -345,7 +345,7 @@ class AssistantService:
     ) -> int:
         """Count assistants with filters"""
         metadata = request.metadata or {}
-        metadata.pop("team_id", None)
+        req_team_id = metadata.pop("team_id", None)
         include_deleted = request.include_deleted or metadata.pop("include_deleted", "false") == "true"
         include_disabled = metadata.pop("include_disabled", "false") == "true"
 
@@ -357,6 +357,9 @@ class AssistantService:
             stmt = stmt.where(AssistantORM.deleted_at.is_not(None))
         elif not include_deleted:
             stmt = stmt.where(AssistantORM.deleted_at.is_(None))
+
+        if req_team_id is not None:
+            stmt = stmt.where(AssistantORM.team_id == req_team_id)
 
         if request.name:
             stmt = stmt.where(AssistantORM.name.ilike(f"%{request.name}%"))
@@ -417,7 +420,7 @@ class AssistantService:
                 detail="Cannot specify both configurable and context. Use only one.",
             )
 
-        metadata.pop("team_id", None)
+        req_team_id = metadata.pop("team_id", None)
         restore = str(metadata.pop("restore", False)).lower() == "true"
         enabled = metadata.pop("enabled", None)
 
@@ -431,6 +434,10 @@ class AssistantService:
             select(AssistantORM).where(AssistantORM.assistant_id == assistant_id),
             filters,
         )
+
+        if req_team_id is not None:
+            stmt = stmt.where(AssistantORM.team_id == req_team_id)
+
         assistant = await self.session.scalar(stmt)
         if not assistant:
             graph_id = request.graph_id
