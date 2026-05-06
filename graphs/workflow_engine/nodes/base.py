@@ -218,19 +218,22 @@ def compare(actual: Any, operator: str, expected: Any) -> bool:
 
 
 async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
-    """Fetch a decrypted API key from pengAIM-RAG via /keys/{key_id}/reveal.
+    """Fetch a decrypted API key from pengAIM-RAG via /tenant/{uuid}/keys/{key_id}/reveal.
 
-    Uses auth_token from RunnableConfig.configurable to authenticate.
-    Returns None if RAG_API_URL is not set, auth is missing, or fetch fails.
+    Uses auth_token + tenant_uuid from RunnableConfig.configurable to authenticate.
+    Returns None if RAG_API_URL is not set, auth/tenant is missing, or fetch fails.
     """
     if not key_id:
         return None
 
-    auth_token = config.get("configurable", {}).get("auth_token", "")
-    if not auth_token:
+    configurable = config.get("configurable", {})
+    auth_token = configurable.get("auth_token", "")
+    tenant_uuid = configurable.get("tenant_uuid", "")
+    if not auth_token or not tenant_uuid:
+        logger.warning("reveal_api_key: missing auth_token or tenant_uuid in configurable")
         return None
 
-    url = f"{settings.graphs.RAG_API_URL}/keys/{key_id}/reveal"
+    url = f"{settings.graphs.RAG_API_URL}/tenant/{tenant_uuid}/keys/{key_id}/reveal"
     headers = {"authorization": auth_token, "Accept": "text/plain"}
 
     try:
@@ -243,7 +246,7 @@ async def reveal_api_key(config: RunnableConfig, key_id: str) -> str | None:
         return None
 
 
-async def fetch_ingestion_configurable(auth_token: str) -> dict[str, Any]:
+async def fetch_ingestion_configurable(auth_token: str, tenant_uuid: str) -> dict[str, Any]:
     """Read the team's Ingestion Configuration and return a configurable-ready dict.
 
     Populates the same keys that react_agent/open_deep_research read from
@@ -252,10 +255,10 @@ async def fetch_ingestion_configurable(auth_token: str) -> dict[str, Any]:
     Returns an empty dict on any failure — callers should merge with their
     existing configurable and fall back gracefully.
     """
-    if not auth_token:
+    if not auth_token or not tenant_uuid:
         return {}
 
-    url = f"{settings.graphs.RAG_API_URL}/integrations/ingestion_config"
+    url = f"{settings.graphs.RAG_API_URL}/tenant/{tenant_uuid}/integrations/ingestion_config"
     headers = {"authorization": auth_token, "Accept": "application/json"}
 
     try:
